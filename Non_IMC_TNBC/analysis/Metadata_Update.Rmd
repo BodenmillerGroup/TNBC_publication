@@ -1,0 +1,276 @@
+---
+title: "TNBC_Metadata_Update"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Aim: Create updated metasheet for TNBC TMA cohorts and visualize cohort heatmaps**
+
+# 1. ZTMA174
+
+### Load metadata csv files
+
+```{r load and combine meta, message=FALSE,warning=FALSE}
+library(tidyverse)
+library(readxl)
+library(knitr)
+
+### TMA174
+
+#General metadata
+Meta_174 <- as.data.frame(read_excel("/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA174_TNBC_LM.xlsx",col_names = T, na="NA",col_types = "text")) %>% mutate(tumor_size_cm = as.numeric(tumor_size_cm)) %>% mutate_if(is.numeric,round,digits=2) %>% filter(!is.na(PID))
+
+#Load filenames for IMC data and check overlap with metadata
+file_path = "/Volumes/rcc_volume/TNBC/img/"
+
+TNBC_files <- list.files(file_path)
+TNBC_files_174 <- TNBC_files[str_detect(TNBC_files,pattern = "ZTMA174")]
+
+#Filter PID for which metadata or samples are missing
+PID_174 <- str_split(TNBC_files_174,"_",simplify = TRUE)[,3] %>% unique()
+PID_174_missing <- PID_174[!PID_174 %in% Meta_174$PID] #Patients for which we have samples but no metadata (n=22)
+
+write_csv(as.data.frame(PID_174_missing),"/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA174.2_Bnummermissing.csv")
+
+
+PID_174_missing_2 <- Meta_174[!Meta_174$PID %in% PID_174,] %>% pull(PID) #Patients for which we have metadata but no samples (n=4)
+
+##double-check that entries are distinct (which is TRUE)
+dup <- Meta_174 %>% 
+  count(PID) %>% 
+  filter(n>1) %>% 
+  pull(PID)
+```
+
+### Tidy up data for processing and display
+
+```{r tidy, message = F, warning = F}
+library(DT)
+library(prodlim)
+
+#Count number of samples per PID
+n_samples_PID_174 <- str_split(TNBC_files_174,"_",simplify = TRUE)[,3] %>% table(dnn = "PID") %>% as.data.frame()
+Meta_174$n_samples <- n_samples_PID_174$Freq[match(Meta_174$PID,n_samples_PID_174$PID)]
+
+#Age bin for patients (five groups)
+Meta_174$age <- as.numeric(Meta_174$age)
+Meta_174 <- Meta_174 %>% mutate(age_bin = ifelse(age <= 40, "27-40", 
+                                   ifelse(40<age & age<=55, "41-55",
+                                          ifelse(55<age & age<=70, "56-70",
+                                                 ifelse(70<age & age<=85, "71-85",
+                                                        ifelse(85<age & age<=90, "85-88",NA))))))
+
+#Survival data availability
+Meta_174 <- Meta_174 %>% mutate(OS_data = ifelse(!is.na(Meta_174$status_OS),TRUE,FALSE)) %>% mutate(DFS_data = ifelse(!is.na(Meta_174$status_recurrence),TRUE,FALSE))
+```
+
+
+### Print heatmap based overview
+based on the [ComplexHeatmap](https://bioconductor.org/packages/release/bioc/html/ComplexHeatmap.html) package and the implemented `HeatmapAnnotation` function  
+
+```{r viz, message=F, warning = F,fig.width=14, fig.height=8, fig.align='center'}
+library(ComplexHeatmap)
+library(foreach)
+library(ggsci)
+library(RColorBrewer)
+
+#Filter for columns to visualize
+Meta_viz <- Meta_174 %>% filter(!is.na(Meta_174$n_samples)) %>% select(PID,n_samples,age_bin,tumor_type,tumor_size_cm,grade,pT,pN,metastasis,OS_data, DFS_data,ER,PR,Her2)
+
+#Convert empty columns and NAs for easier handling with ComplexHeatmap package
+Meta_viz[is.na(Meta_viz)] <- "Unknown"
+
+Meta_viz <- Meta_viz %>% arrange(tumor_type,age_bin)
+
+#Color scheme
+#colnames(Meta_viz)
+col <- list(PID = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(Meta_viz$PID))),
+           n_samples = colorRampPalette(brewer.pal(9, "Pastel1"))(length(unique(Meta_viz$n_samples))),
+           age_bin = colorRampPalette(brewer.pal(9, "Greens"))(length(unique(Meta_viz$age_bin))),
+           grade = colorRampPalette(brewer.pal(2, "Reds"))(length(unique(Meta_viz$grade))),
+           pT = colorRampPalette(brewer.pal(9, "Blues"))(length(unique(Meta_viz$pT))),
+           pN = colorRampPalette(brewer.pal(9, "Blues"))(length(unique(Meta_viz$pN))),
+           metastasis = c(colorRampPalette(brewer.pal(9, "Blues"))(length(unique(Meta_viz$metastasis))-1),"black"),
+           ER = "#377EB8",
+           PR = c("#377EB8","#E41A1C"),
+           Her2 = "#E41A1C",
+           OS_data = c("black","grey"),
+           DFS_data = c("black","grey"),
+           tumor_type = colorRampPalette(brewer.pal(9, "Paired"))(length(unique(Meta_viz$tumor_type)))
+)
+
+col_list_1 <- foreach(i=1:13) %do% {
+  color= col[[i]]
+  names(color)= sort(unique(Meta_viz[,names(col)[i]]))
+  color
+}
+names(col_list_1) <- c(names(col))
+
+#Save color list object for downstream usage
+#saveRDS(col_list_1,file="/Users/lasmey/Desktop/RCC/Metadaten/color.rds")
+
+#Heatmap Annotation
+sample_anno <- HeatmapAnnotation(PID = Meta_viz$PID,
+                                 n_samples = Meta_viz$n_samples,
+                                 age_bin = Meta_viz$age_bin,
+                                 tumor_type = Meta_viz$tumor_type,
+                                tumor_size_cm = Meta_viz$tumor_size_cm,
+                                grade = Meta_viz$grade,
+                                pT = Meta_viz$pT,
+                                pN = Meta_viz$pN,
+                                metastasis = Meta_viz$metastasis,
+                                OS_data = Meta_viz$OS_data,
+                                DFS_data = Meta_viz$DFS_data,
+                                ER = Meta_viz$ER,
+                                PR = Meta_viz$PR,
+                                Her2 = Meta_viz$Her2,
+                                col = col_list_1,
+                                border = T,
+                                na_col = "black",
+                                gap = unit(5, "points"),
+                                show_annotation_name = T,
+                                show_legend = c(PID = FALSE),
+                                name = "ZTMA174"
+                                #annotation_label = c("PID (n=367)","Gender","Subtype","pT","pN")
+)%v%NULL
+
+#Display plot
+draw(sample_anno)
+```
+
+
+# 2. ZTMA249
+
+### Load metadata csv files
+
+```{r load and combine meta_1, message=FALSE,warning=FALSE}
+library(tidyverse)
+library(readxl)
+library(knitr)
+
+### TMA249
+
+#General metadata
+Meta_249 <- as.data.frame(read_excel("/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA249_TNBC_LM.xlsx",col_names = T, na="NA")) 
+
+##Load filenames for IMC data and check overlap with metadata
+TNBC_files_249 <- TNBC_files[str_detect(TNBC_files,pattern = "ZTMA249")]
+
+#link spot_numbers with ID in filesnames
+ID_numbers <- sort(as.numeric(str_split(TNBC_files_249,"_",simplify = TRUE)[,4]))
+#detect breaks
+diff(ID_numbers)
+
+#Filter PID for which metadata or samples are missing
+ID_meta <- Meta_249$ID_Number %>% unique()
+PID_274_missing_2 <- Meta_249 %>% filter(ID_Number == ID_meta[!ID_meta %in% ID_numbers]) %>% pull(PID) #Patients for which we have metadata but no samples (n=1)
+
+#Generate sample ID from PID and ID
+Meta_249 <- Meta_249 %>% unite("sample_ID","PID","ID_Number",sep="_", remove = FALSE)
+
+##double-check that entries are distinct (TRUE)
+dup <- Meta_249 %>% 
+  count(sample_ID) %>% 
+  filter(n>1) %>% 
+  pull(sample_ID)
+```
+
+### Tidy up data for processing and display
+
+```{r tidy_1,message = F, warning = F}
+library(DT)
+library(prodlim)
+
+#1. Lehmann subtypes
+Meta_249 <- Meta_249 %>% mutate(lehmann_subtype = ifelse(!is.na(Meta_249$basal_like_1),"BL1",
+                                             ifelse(!is.na(Meta_249$basal_like_2),"BL2",
+                                                    ifelse(!is.na(Meta_249$immunomodulatory_IM),"IM",
+                                                           ifelse(!is.na(Meta_249$mesenchymal_like_ML),"M",
+                                                                  ifelse(!is.na(Meta_249$mesenchymal_stem_like_MSL),"MSL",
+                                                                         ifelse(!is.na(Meta_249$luminal_androgen_receptor_LAR),"LAR",NA))))))) %>%
+  unite("Lehmann_Binary","basal_like_1","basal_like_2","immunomodulatory_IM","mesenchymal_like_ML","mesenchymal_stem_like_MSL","luminal_androgen_receptor_LAR",na.rm = TRUE, remove = FALSE)
+  
+#Double-check that Lehmann subtypes are unique (not for B14.54051_262)
+SID_249_lehmann_unclear <- Meta_249[!Meta_249$Lehmann_Binary %in% c("Ja","ja", ""),] %>% pull(sample_ID)
+
+Meta_249 <- Meta_249 %>% mutate(lehmann_subtype = ifelse(Meta_249$sample_ID == SID_249_lehmann_unclear, "Unclear",Meta_249$lehmann_subtype))
+
+#2. Collapse data by PID (two samples per PID)
+Meta_249 <- aggregate(Meta_249,by=list(Meta_249$PID),function(x){paste(x[!is.na(x)], collapse = ",")})
+Meta_249 <- Meta_249 %>% mutate(PID = Meta_249$Group.1) %>% select(-"Group.1")
+
+#3. Survival data availability and n_samples
+Meta_249 <- Meta_249 %>% mutate(OS_data = TRUE) %>% mutate(DFS_data = TRUE) %>% mutate(n_samples = 2)
+```
+
+
+### Print heatmap based overview
+based on the [ComplexHeatmap](https://bioconductor.org/packages/release/bioc/html/ComplexHeatmap.html) package and the implemented `HeatmapAnnotation` function  
+
+```{r viz_1, message=F, warning = FALSE,fig.width=14, fig.height=8, fig.align='center'}
+library(ComplexHeatmap)
+library(foreach)
+library(ggsci)
+library(RColorBrewer)
+
+#Filter for columns to visualize
+Meta_viz_1 <- Meta_249 %>% select(PID, n_samples, lehmann_subtype, mutationcarrier,grade,pT,pN,pM,OS_data,DFS_data)
+
+#Convert empty columns and NAs for easier handling with ComplexHeatmap package
+Meta_viz_1[is.na(Meta_viz_1)] <- "Unknown"
+
+Meta_viz_1 <- Meta_viz_1 %>% arrange(lehmann_subtype,grade)
+
+#Color scheme
+#colnames(Meta_viz_1)
+col <- list(PID = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(Meta_viz_1$PID))),
+           n_samples = colorRampPalette(brewer.pal(9, "Pastel1"))(length(unique(Meta_viz_1$n_samples))),
+           grade = colorRampPalette(brewer.pal(9, "Reds"))(length(unique(Meta_viz_1$grade))),
+           pT = colorRampPalette(brewer.pal(9, "Blues"))(length(unique(Meta_viz_1$pT))),
+           pN = colorRampPalette(brewer.pal(9, "Blues"))(length(unique(Meta_viz_1$pN))),
+           pM = colorRampPalette(brewer.pal(9, "Blues"))(length(unique(Meta_viz_1$pM))),
+           OS_data = "grey",
+           DFS_data = "grey",
+           lehmann_subtype = colorRampPalette(brewer.pal(9, "Paired"))(length(unique(Meta_viz_1$lehmann_subtype)))
+)
+
+
+col_list_1 <- foreach(i=1:9) %do% {
+  color= col[[i]]
+  names(color)= sort(unique(Meta_viz_1[,names(col)[i]]))
+  color
+}
+names(col_list_1) <- c(names(col))
+
+#Save color list object for downstream usage
+#saveRDS(col_list_1,file="/Users/lasmey/Desktop/RCC/Metadaten/color.rds")
+
+#Heatmap Annotation
+sample_anno <- HeatmapAnnotation(PID = Meta_viz_1$PID,
+                                 n_samples = Meta_viz_1$n_samples,
+                                 mutationcarrier = Meta_viz_1$mutationcarrier,
+                                 lehmann_subtype = Meta_viz_1$lehmann_subtype,
+                                grade = Meta_viz_1$grade,
+                                pT = Meta_viz_1$pT,
+                                pN = Meta_viz_1$pN,
+                                pM = Meta_viz_1$pM,
+                                OS_data = Meta_viz_1$OS_data,
+                                DFS_data = Meta_viz_1$DFS_data,
+                                col = col_list_1,
+                                border = T,
+                                na_col = "black",
+                                gap = unit(5, "points"),
+                                show_annotation_name = T,
+                                show_legend = c(PID = FALSE)
+                                #annotation_label = c("PID (n=367)")
+)%v%NULL
+
+#Display plot
+draw(sample_anno)
+```
+

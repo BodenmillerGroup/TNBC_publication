@@ -1,0 +1,196 @@
+---
+title: "03_QC"
+author: "Lasse Meyer"
+date: "1/24/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(CATALYST)
+library(scuttle)
+library(scater)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(BiocParallel)
+library(tiff)
+
+library(tidyverse)
+library(ggrepel)
+library(EBImage)
+
+```
+
+# Image and cell-level quality control
+
+The following section discusses possible quality indicators for data obtained
+by IMC and other highly multiplexed imaging technologies.
+Due to the complexity of the data, the quality metric range across the image
+and single-cell levels and the chapter is sectioned as such.
+
+## Read in the data
+
+We will first read in the data processed in previous sections:
+
+```{r read-data, message=FALSE}
+images <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+masks <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC.rds")
+```
+
+## Segmentation quality control
+
+Was performed before. See [00_seg_mesmer_QC]().
+
+## Image-level quality control
+
+Besides GUI for image-level quality control (e.g. HistoCAT), we will here specifically focus on quantitative metrics to assess image
+quality.
+
+It is often of interest to calculate the signal-to-noise ratio (SNR) for
+individual channels and markers. Here, we define the SNR as:
+
+$$SNR = I_s/I_n$$
+
+where $I_s$ is the intensity of the signal (mean intensity of pixels with true
+signal) and $I_n$ is the intensity of the noise (mean intensity of pixels
+containing noise). Finding a threshold that separates pixels containing signal
+and pixels containing noise is not trivial and different approaches can be
+chosen. Here, we use the `otsu` thresholding approach to find pixels of the
+"foreground" (i.e., signal) and "background" (i.e., noise). The SNR is then
+defined as the mean intensity of foreground pixels divided by the mean intensity
+of background pixels. We then plot the SNR versus mean signal intensity
+(together with their 95% confidence interval).
+
+```{r image-snr, message=FALSE, warning=FALSE}
+cur_snr <- lapply(images[1:10], function(img){
+    mat <- apply(img, 3, function(ch){
+        # Otsu threshold
+        thres <- otsu(ch, range = c(min(ch), max(ch)))
+        # Signal-to-noise ratio
+        snr <- mean(ch[ch > thres]) / mean(ch[ch <= thres])
+        # Signal intensity
+        ps <- mean(ch[ch > thres])
+        
+        return(c(snr = snr, ps = ps))
+    })
+    t(mat) %>% as.data.frame() %>% 
+        mutate(marker = colnames(mat)) %>% 
+        pivot_longer(cols = c(snr, ps))
+})
+
+
+cur_snr <- do.call(rbind, cur_snr)
+
+cur_snr %>% 
+    group_by(marker, name) %>%
+    summarize(mean = mean(value),
+              ci = qnorm(0.975)*sd(value)/sqrt(n())) %>%
+    pivot_wider(names_from = name, values_from = c(mean, ci)) %>%
+    ggplot() +
+#    geom_errorbar(aes(y = log2(mean_snr), xmin = log2(mean_ps - ci_ps), 
+#                      xmax = log2(mean_ps + ci_ps))) +
+#    geom_errorbar(aes(x = log2(mean_ps), ymin = log2(mean_snr - ci_snr), 
+#                      ymax = log2(mean_snr + ci_snr))) +
+    geom_point(aes(log2(mean_ps), log2(mean_snr), color = log2(mean_snr))) +
+    geom_label_repel(aes(log2(mean_ps), log2(mean_snr), label = marker)) +
+    theme_classic(base_size = 15) + ylab("Signal-to-noise ratio") +
+    coord_cartesian(ylim = c(0,13))+
+    xlab("Signal intensity")
+
+```
+
+Another quality indicator is the image area covered by cells (or biological tissue).
+This metric identifies ROIs where little cells are present, possibly hinting
+at incorrect selection of the ROI. We can compute the percentage of image 
+are covered by cells using the TMA masks measured with ilastik and cellprofiler. 
+
+We can then identify ROIs that have unusually low cell coverage or number of cells. These images can now be visualized using `cytomapper`.
+
+```{r cell-density}
+#Load TMA tissue masks
+tissue_area <- read_csv("/Volumes/rcc_volume/TNBC/tissue_mask/tissue_area_TissueRescaled.csv") 
+sce$tissue_area <- as.numeric(tissue_area$AreaShape_Area[match(colData(sce)$sample_id,str_split(tissue_area$FileName_Tissue_Mask, "_Pro",simplify = TRUE)[,1])])
+
+cell_density <- colData(sce) %>%
+    as.data.frame() %>%
+    group_by(sample_id) %>%
+    summarize(cell_area = sum(area),
+              tissue_area = mean(tissue_area)) %>%
+  mutate(covered_area = (cell_area / tissue_area)*100) %>%
+  mutate(n_cells = as.numeric(table(colData(sce)$sample_id))) %>%
+  arrange(covered_area)
+
+median(cell_density$covered_area)
+quantile(cell_density$covered_area)[2]
+
+ggplot(cell_density) +
+  geom_point(aes(reorder(sample_id,covered_area), covered_area, color = covered_area))+ 
+  ylim(c(0, 100))+
+  geom_hline(yintercept = median(cell_density$covered_area), linetype="dashed", color = "grey")+
+  geom_hline(yintercept = quantile(cell_density$covered_area)[2],linetype="dashed", color = "grey")+
+  geom_hline(yintercept = quantile(cell_density$covered_area)[4],linetype="dashed", color = "grey")+
+  theme_classic(base_size = 15)+
+  theme(axis.text.x = element_blank())+
+  ylab("% covered area")+ 
+  xlab("")
+
+ggplot(cell_density) +
+  geom_point(aes(reorder(sample_id,n_cells), n_cells, color = n_cells))+
+  geom_hline(yintercept = median(cell_density$n_cells), linetype="dashed", color = "grey")+
+  geom_hline(yintercept = quantile(cell_density$n_cells)[2],linetype="dashed", color = "grey")+
+  geom_hline(yintercept = quantile(cell_density$n_cells)[4],linetype="dashed", color = "grey")+
+  theme_classic(base_size = 15)+
+  theme(axis.text.x = element_blank())+
+  ylab("Number of cells per ROI")+ 
+  xlab("")
+
+## Visualize critical images
+#Kick-out criteria need to be defined!
+#e.g. n_cells < 300, covered_area < 8, tissue_area < 150000?
+
+image_id_cri <- cell_density %>% filter(n_cells < 300 | covered_area<8 | tissue_area < 150000) %>% pull(sample_id)
+
+# Normalize and clip images
+cur_images <- images[names(images) %in% image_id_cri]
+cur_images <- normalize(cur_images, separateImages = TRUE)
+cur_images <- normalize(cur_images, inputRange = c(0, 0.2))
+
+plotPixels(cur_images,
+           mask = masks[names(masks) %in% image_id_cri],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("panCK", "Ecad", "CD3","CD68","CD44"),
+           colour = list("panCK" = c("black", "yellow"),
+                         "Ecad" = c("black", "magenta"),
+                         "CD3" = c("black", "cyan"),
+                         "CD68" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+```
+
+## Cell-level quality control
+
+Continue here when updates are available.

@@ -1,0 +1,103 @@
+---
+title: "01_lib_read_data"
+author: "Lasse Meyer"
+date: "1/24/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(CATALYST)
+library(scuttle)
+library(scater)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(viridis)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+```
+
+## Read in single-cell information from TMA-based TNBC study
+based on [SingleCellExperiment](https://bioconductor.org/packages/release/bioc/html/SingleCellExperiment.html)
+class (or [SpatialExperiment]())
+
+### steinbock generated data
+The `read_steinbock` function provided by `imcRtools` can now be used to read in
+`steinbock` generated data. 
+
+```{r read and inspect steinbock}
+sce <- read_steinbock("/Volumes/rcc_volume/TNBC/",intensities_folder = "intensities_4",return_as = "sce")
+
+dim(assay(sce,"counts"))
+sce
+colData(sce)
+length(unique(colData(sce)$sample_id))
+```
+
+## Single-cell processing
+
+We can set the `colnames` of the object to generate unique identifiers per cell:
+
+```{r set-colnames}
+colnames(sce) <- paste0(sce$sample_id, "_", sce$ObjectNumber)
+
+rownames(sce) <- rowData(sce)$clean_target
+```
+
+It is also often the case that sample-specific metadata are available externally.
+For the current data, we need to link the cancer type (also referred to as "Indication")
+to each sample. This metadata is available as external excel file:
+
+**Transform counts**
+
+Problem: Right-skewed distribution (bias from highly expressing cells)
+Solution: Count transformation using an inverse hyperbolic sine function (arcsinh; common in flow cytometry) = leads to linear-like scale near zero and log-like scale beyond a threshold (`cofactor`)
+We apply a `cofactor` of `1`. 
+
+```{r transform-counts, message=FALSE}
+#Raw counts
+dittoRidgePlot(sce[,1:10000], var = "panCK", group.by = "sample_id", assay = "counts")
+dittoRidgePlot(sce[,1:10000], var = "CD44", group.by = "sample_id", assay = "counts")
+dittoRidgePlot(sce[,1:10000], var = "CD45", group.by = "sample_id", assay = "counts")
+
+#Transformed counts
+assay(sce, "exprs") <- asinh(counts(sce)/1)
+
+dittoRidgePlot(sce[,1:10000], var = "panCK", group.by = "sample_id", assay = "exprs")
+dittoRidgePlot(sce[,1:10000], var = "CD44", group.by = "sample_id", assay = "exprs")
+dittoRidgePlot(sce[,1:10000], var = "CD45", group.by = "sample_id", assay = "exprs")
+```
+
+**Define interesting channels**
+
+Subset markers of interest for downstream analysis.
+
+```{r select-features}
+rowData(sce)$use_channel <- !grepl("DNA|Histone", rowData(sce)$clean_target)
+```
+
+## Save single cell object for downstream analysis
+
+Note that masks and images were loaded, modified and saved in the [00_seg_mesmer_QC.Rmd]() script. 
+
+```{r save-objects-read-data}
+saveRDS(sce, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC.rds")
+```
+
+

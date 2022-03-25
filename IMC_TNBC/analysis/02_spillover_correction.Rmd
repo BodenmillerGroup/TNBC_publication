@@ -1,0 +1,304 @@
+---
+title: "02_spillover_matrix"
+author: "Lasse Meyer"
+date: "1/24/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Spillover correction
+
+based on the [CATALYST](https://bioconductor.org/packages/release/bioc/html/CATALYST.html) R package. 
+For the original publication, see [here](https://www.cell.com/cell-systems/fulltext/S2405-4712(18)30063-2).
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(CATALYST)
+library(scuttle)
+library(scater)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(BiocParallel)
+library(tiff)
+```
+
+## Overview
+1. Reading in the data
+2. Quality control 
+3. (Optional) pixel binning
+4. "Debarcoding" for pixel assignment
+5. Pixel selection for spillover matrix estimation
+6. Spillover matrix generation
+7. Saving the results
+8. Single-cell compensation
+9. Image compensation
+
+## Generate the spillover matrix
+
+Generated once for each panel used and saved for later use. 
+
+### Read in the data
+
+Individual .txt files into a `SingleCellExperiment` object (can directly be used by the `CATALYST` package). The .txt file names need to contain the spotted metal isotope name (format `(mt)(mass)` - like `Sm152`) 
+
+For further downstream analysis, we will asinh-transform the data using a
+cofactor of 5.
+
+```{r read-txts-transform, message=FALSE}
+sce <- readSCEfromTXT("~/Desktop/IMC processing/steinbock_IMMUCAN/compensation/") 
+
+#Transformation
+assay(sce, "exprs") <- asinh(counts(sce)/5)
+```
+
+### Quality control
+
+In the next step, we will observe the median pixel intensities per spot and
+threshold on medians < 200 counts.
+These types of visualization serve two purposes:
+
+1. Small median pixel intensities (< 200 counts) might hinder the robust
+estimation of the channel spillover. In that case, consecutive pixels can be
+summed (see [Optional pixel binning](#pixel_binning)).
+
+2. Each spotted metal (row) should show the highest median pixel intensity in its
+corresponding channel (column). If this is not the case, either the naming of the
+.txt files was incorrect or the incorrect metal was spotted.
+
+```{r QC-heatmap, message = FALSE, fig.width=7, fig.height=7}
+# Log10 median pixel counts per spot and channel
+plotSpotHeatmap(sce)
+
+# Thresholded on 200 pixel counts
+plotSpotHeatmap(sce, log = FALSE, threshold = 200)
+```
+
+### Optional pixel binning {#pixel_binning}
+
+In cases where median pixel intensities are low (< 200 counts), consecutive
+pixels can be summed to increase the robustness of the spillover estimation.
+The `imcRtools` package provides the `binAcrossPixels` function,
+which performs aggregation for each channel across `bin_size` consecutive pixels 
+per spotted metal.
+
+```{r binning, message=FALSE, fig.width=7, fig.height=7}
+# Define grouping
+bin_size = 5
+
+sce2 <- binAcrossPixels(sce, bin_size = bin_size)
+
+# Log10 median pixel counts per spot and channel
+plotSpotHeatmap(sce2)
+
+# Thresholded on 200 pixel counts
+plotSpotHeatmap(sce2, log = FALSE, threshold = 200)
+```
+
+### Filtering incorrectly assigned pixels
+
+Based on the intensity distribution of all channel, pixels are assigned to their corresponding barcode; here this is the already known metal spot. This procedure serves the purpose to identify pixels that cannot be robustly assigned to the spotted metal. Pixels of such kind can be regarded as "noisy", "background" or "artefacts" that should be removed prior to spillover estimation.
+
+The general workflow for pixel debarcoding is as follows:
+1. assign a preliminary metal mass to each pixel
+2. for each pixel, estimate a cutoff parameter for the distance between 
+positive and negative pixel sets
+3. apply the estimated cutoffs to identify truly positive pixels
+
+```{r debarcoding, message=FALSE}
+bc_key <- as.numeric(unique(sce$sample_mass))
+bc_key <- bc_key[order(bc_key)]
+
+#Preliminary metal mass for pixel
+sce <- assignPrelim(sce, bc_key = bc_key)
+#estimate and apply cut-offs
+sce <- estCutoffs(sce)
+sce <- applyCutoffs(sce)
+```
+
+The obtained `SingleCellExperiment` now contains the additional `bc_id` entry.
+For each pixel, this vector indicates the assigned mass (e.g. `161`) or
+`0`, meaning unassigned. 
+
+This information can be visualized in form of a heatmap:
+
+```{r assignment-heatmap, fig.width=7, fig.height=7}
+
+cur_table <- table(sce$bc_id, sce$sample_mass)
+
+pheatmap(log10(cur_table + 1),
+         cluster_rows = FALSE,
+         cluster_cols = FALSE)
+```
+
+However, in cases where incorrect assignment occurred or where few pixels were
+measured for some spots, the `imcRtools` package exports a simple helper
+function to exclude pixels based on these criteria:
+
+```{r pixel-filtering}
+sce <- filterPixels(sce, minevents = 40, correct_pixels = TRUE)
+```
+
+### Compute spillover matrix
+
+Based on the single-positive pixels, we use the `CATALYST::computeSpillmat()`
+function to compute the spillover matrix and `CATALYST::plotSpillmat()` to
+visualize it. The `plotSpillmat` function checks the spotted and acquired
+metal isotopes against a pre-defined `CATALYST::isotope_list()`. In this data,
+the `Ar80` channel was additionally acquired to check for deviations in signal
+intensity. `Ar80` needs to be added to a custom `isotope_list` object for
+visualization.
+
+```{r compute-spillover, fig.width=7, fig.height=7}
+sce <- computeSpillmat(sce)
+
+isotope_list <- CATALYST::isotope_list
+isotope_list$Ar <- 80
+
+plotSpillmat(sce, isotope_list = isotope_list)
+```
+
+### Save spillover matrix as csv
+
+Next, we will write out the spillover matrix as .csv file for possible later use.
+
+```{r write_sm_csv}
+sm <- metadata(sce)$spillover_matrix
+write.csv(sm, "~/Desktop/IMC processing/steinbock_IMMUCAN/compensation/spillover_matrix.csv")
+```
+
+### Save spillover matrix as image
+
+The `CATALYST` package provides the `adaptSpillmat` function that corrects the
+spillover matrix in a way that rows and columns match a predefined set of metals.
+
+```{r save-sm-as-tiff, message=FALSE}
+panel <- read.csv("~/Desktop/IMC processing/steinbock_IMMUCAN/panel.csv")
+adapted_sm <- adaptSpillmat(sm, paste0(panel$channel[panel$keep == 1], "Di"), 
+                            isotope_list = isotope_list)
+
+#writeTIFF(sm, "data/spillover_matrix.tiff", 
+#          bits.per.sample = 32)
+```
+
+## Single-cell data compensation
+
+Firstly, we will use the `CATALYST` package to perform spillover compensation on the
+**single-cell mean intensities** using the `compCytof`function.
+Load `SpatialExperiment` object generated in previous script.
+
+```{r single-cell-compensation}
+spe <- readRDS("~/Desktop/IMC processing/data_analysis/spe.rds")
+rowData(spe)$channel_name <- paste0(rowData(spe)$channel, "Di")
+
+spe <- compCytof(spe, sm, 
+                 transform = TRUE, cofactor = 1,
+                 isotope_list = isotope_list, 
+                 overwrite = FALSE)
+
+```
+
+To check the effect of channel spillover compensation, the expression of markers
+that are affected by spillover (e.g., E cadherin in channel Yb173 and CD303 in
+channel Yb174) can be visualized in form of scatter plots before and after
+compensation.
+
+```{r visualize-single-cell-spillover, message=FALSE}
+before <- dittoScatterPlot(spe, x.var = "E-Cadherin / P-Cadherin", y.var = "CD303",
+                           assay.x = "exprs", assay.y = "exprs") +
+    ggtitle("Before compensation")
+
+after <- dittoScatterPlot(spe, x.var = "E-Cadherin / P-Cadherin", y.var = "CD303",
+                          assay.x = "compexprs", assay.y = "compexprs") +
+    ggtitle("After compensation")
+before + after
+```
+
+To facilitate further downstream analysis, the non-compensated assays can now be
+replaced by their compensated counterparts:
+
+```{r overwrite-assays}
+assay(spe, "counts") <- assay(spe, "compcounts") 
+assay(spe, "exprs") <- assay(spe, "compexprs") 
+assay(spe, "compcounts") <- assay(spe, "compexprs") <- NULL
+```
+
+## Image compensation
+
+Secondly, we will use the [cytomapper](https://github.com/BodenmillerGroup/cytomapper) package to perform spillover compensation on the
+****multi-channel images**** using the `compImage`function.
+Load `CytoImageList` object generated in previous script.
+
+```{r read-in-image, message=FALSE}
+images <- readRDS("~/Desktop/IMC processing/data_analysis/images.rds")
+channelNames(images) <- rowData(spe)$channel_name
+```
+
+The adapted spillover matrix now matches the `channelNames` of the
+`CytoImageList` object and can be used to perform pixel-level spillover
+compensation.
+
+
+```{r image-compensation, message = FALSE}
+images_comp <- compImage(images, adapted_sm, BPPARAM = MulticoreParam())
+```
+
+As a sanity check, we will visualize the image before and after compensation:
+
+```{r image-visualization}
+# Before compensation
+plotPixels(images[5], colour_by = "Yb173Di", 
+           image_title = list(text = "Yb173 (E-Cad/P-Cad) - before", position = "topleft"), 
+           legend = NULL, bcg = list(Yb173Di = c(0, 4, 1)))
+plotPixels(images[5], colour_by = "Yb174Di", 
+           image_title = list(text = "Yb174 (CD303) - before", position = "topleft"), 
+           legend = NULL, bcg = list(Yb174Di = c(0, 4, 1)))
+
+# After compensation
+plotPixels(images_comp[5], colour_by = "Yb173Di",
+           image_title = list(text = "Yb173 (E-Cad/P-Cad) - after", position = "topleft"), 
+           legend = NULL, bcg = list(Yb173Di = c(0, 4, 1)))
+plotPixels(images_comp[5], colour_by = "Yb174Di", 
+           image_title = list(text = "Yb174 (CD303) - after", position = "topleft"),
+           legend = NULL, bcg = list(Yb174Di = c(0, 4, 1)))
+
+
+#Optional: use single-cell masks as overlay
+#masks <- readRDS("~/Desktop/IMC processing/data_analysis/masks.rds")
+#plotPixels(images[5], colour_by = "Yb174Di", 
+#           image_title = list(text = "Er167 - before", position = "topleft"),
+#           mask = masks[5], img_id = "sample_id",
+#           legend = NULL, bcg = list(Yb174Di = c(0, 4, 1)))
+```
+
+For convenience, we will re-set the `channelNames` to their biological targtes:
+
+```{r re-set-channels}
+channelNames(images_comp) <- rownames(spe)
+```
+## Save objects
+
+For further downstream analysis, the compensated `SpatialExperiment` and
+`CytoImageList` objects are saved:
+
+```{r save, message = F}
+saveRDS(spe, "~/Desktop/IMC processing/data_analysis/spe_comp.rds")
+saveRDS(images_comp, "~/Desktop/IMC processing/data_analysis/images_comp.rds")
+```
