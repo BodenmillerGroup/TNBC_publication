@@ -64,7 +64,7 @@ For further downstream analysis, we will asinh-transform the data using a
 cofactor of 5.
 
 ```{r read-txts-transform, message=FALSE}
-sce_spill <- readSCEfromTXT("/Volumes/rcc_volume/TNBC/spillover/spillover_renamed/")
+sce_spill <- readSCEfromTXT("/mnt/rcc_volume/TNBC/spillover/spillover_renamed/")
 
 #Transformation
 assay(sce_spill, "exprs") <- asinh(counts(sce_spill)/5)
@@ -150,7 +150,6 @@ For each pixel, this vector indicates the assigned mass (e.g. `161`) or
 This information can be visualized in form of a heatmap:
 
 ```{r assignment-heatmap, fig.width=7, fig.height=7}
-
 cur_table <- table(sce_spill_2$bc_id, sce_spill_2$sample_mass)
 
 pheatmap(log10(cur_table + 1),
@@ -186,12 +185,22 @@ isotope_list <- CATALYST::isotope_list
 isotope_list$Ar <- 80
 
 #Load Janas spillover matrix for the same panel (aquired at similiar time-points and the same panel)
-sm_jana <- read.csv("~/Desktop/sm_ZTMA21_26.csv",row.names = 1)
+sm_jana <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/spillover_matrix_Jana.csv",row.names = 1)
 metadata(sce_spill_2)$sm_jana <- sm_jana
 
 #Plot both spillover matrices
 plotSpillmat(sce_spill_2,sm_jana, isotope_list = isotope_list) #Janas
 plotSpillmat(sce_spill_2, isotope_list = isotope_list) #My - with pixel binning
+
+#Check that spillover matrices contain are metals that are included in the study
+panel <- read.csv("/mnt/rcc_volume/TNBC/panel.csv")
+channels <- paste0(panel$channel[panel$keep == 1], "Di")
+
+channels[which(!channels %in% rownames(sm))]
+channels[which(!channels %in% rownames(sm_jana))]
+
+#Add missing Ho165 to Dy164/Er166 spillover estimates from my experiment to Janas spillover matrix (used for downstream analysis)
+sm_jana <- rbind(sm_jana,sm[rownames(sm) == "Ho165Di",])
 ```
 
 **Observations:**
@@ -204,10 +213,10 @@ Next, we will write out the spillover matrix as .csv file for possible later use
 
 ```{r write_sm_csv}
 sm
-write.csv(sm, "/Volumes/rcc_volume/TNBC/data_analysis/spillover_matrix_LM")
+write.csv(sm, "/mnt/rcc_volume/TNBC/data_analysis/spillover_matrix_LM_mod.csv")
 
 sm_jana
-write.csv(sm, "/Volumes/rcc_volume/TNBC/data_analysis/spillover_matrix_Jana")
+write.csv(sm, "/mnt/rcc_volume/TNBC/data_analysis/spillover_matrix_Jana_mod.csv")
 ```
 
 
@@ -218,7 +227,7 @@ Firstly, we will use the `CATALYST` package to perform spillover compensation on
 Load `SpatialExperiment` object generated in previous script.
 
 ```{r single-cell-compensation}
-sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC.rds")
 
 rowData(sce)$channel_name <- paste0(rowData(sce)$channel, "Di")
 
@@ -299,7 +308,7 @@ Secondly, we will use the [cytomapper](https://github.com/BodenmillerGroup/cytom
 Load `CytoImageList` object generated in previous script.
 
 ```{r read-in-image, message=FALSE}
-images <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
 channelNames(images) <- rowData(sce)$channel_name
 ```
 
@@ -308,46 +317,24 @@ Create an adapted spillover matrix that matches the `channelNames` of the
 compensation.
 
 ```{r image-compensation, message = FALSE}
-panel <- read.csv("/Volumes/rcc_volume/TNBC/panel.csv")
-adapted_sm <- adaptSpillmat(sm_jana, paste0(panel$channel[panel$keep == 1], "Di"),
-                            isotope_list = isotope_list)
-?compImage
+panel <- read.csv("/mnt/rcc_volume/TNBC/panel.csv")
+sm_jana <- as.matrix(sm_jana)
+adapted_sm <- adaptSpillmat(sm_jana, paste0(panel$channel[panel$keep == 1], "Di"),isotope_list = isotope_list)
 
-images_comp <- compImage(images, adapted_sm, BPPARAM = MulticoreParam(n=6))
+images_comp <- compImage(images, adapted_sm, overwrite = FALSE,BPPARAM = MulticoreParam(workers = 14,progressbar = TRUE,stop.on.error = FALSE))
 ```
 
-As a sanity check, we will visualize the image before and after compensation:
+**Issue: For some reason the images stored on disk are overwritten.**
+As a sanity check, we will visualize the image before and after compensation. 
 
 ```{r image-visualization}
-# Before compensation
-plotPixels(images[5], colour_by = "Yb173Di", 
-           image_title = list(text = "Yb173 (E-Cad/P-Cad) - before", position = "topleft"), 
-           legend = NULL, bcg = list(Yb173Di = c(0, 4, 1)))
-plotPixels(images[5], colour_by = "Yb174Di", 
-           image_title = list(text = "Yb174 (CD303) - before", position = "topleft"), 
-           legend = NULL, bcg = list(Yb174Di = c(0, 4, 1)))
-
-# After compensation
-plotPixels(images_comp[5], colour_by = "Yb173Di",
-           image_title = list(text = "Yb173 (E-Cad/P-Cad) - after", position = "topleft"), 
-           legend = NULL, bcg = list(Yb173Di = c(0, 4, 1)))
-plotPixels(images_comp[5], colour_by = "Yb174Di", 
-           image_title = list(text = "Yb174 (CD303) - after", position = "topleft"),
-           legend = NULL, bcg = list(Yb174Di = c(0, 4, 1)))
-
-
-#Optional: use single-cell masks as overlay
-#masks <- readRDS("~/Desktop/IMC processing/data_analysis/masks.rds")
-#plotPixels(images[5], colour_by = "Yb174Di", 
-#           image_title = list(text = "Er167 - before", position = "topleft"),
-#           mask = masks[5], img_id = "sample_id",
-#           legend = NULL, bcg = list(Yb174Di = c(0, 4, 1)))
+#still to be performed - see issue above
 ```
 
 For convenience, we will re-set the `channelNames` to their biological targtes:
 
 ```{r re-set-channels}
-channelNames(images_comp) <- rownames(spe)
+channelNames(images_comp) <- rownames(sce)
 ```
 ## Save objects
 
@@ -355,6 +342,6 @@ For further downstream analysis, the compensated `SpatialExperiment` and
 `CytoImageList` objects are saved:
 
 ```{r save, message = F}
-saveRDS(spe, "~/Desktop/IMC processing/data_analysis/spe_comp.rds")
-saveRDS(images_comp, "~/Desktop/IMC processing/data_analysis/images_comp.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_spillcor.rds")
+saveRDS(images_comp, "/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
 ```

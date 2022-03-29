@@ -17,7 +17,6 @@ library(SpatialExperiment)
 library(SingleCellExperiment)
 
 #Data processing
-library(CATALYST)
 library(scuttle)
 library(scater)
 library(imcRtools)
@@ -26,6 +25,7 @@ library(imcRtools)
 library(cytomapper)
 library(dittoSeq)
 library(pheatmap)
+library(cowplot)
 
 #Utilities
 library(tidyverse)
@@ -34,11 +34,10 @@ library(stringr)
 library(patchwork)
 library(BiocParallel)
 library(tiff)
-
-library(tidyverse)
 library(ggrepel)
 library(EBImage)
-
+library(viridis)
+library(mclust)
 ```
 
 # Image and cell-level quality control
@@ -53,14 +52,63 @@ and single-cell levels and the chapter is sectioned as such.
 We will first read in the data processed in previous sections:
 
 ```{r read-data, message=FALSE}
-images <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/images_segtest.rds")
-masks <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
-sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC.rds")
+images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
+masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_spillcor.rds")
 ```
 
 ## Segmentation quality control
 
 Was performed before. See [00_seg_mesmer_QC]().
+
+Here, we again pre-select 10 images of interest (e.g. high immune infiltration, TLS, high epithelial cell number). We then perform image- and channel-wise
+normalization (channels are first min-max normalized and scaled to a range of
+0-1 before clipping the maximum intensity to 0.2).
+
+```{r overlay-masks, message=FALSE}
+#10 preselected images
+img_files <- list.files("/mnt/rcc_volume/TNBC/img/")
+img_ids<- c(which(str_detect(img_files ,"ZTMA249_ID_320_CX8Y10")),which(str_detect(img_files ,"ZTMA249_ID_289_CX1Y7")),which(str_detect(img_files ,"ZTMA249_ID_36_AX4Y5")),which(str_detect(img_files ,"ZTMA249_ID_7_AX7Y1")),which(str_detect(img_files ,"ZTMA249_ID_220_BX4Y13")),which(str_detect(img_files ,"ZTMA249_ID_271_CX7Y4")),which(str_detect(img_files ,"ZTMA249_ID_82_AX2Y11")), which(str_detect(img_files ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(img_files ,"ZTMA249_ID_183_BX7Y8")), which(str_detect(img_files ,"ZTMA174_B08.26868_79_AX7Y10")))
+
+# Normalize and clip image
+cur_images <- images[img_ids]
+cur_images <- normalize(cur_images, separateImages = TRUE)
+cur_images <- normalize(cur_images, inputRange = c(0, 0.2))
+
+#by epithelial channels
+plotPixels(cur_images,
+           mask = masks[img_ids],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("panCK", "Ecad", "Vimentin", "SMA","CD44"),
+           colour = list("panCK" = c("black", "yellow"),
+                         "Ecad" = c("black", "magenta"),
+                         "Vimentin" = c("black", "cyan"),
+                         "SMA" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_epi_4_spilcor.png", scale = 2))
+
+#by immune channels
+plotPixels(cur_images,
+           mask = masks[img_ids],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("CD3", "CD8a", "CD68", "CD20", "CD44"),
+           colour = list("CD3" = c("black", "yellow"),
+                         "CD20" = c("black", "magenta"),
+                         "CD8a" = c("black", "cyan"),
+                         "CD68" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_immune_4_spilcor.png", scale = 2))
+```
 
 ## Image-level quality control
 
@@ -79,11 +127,14 @@ and pixels containing noise is not trivial and different approaches can be
 chosen. Here, we use the `otsu` thresholding approach to find pixels of the
 "foreground" (i.e., signal) and "background" (i.e., noise). The SNR is then
 defined as the mean intensity of foreground pixels divided by the mean intensity
-of background pixels. We then plot the SNR versus mean signal intensity
-(together with their 95% confidence interval).
+of background pixels. We then plot the SNR versus mean signal intensity.
 
 ```{r image-snr, message=FALSE, warning=FALSE}
-cur_snr <- lapply(images[1:10], function(img){
+#Randomly select 100 images
+set.seed(22)
+img_random <- sample(seq_len(length(images)), 100)
+
+cur_snr <- lapply(images[img_random], function(img){
     mat <- apply(img, 3, function(ch){
         # Otsu threshold
         thres <- otsu(ch, range = c(min(ch), max(ch)))
@@ -99,15 +150,17 @@ cur_snr <- lapply(images[1:10], function(img){
         pivot_longer(cols = c(snr, ps))
 })
 
-
 cur_snr <- do.call(rbind, cur_snr)
 
-cur_snr %>% 
+cur_snr <- cur_snr %>% 
     group_by(marker, name) %>%
     summarize(mean = mean(value),
               ci = qnorm(0.975)*sd(value)/sqrt(n())) %>%
-    pivot_wider(names_from = name, values_from = c(mean, ci)) %>%
-    ggplot() +
+    pivot_wider(names_from = name, values_from = c(mean, ci))
+
+#NA Values for EGFR/DNA_1/DNA_2?
+
+    ggplot(cur_snr) +
 #    geom_errorbar(aes(y = log2(mean_snr), xmin = log2(mean_ps - ci_ps), 
 #                      xmax = log2(mean_ps + ci_ps))) +
 #    geom_errorbar(aes(x = log2(mean_ps), ymin = log2(mean_snr - ci_snr), 
@@ -115,10 +168,14 @@ cur_snr %>%
     geom_point(aes(log2(mean_ps), log2(mean_snr), color = log2(mean_snr))) +
     geom_label_repel(aes(log2(mean_ps), log2(mean_snr), label = marker)) +
     theme_classic(base_size = 15) + ylab("Signal-to-noise ratio") +
-    coord_cartesian(ylim = c(0,13))+
-    xlab("Signal intensity")
+    geom_vline(xintercept = 0,linetype="dashed", color = "grey")+
+    #coord_cartesian(ylim = c(0,100))+
+    xlab("Signal intensity")+
+  ggtitle("Image-level QC")
 
+#Inf for p53, panCK, ki67
 ```
+
 
 Another quality indicator is the image area covered by cells (or biological tissue).
 This metric identifies ROIs where little cells are present, possibly hinting
@@ -129,7 +186,7 @@ We can then identify ROIs that have unusually low cell coverage or number of cel
 
 ```{r cell-density}
 #Load TMA tissue masks
-tissue_area <- read_csv("/Volumes/rcc_volume/TNBC/tissue_mask/tissue_area_TissueRescaled.csv") 
+tissue_area <- read_csv("/mnt/rcc_volume/TNBC/tissue_mask/tissue_area_TissueRescaled.csv") 
 sce$tissue_area <- as.numeric(tissue_area$AreaShape_Area[match(colData(sce)$sample_id,str_split(tissue_area$FileName_Tissue_Mask, "_Pro",simplify = TRUE)[,1])])
 
 cell_density <- colData(sce) %>%
@@ -169,7 +226,7 @@ ggplot(cell_density) +
 #Kick-out criteria need to be defined!
 #e.g. n_cells < 300, covered_area < 8, tissue_area < 150000?
 
-image_id_cri <- cell_density %>% filter(n_cells < 300 | covered_area<8 | tissue_area < 150000) %>% pull(sample_id)
+image_id_cri <- cell_density %>% filter(n_cells < 300 | covered_area < 8 | tissue_area < 150000) %>% pull(sample_id)
 
 # Normalize and clip images
 cur_images <- images[names(images) %in% image_id_cri]
@@ -189,8 +246,132 @@ plotPixels(cur_images,
                          ),
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7))
+
+#Remove outlying images and cells (n=1843 cells)
+image_id_cri
+summary(colData(sce)$sample_id %in% image_id_cri)
+
+sce <- sce[,!colData(sce)$sample_id %in% image_id_cri] 
 ```
 
 ## Cell-level quality control
 
-Continue here when updates are available.
+Related to the signal-to-noise ratio (SNR) calculated above on the pixel-level, a similar measure can be derived on the single-cell level. Here, we will use a two component Gaussian mixture model for each marker to find cells with positive and negative expression. The SNR is defined as:
+$$SNR=Is/In$$ 
+
+where **Is** is the intensity of the signal (mean intensity of cells with positive signal) and **In** is the intensity of the noise (mean intensity of cells lacking expression). We calculate the SNR and signal intensity by fitting the mixture model across the transformed counts of all cells contained in the sce.
+
+```{r GMM cell level, message = FALSE, warning=FALSE}
+assays(sce)
+
+set.seed(22)
+mat <- apply(assay(sce, "exprs"), 1, function(x){
+    cur_model <- Mclust(x, G = 2)
+    mean1 <- mean(x[cur_model$classification == 1])
+    mean2 <- mean(x[cur_model$classification == 2])
+    
+    signal <- ifelse(mean1 > mean2, mean1, mean2)
+    noise <- ifelse(mean1 > mean2, mean2, mean1)
+    
+    return(c(snr = signal/noise, ps = signal))
+})
+    
+cell_snr <- t(mat) %>% as.data.frame() %>% 
+        mutate(marker = colnames(mat))
+
+cell_snr %>% ggplot() +
+    geom_point(aes(log2(ps), log2(snr),color = log2(snr))) +
+    geom_label_repel(aes(log2(ps), log2(snr), label = marker)) +
+    theme_classic(base_size = 15) + ylab("Signal-to-noise ratio") +
+      geom_vline(xintercept = 0,linetype="dashed", color = "grey")+
+    xlab("Signal intensity")+
+  ggtitle("Cell-level QC")
+```
+
+Next, we observe the distributions of cell size across the individual images. Differences in cell size distributions can indicate segmentation biases due to differences in cell density or can indicate biological differences due to cell type compositions (tumor cells tend to be larger than immune cells).
+We also detect very small cells in the dataset and will remove them. The chosen threshold is arbitrary and needs to be adjusted per dataset.
+
+```{r cellsize_dis, message=FALSE,warning=FALSE}
+colData(sce) %>%
+    as.data.frame() %>%
+    group_by(sample_id) %>%
+    ggplot() +
+        geom_boxplot(aes(reorder(sample_id,area), area)) +
+        theme_minimal(base_size = 15) + 
+        theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8)) +
+        ylab("Cell area") + xlab("")
+
+#Cell area range
+summary(sce$area)
+
+#Only keep cells with an area above 5 (n=3223 cells)
+sum(sce$area <= 5)
+sce <- sce[,sce$area > 5]
+```
+
+**Staining artifacts**
+Observing potential staining differences (e.g. between samples/batches) can be crucial to assess data quality. We will use ridgeline visualizations to check differences in staining patterns:
+
+```{r stainingarti, message=FALSE, warning=FALSE}
+#Randomly select 5 sample Ids for visualization
+set.seed(22)
+sampleid_random <- sample(unique(sce$sample_id), 5)
+
+multi_dittoPlot(sce[,sce$sample_id %in% sampleid_random], vars = rownames(sce)[rowData(sce)$use_channel],
+               group.by = "sample_id", plots = c("ridgeplot"), 
+               assay = "exprs")
+               
+```
+
+**Dimensionality reduction**
+Finally, we will use non-linear dimensionality reduction methods to project cells from a high-dimensional (40) down to a low-dimensional (2) space. For this the scater package provides the runUMAP (and runTSNE) function. To ensure reproducibility, we will set a seed. 
+
+**Goal:** Visualization of the low-dimensional embedding facilitates assessment of potential "batch effects".
+
+```{r dim_red, fig.width=15,fig.height=15}
+set.seed(22)
+sce <- runUMAP(sce, subset_row = rowData(sce)$use_channel, exprs_values = "exprs", BPPARAM = MulticoreParam(workers = 14)) 
+reducedDims(sce)
+
+#Visualize sample IDs
+plotReducedDim(sce, dimred = "UMAP", colour_by = "sample_id")+
+  guides(color="none")
+
+#Visualize marker of interest
+dittoDimPlot(sce, var = "panCK", reduction.use = "UMAP", 
+                   assay = "exprs", size = 0.2) +
+    scale_color_viridis(name = "panCK") +
+    ggtitle("panCK expression on UMAP")
+
+
+#Visualize all marker expression
+all_plots <- lapply(c(rownames(sce)[rowData(sce)$use_channel]),
+                    function(x){
+                      p <- plotReducedDim(sce, dimred = "UMAP", 
+                                          colour_by = x, 
+                                          by_exprs_values = "exprs",
+                                          point_size = 0.5)
+                      return(p)                    
+                    })
+
+library(cowplot)
+plot_grid(plotlist = all_plots)
+```
+
+## Save objects
+
+The modified `SingleCellExperiment` object is saved for further downstream analysis.
+
+```{r save-objects-quality-control}
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_QC.rds")
+```
+
+
+
+
+
+
+
+
+
+

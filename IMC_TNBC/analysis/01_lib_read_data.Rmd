@@ -31,6 +31,7 @@ library(viridis)
 library(tidyverse)
 library(openxlsx)
 library(stringr)
+library(BiocParallel)
 ```
 
 ## Read in single-cell information from TMA-based TNBC study
@@ -42,12 +43,8 @@ The `read_steinbock` function provided by `imcRtools` can now be used to read in
 `steinbock` generated data. 
 
 ```{r read and inspect steinbock}
-sce <- read_steinbock("/Volumes/rcc_volume/TNBC/",intensities_folder = "intensities_4",return_as = "sce")
-
-dim(assay(sce,"counts"))
+sce <- read_steinbock("/mnt/rcc_volume/TNBC/",intensities_folder = "intensities_4",regionprops_folder = "regionprops", graphs_folder = "neighbors",return_as = "sce")
 sce
-colData(sce)
-length(unique(colData(sce)$sample_id))
 ```
 
 ## Single-cell processing
@@ -56,7 +53,6 @@ We can set the `colnames` of the object to generate unique identifiers per cell:
 
 ```{r set-colnames}
 colnames(sce) <- paste0(sce$sample_id, "_", sce$ObjectNumber)
-
 rownames(sce) <- rowData(sce)$clean_target
 ```
 
@@ -97,7 +93,7 @@ rowData(sce)$use_channel <- !grepl("DNA|Histone", rowData(sce)$clean_target)
 Note that masks and images were loaded, modified and saved in the [00_seg_mesmer_QC.Rmd]() script. 
 
 ```{r save-objects-read-data}
-saveRDS(sce, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC.rds")
 ```
 
 
