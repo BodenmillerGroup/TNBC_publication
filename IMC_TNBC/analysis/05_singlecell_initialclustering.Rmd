@@ -1,0 +1,351 @@
+---
+title: "05_SingleCell_InitialClustering"
+output: html_document
+date: '2022-03-30'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(scuttle)
+library(scater)
+library(scran)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(Rphenograph)
+
+#Batch correction
+library(batchelor)
+library(harmony)
+
+```
+
+# Single-cell analysis - Pipeline 1 - Distinguish tumor and immune cells
+
+Here, we will perform the first single cell analysis steps, including distinguishing tumor and stromal cells and dimensionality reduction.
+
+## Read in data and visualize
+First, we will read in the `SingleCellExperiment` object containing the cleaned, spillover- and (batch-corrected) single-cell data.
+
+```{r read-data-batch-correction, message=FALSE}
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_QC.rds")
+```
+
+## Perform "overclustering"
+
+Next, we will run a granular Rphenograph (Jaccard-based weights, Louvain clustering as community detection algorithm) clustering. 
+
+```{r overcluster, message=FALSE}
+## To perform downstream visualization: Generate dummy variables!
+sce$dummy_clusters <- round(runif(length((sce$sample_id)), min=1, max=20))
+
+## To be performed! 
+
+#Granual Phenograph clustering - "Overclustering"
+set.seed(22)
+out <- Rphenograph(t(assay(sce,"exprs")),k = 30)
+clusters_30 <- factor(membership(out[[2]]))
+sce$clusters_50 <- clusters_50
+
+sample(unique(sce$sample_id), 5)
+
+sample(length(unique(sce$sample_id)))
+
+#vs.
+
+set.seed(22)
+snn.sce <- buildSNNGraph(sce, k=30, 
+                         d = NA, 
+                         type = "jaccard",
+                         assay.type = "exprs",
+                         BNPARAM=AnnoyParam(),
+                         BPPARAM = MulticoreParam(workers = (detectCores()-2), progressbar = TRUE)
+                         )
+
+clusters <- igraph::cluster_louvain(snn.sce) #Memory issues with this function!
+
+
+
+```
+
+## Use GMM for panCK
+
+We will use a two component gaussian mixture model to distinguish between tumor (panCK+) and stromal (panCK-) cells. 
+
+```{r GMM_CK, message=FALSE,warning=FALSE}
+#Gaussian mixture model to distinguish tumor/stroma based on panCK expression
+GMM_CK <- Mclust(assay(sce, "exprs")["panCK",], G = 2)
+
+GMM_df <- data.frame(class_CK = ifelse(GMM_CK$classification == 2 & GMM_CK$uncertainty == 0, "panCK+", "panCK-"), 
+                     panCK_exprs = assay(sce, "exprs")["panCK",],
+                     uncertainty = GMM_CK$uncertainty)
+
+#Visualize GMM
+p1 <- ggplot(GMM_df, aes(x = panCK_exprs, fill = class_CK))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+p2 <- ggplot(GMM_df, aes(x = panCK_exprs, y = uncertainty, color = class_CK))+
+  geom_line()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_color_brewer(palette = "Set1")
+
+p1/p2
+
+#Add GMM CK class to SCE
+sce$GMM_CK <- GMM_df$class_CK
+```
+
+
+## Visualization of Clustering/GMM on UMAP/TSNE
+
+```{r viz_sub, message = FALSE, warning=FALSE}
+## Subsample 10% of cells from each core 
+#to save time and not get super crowded dimensionality reduction plots
+set.seed(22)
+sub <- colData(sce) %>% as.data.frame() %>% group_by("sample_id") %>% slice_sample(prop = 0.1) %>% arrange("sample_id") %>% mutate(sub_id = paste(sample_id,ObjectNumber,sep="_")) %>% pull(sub_id)
+sce_sub = sce[,sub]
+
+#Run UMAP and save output directly into subsampled SCE
+sce_sub = runUMAP(sce_sub, exprs_values = "exprs", external_neighbors=TRUE, BPPARAM = MulticoreParam(workers=14))
+
+#Visualize panCK and 
+p1 <- plotReducedDim(sce_sub, dimred = "UMAP", by_exprs_values = "exprs", colour_by = "panCK")
+
+p2 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "GMM_CK")+
+  scale_color_brewer(palette="Set1")
+
+p1+p2
+
+#Visualize all marker expression
+all_plots <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
+                    function(x){
+                      p <- plotReducedDim(sce_sub, dimred = "UMAP", 
+                                          colour_by = x, 
+                                          by_exprs_values = "exprs",
+                                          point_size = 0.5)
+                      return(p)                    
+                    })
+
+library(cowplot)
+plot_grid(plotlist = all_plots)
+```
+
+
+
+## Heatmap 
+
+Heatmap of PG clusters with GMM information 
+
+
+```{r}
+
+### 1. Marker Heatmap 
+
+#Min-Max [0,1] normalization of arcsinh-transformed counts
+assay(sce, "min_max") <- assay(sce, "exprs") - rowMins(assay(sce, "exprs"))
+assay(sce, "min_max") <- assay(sce, "min_max") / (rowMaxs(assay(sce, "exprs")) - rowMins(assay(sce, "exprs")))
+
+#Aggregrate across cells with the mean (median is also possible)
+mean_sce <- aggregateAcrossCells(sce, ids = sce$dummy_clusters,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$use_channel)
+
+assay(mean_sce,"min_max") %>% as.data.frame()
+Heatmap()
+
+assay(mean_sce,"min_max")
+
+### 2. Spatial Heatmap
+
+spatial = as.data.table(colData(sce)[c('area','eccentricity', "dummy_clusters")])
+
+spatial <- colData(sce) %>% as.data.frame %>% select(area,eccentricity,dummy_clusters)
+spatial <- spatial %>% select(-dummy_clusters) %>% aggregate(by = list(dummy_clusters = spatial$dummy_clusters), FUN = mean) %>% column_to_rownames("dummy_clusters")
+#define min_max fct
+min_max_norm <- function(x) {(x - min(x)) / (max(x) - min(x))}
+#normalize
+spatial_norm <- as.data.frame(lapply(spatial, min_max_norm))
+
+### 3. Row annotation plots with number and fraction of tumor cells
+
+nr_tum <- colData(sce) %>% as.data.frame %>% select(dummy_clusters, GMM_CK) %>% table()
+fr_tum <- as.data.frame(nr_tum) %>% pivot_wider(names_from = GMM_CK, values_from = Freq) %>% column_to_rownames("dummy_clusters")
+fr_tum <- fr_tum %>% transmute(fr_tum = `panCK+`/rowSums(fr_tum))
+
+#Combined Heatmap
+h <- Heatmap(t(HM_body),
+        col = col_main,
+        name= "Min-Max norm",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  Heatmap(spatial_norm,
+        col = col_main,
+        name= "Min-Max norm",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  rowAnnotation(axis_reverse = anno_barplot(fr_tum, width = unit(10, "mm")),gp = gpar(fill = 1:2, col = 1:2))+
+  rowAnnotation(axis_reverse = anno_barplot(nr_tum, width = unit(20, "mm")),gp = gpar(fill = 1:2, col = 1:2))
+
+
+
+### CONTINUE HERE
+
+
+
+
+#Colors heatmap body
+#col_main <- colorRamp2(c(0, 0.5, 1), c("#0000FF","#FFFFFF","#FF0000"), space = "RGB")
+col_main = viridis(100)
+
+###2. Top annotation
+#Colors
+col = list(clusters_100 = colorRampPalette(brewer.pal(9,"Paired"))(length(unique(mean_sce$clusters_100))), 
+           Indication = c("lightgreen")
+           )
+           
+col_list_1 = foreach(i=1:2) %do% {
+  color= col[[i]]
+  names(color)= sort(unique(colData(mean_sce)[,names(col)[i]]))
+  color
+}
+
+names(col_list_1) <- c(names(col))
+
+#Create annotation
+topanno_MCP = HeatmapAnnotation(Indication = mean_sce$Indication,
+                                clusters_100 = mean_sce$ids,
+                                ncells = anno_barplot(mean_sce$ncells,border = TRUE,gp=gpar(fill="black")),
+                                col = col_list_1)
+
+
+        
+Heatmap(spatial, name = "spatial",column_title = "spatial", km = 1, col = colorRamp2(c(-2,0, 2), c('blue',"white", "red")), show_row_names = T, show_column_names =  T, clustering_method_rows = "ward.D2",clustering_method_columns = "ward.D2")
+
+Heatmap(spatial_norm,
+        col = col_main,
+        name= "Min-Max norm",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")
+
+
+
+
+
+
+
+
+
+
+
+
+Heatmap(spatial, name = "spatial",column_title = "spatial", km = 1, col = colorRamp2(c(-2,0, 2), c('blue',"white", "red")), show_row_names = T, show_column_names =  T, clustering_method_rows = "ward.D2",clustering_method_columns = "ward.D2")
+
+
+library(data.table)
+sce
+
+colData(sce)
+
+
+
+#Marker heatmap
+sum = sumCountsAcrossCells(sce,average = T,sce$dummy_clusters, exprs_values = "exprs")
+
+
+
+p_dat = scale(t(sum))
+p_dat[p_dat > 3] =3
+p_dat[p_dat < -3] =-3
+
+#Spatial feature heatmap
+spatial = as.data.table(colData(sce)[c('Neighbors_NumberOfNeighbors_4','Neighbors_PercentTouching_4', "AreaShape_Area", "PG_clusters")])
+spatial = aggregate(spatial[,-"PG_clusters"],by = list(PG_clusters = spatial$PG_clusters),FUN = mean)
+rnames = spatial$PG_clusters
+spatial = as.matrix(spatial[,colnames(spatial)[colnames(spatial) != "PG_clusters"]])
+rownames(spatial) = rnames
+spatial = scale(spatial)
+
+#Indicate number of tumor/stromal cells per PG cluster as identified by gaussian mixture model on panCK
+nr_tum = table(colData(sce)[c('PG_clusters','GMM_class')])
+fr_tum = as.data.table(nr_tum)
+fr_tum[,fr := N/sum(N),by = "PG_clusters"]
+fr_tum = dcast.data.table(fr_tum,"PG_clusters ~ GMM_class", value.var = "fr")
+rnames = fr_tum$PG_clusters
+fr_tum=as.matrix(fr_tum[,-"PG_clusters"])
+rownames(fr_tum) = rnames
+fr_tum = fr_tum[order(as.numeric(rownames(fr_tum))),]
+
+#Plot heatmap
+h = Heatmap(p_dat, name = "markers",column_title = "markers", km = 1, col = colorRamp2(c(-2,0, 2), c('blue',"white", "red")), show_row_names = T, show_column_names =  T, clustering_method_rows = "ward.D2",clustering_method_columns = "ward.D2")+
+  Heatmap(spatial, name = "spatial",column_title = "spatial", km = 1, col = colorRamp2(c(-2,0, 2), c('blue',"white", "red")), show_row_names = T, show_column_names =  T, clustering_method_rows = "ward.D2",clustering_method_columns = "ward.D2")+
+  rowAnnotation(axis_reverse = anno_barplot(fr_tum, width = unit(10, "mm")),gp = gpar(fill = 1:2, col = 1:2))+
+  rowAnnotation(axis_reverse = anno_barplot(nr_tum, width = unit(20, "mm")),gp = gpar(fill = 1:2, col = 1:2))+
+  rowAnnotation(rn = anno_text(rownames(p_dat)))
+h
+
+#Tumor clusters
+tumor = as.numeric(as.character(unique(sce$PG_clusters)))[!as.numeric(as.character(unique(sce$PG_clusters))) %in% c(60,59,126,115,82,26,16,125,11,70,36,103,44,42,61,34)]
+tumor_bar = data.table(cluster = rownames(p_dat))
+tumor_bar$epi = 0
+tumor_bar[cluster %in% tumor,epi := 1]
+
+#50% stromal
+stroma = data.table(frac_stroma = fr_tum[,1])
+stroma$epi = 1
+stroma[frac_stroma >0.5, epi := 0]
+
+#Mark tumor clusters in heatmap
+h = Heatmap(p_dat, name = "markers",column_title = "markers", km = 1, col = colorRamp2(c(-2,0, 2), c('blue',"white", "red")), show_row_names = T, show_column_names =  T, clustering_method_rows = "ward.D2",clustering_method_columns = "ward.D2")+
+  Heatmap(spatial, name = "spatial",column_title = "spatial", km = 1, col = colorRamp2(c(-2,0, 2), c('blue',"white", "red")), show_row_names = T, show_column_names =  T, clustering_method_rows = "ward.D2",clustering_method_columns = "ward.D2")+
+  rowAnnotation(axis_reverse = anno_barplot(fr_tum, width = unit(10, "mm")),gp = gpar(fill = 1:2, col = 1:2))+
+  rowAnnotation(axis_reverse = anno_barplot(nr_tum, width = unit(20, "mm")),gp = gpar(fill = 1:2, col = 1:2))+
+  Heatmap(tumor_bar$epi, name = "cols", show_row_names = F, width = unit(10, "mm"), col = c("green","red"))+
+  Heatmap(stroma$epi, name = "cols", show_row_names = F, width = unit(10, "mm"), col = c("green","red"))+
+  rowAnnotation(rn = anno_text(rownames(p_dat)))
+h
+```
+
+

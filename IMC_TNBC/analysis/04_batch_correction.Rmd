@@ -1,0 +1,179 @@
+---
+title: "04_batchcorrection"
+author: "Lasse Meyer"
+date: "3/30/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(scuttle)
+library(scater)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+
+#Batch correction
+library(batchelor)
+library(harmony)
+
+```
+
+# Batch correction
+
+The presence of batch effects (sample-specific; can be technical or even biological) hinders cell phenotyping via clustering. 
+If batch/patient specific-effects are present, I can perform batch correction with the `fastMNN`(Mutual nearest neighbors) from the [batchelor](https://bioconductor.org/packages/release/bioc/html/batchelor.html) package. 
+
+To integrate cells across samples, we can use computational strategies developed for correcting batch effects in single-cell RNA sequencing data. In the following sections, we will use functions of the [batchelor](https://www.bioconductor.org/packages/release/bioc/html/batchelor.html),
+[harmony](https://github.com/immunogenomics/harmony) packages to correct for such batch effects.
+
+**BE AWARE**: In general, *cell-based* analyses are safe to apply on corrected data (e.g. clustering); indeed, the whole purpose of the correction is to place all cells in the same coordinate space. However, the same cannot be easily said for *gene-based* procedures like DE analyses or marker gene detection. See [here](https://bioconductor.org/books/3.14/OSCA.multisample/using-corrected-values.html#for-between-batch-comparisons) for more information.
+
+## Read in data and visualize
+First, we will read in the `SingleCellExperiment` object containing the single-cell
+data.
+
+```{r read-data-batch-correction, message=FALSE}
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_QC.rds")
+
+#Visualize UMAP marked by 
+plotReducedDim(sce, dimred = "UMAP", colour_by = "sample_id")+
+  guides(color="none")
+```
+
+
+## fastMNN correction
+
+The `batchelor` package provides the `fastMNN` functions to correct for differences between samples/batches. Its builds on finding mutual nearest neighbors (MNN) among the cells of different samples and correct expression differences between the cells. `fastMNN` returns integrated cells in form of a low dimensional embedding.
+
+Paper: [Batch effects in single-cell RNA-sequencing data are corrected by matching mutual nearest neighbors](https://www.nature.com/articles/nbt.4091)  
+Documentation: [batchelor](https://www.bioconductor.org/packages/release/bioc/vignettes/batchelor/inst/doc/correction.html)
+
+### Perform sample correction
+
+Here, we apply the `fastMNN` function to integrate cells between 
+patients. By setting `auto.merge = TRUE` the function estimates the best 
+batch merging order by maximizing the number of MNN pairs at each merging step. 
+This is more time consuming than merging sequentially based on how batches appear in the 
+dataset (default).
+
+The function returns a `SingleCellExperiment` object which contains corrected
+low-dimensional coordinates for each cell in the `reducedDim(out, "corrected")`
+slot. This low-dimensional embedding can be further used for clustering and
+non-linear dimensionality reduction. We transfer the corrected coordinates
+to the main `SpatialExperiment` object.
+
+```{r, echo=FALSE}
+start_time <- Sys.time()
+```
+
+```{r batch-correction-fastMNN, message=FALSE, warning=FALSE}
+set.seed(22)
+sce
+out <- fastMNN(sce, batch = sce$sample_id,
+               auto.merge = FALSE,
+               d=50, k=20,
+               subset.row = rowData(sce)$use_channel,
+               assay.type = "exprs",
+               cos.norm = FALSE,
+               BSPARAM = RandomParam(deferred = TRUE),
+               BPPARAM = MulticoreParam(workers = 14),
+               BNPARAM = AnnoyParam()
+              )
+
+# Transfer the correction results to the main spe object
+reducedDim(sce, "fastMNN") <- reducedDim(out, "corrected")
+```
+
+```{r, echo=FALSE}
+end_time <- Sys.time()
+```
+
+The computational time of the `fastMNN` function call is 
+`r round(as.numeric(difftime(end_time, start_time, units = "mins")), digits = 2)` minutes.
+
+
+```{r batch-corr, message = FALSE, warning = FALSE}
+# Run MNN for sample ID correction
+set.seed(22)
+mnn.out <- fastMNN(sce, batch = sce$SampleId, 
+                   assay.type = "exprs",
+                   subset.row=rowData(sce)$use_channel) 
+
+#the corrected matrix contains low-dimensional corrected coordinates for all cells, which we will use in "cell-based" downstream analyses.
+dim(reducedDim(mnn.out, "corrected"))
+
+reducedDim(sce,"fastMNN") <- reducedDim(mnn.out, "corrected")
+
+set.seed(22)
+sce <- runUMAP(sce, dimred="corrected",name = "UMAP_cor") 
+
+#Compare before and after                        
+plotReducedDim(sce, dimred = "UMAP", colour_by = "SampleId")
+plotReducedDim(sce, dimred = "UMAP_cor", colour_by = "SampleId")
+
+###Save RDS object after MNN
+saveRDS(sce, "/Volumes/rcc_volume/RCC/IMMUCAN/rcc_sce_BatchCombined_MNN.rds")
+```
+
+
+
+To integrate cells across samples, we can use computational
+strategies developed for correcting batch effects in single-cell RNA sequencing
+data. In the following sections, we will use functions of the
+[batchelor](https://www.bioconductor.org/packages/release/bioc/html/batchelor.html),
+[harmony](https://github.com/immunogenomics/harmony) and
+[Seurat](https://satijalab.org/seurat/articles/integration_introduction.html)
+packages to correct for such batch effects.
+
+Of note: the correction approaches presented here aim at removing any
+differences between samples. This will also remove biological differences
+between the patients/indications. Nevertheless, integrating cells across samples
+can facilitate the detection of cell phenotypes via clustering.
+
+```{r, echo=FALSE}
+start_time <- Sys.time()
+```
+
+```{r batch-correction-harmony, message=FALSE, warning=FALSE}
+mat <- t(assay(sce, "exprs")[rowData(sce)$use_channel,])
+
+harmony_emb <- HarmonyMatrix(mat, sce$sample_id, do_pca = TRUE)
+
+?HarmonyMatrix
+
+reducedDim(spe, "harmony") <- harmony_emb
+```
+
+```{r, echo=FALSE}
+end_time <- Sys.time()
+```
+

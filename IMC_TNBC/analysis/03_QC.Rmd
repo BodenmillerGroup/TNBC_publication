@@ -33,6 +33,7 @@ library(openxlsx)
 library(stringr)
 library(patchwork)
 library(BiocParallel)
+library(BiocNeighbors)
 library(tiff)
 library(ggrepel)
 library(EBImage)
@@ -225,8 +226,8 @@ ggplot(cell_density) +
 ## Visualize critical images
 #Kick-out criteria need to be defined!
 #e.g. n_cells < 300, covered_area < 8, tissue_area < 150000?
-
 image_id_cri <- cell_density %>% filter(n_cells < 300 | covered_area < 8 | tissue_area < 150000) %>% pull(sample_id)
+
 
 # Normalize and clip images
 cur_images <- images[names(images) %in% image_id_cri]
@@ -250,6 +251,8 @@ plotPixels(cur_images,
 #Remove outlying images and cells (n=1843 cells)
 image_id_cri
 summary(colData(sce)$sample_id %in% image_id_cri)
+
+#Remove split image aquisitions
 
 sce <- sce[,!colData(sce)$sample_id %in% image_id_cri] 
 ```
@@ -319,7 +322,8 @@ sampleid_random <- sample(unique(sce$sample_id), 5)
 
 multi_dittoPlot(sce[,sce$sample_id %in% sampleid_random], vars = rownames(sce)[rowData(sce)$use_channel],
                group.by = "sample_id", plots = c("ridgeplot"), 
-               assay = "exprs")
+               assay = "exprs")+
+  guides(color="none")
                
 ```
 
@@ -329,9 +333,9 @@ Finally, we will use non-linear dimensionality reduction methods to project cell
 **Goal:** Visualization of the low-dimensional embedding facilitates assessment of potential "batch effects".
 
 ```{r dim_red, fig.width=15,fig.height=15}
+## Use all cells
 set.seed(22)
 sce <- runUMAP(sce, subset_row = rowData(sce)$use_channel, exprs_values = "exprs", BPPARAM = MulticoreParam(workers = 14)) 
-reducedDims(sce)
 
 #Visualize sample IDs
 plotReducedDim(sce, dimred = "UMAP", colour_by = "sample_id")+
@@ -356,6 +360,35 @@ all_plots <- lapply(c(rownames(sce)[rowData(sce)$use_channel]),
 
 library(cowplot)
 plot_grid(plotlist = all_plots)
+
+## Subsample 10% of cells from each core 
+#to save time and not get super crowded dimensionality reduction plots
+set.seed(22)
+sub <- colData(sce) %>% as.data.frame() %>% group_by("sample_id") %>% slice_sample(prop = 0.1) %>% arrange("sample_id") %>% mutate(sub_id = paste(sample_id,ObjectNumber,sep="_")) %>% pull(sub_id)
+sce_sub = sce[,sub]
+
+#Run umap and tsne and save output directly into subsampled SCE
+sce_sub = runUMAP(sce_sub, exprs_values = "exprs", external_neighbors=TRUE, BPPARAM = MulticoreParam(workers=14))
+sce_sub = runTSNE(sce_sub, exprs_values = "exprs", external_neighbors=TRUE, BPPARAM = MulticoreParam(workers=14))
+
+#Visualize
+plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "sample_id")+
+  guides(color="none")
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "sample_id")+
+  guides(color="none")
+
+#Visualize all marker expression
+all_plots <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
+                    function(x){
+                      p <- plotReducedDim(sce_sub, dimred = "TSNE", 
+                                          colour_by = x, 
+                                          by_exprs_values = "exprs",
+                                          point_size = 0.5)
+                      return(p)                    
+                    })
+
+library(cowplot)
+plot_grid(plotlist = all_plots)
 ```
 
 ## Save objects
@@ -364,6 +397,7 @@ The modified `SingleCellExperiment` object is saved for further downstream analy
 
 ```{r save-objects-quality-control}
 saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_QC.rds")
+saveRDS(sce_sub, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_QC_sub.rds")
 ```
 
 
