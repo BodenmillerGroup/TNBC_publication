@@ -62,19 +62,19 @@ sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_spillcor.rds")
 
 Was performed before. See [00_seg_mesmer_QC]().
 
-Here, we again pre-select 10 images of interest (e.g. high immune infiltration, TLS, high epithelial cell number). We then perform image- and channel-wise
+Here, we again pre-select 5 images of interest (e.g. high immune infiltration, TLS, high epithelial cell number). We then perform image- and channel-wise
 normalization (channels are first min-max normalized and scaled to a range of
 0-1 before clipping the maximum intensity to 0.2).
 
 ```{r overlay-masks, message=FALSE}
 #10 preselected images
 img_files <- list.files("/mnt/rcc_volume/TNBC/img/")
-img_ids<- c(which(str_detect(img_files ,"ZTMA249_ID_320_CX8Y10")),which(str_detect(img_files ,"ZTMA249_ID_289_CX1Y7")),which(str_detect(img_files ,"ZTMA249_ID_36_AX4Y5")),which(str_detect(img_files ,"ZTMA249_ID_7_AX7Y1")),which(str_detect(img_files ,"ZTMA249_ID_220_BX4Y13")),which(str_detect(img_files ,"ZTMA249_ID_271_CX7Y4")),which(str_detect(img_files ,"ZTMA249_ID_82_AX2Y11")), which(str_detect(img_files ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(img_files ,"ZTMA249_ID_183_BX7Y8")), which(str_detect(img_files ,"ZTMA174_B08.26868_79_AX7Y10")))
+img_ids<- c(which(str_detect(img_files ,"ZTMA249_ID_271_CX7Y4")),which(str_detect(img_files ,"ZTMA249_ID_82_AX2Y11")), which(str_detect(img_files ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(img_files ,"ZTMA249_ID_183_BX7Y8")), which(str_detect(img_files ,"ZTMA174_B08.26868_79_AX7Y10")))
 
 # Normalize and clip image
 cur_images <- images[img_ids]
-cur_images <- normalize(cur_images, separateImages = TRUE)
-cur_images <- normalize(cur_images, inputRange = c(0, 0.2))
+cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
+cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
 
 #by epithelial channels
 plotPixels(cur_images,
@@ -90,8 +90,8 @@ plotPixels(cur_images,
                          ),
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
-                         colour_by.labels.cex = 0.7))
-           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_epi_4_spilcor.png", scale = 2))
+                         colour_by.labels.cex = 0.7),
+           save_plot = list(filename = "/mnt/rcc_volume/TNBC/data_analysis/spillcor_selectedimages_epi.png", scale = 2))
 
 #by immune channels
 plotPixels(cur_images,
@@ -107,8 +107,8 @@ plotPixels(cur_images,
                          ),
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
-                         colour_by.labels.cex = 0.7))
-           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_immune_4_spilcor.png", scale = 2))
+                         colour_by.labels.cex = 0.7),
+           save_plot = list(filename = "/mnt/rcc_volume/TNBC/data_analysis/spillcor_selectedimages_immune.png", scale = 2))
 ```
 
 ## Image-level quality control
@@ -130,9 +130,14 @@ chosen. Here, we use the `otsu` thresholding approach to find pixels of the
 defined as the mean intensity of foreground pixels divided by the mean intensity
 of background pixels. We then plot the SNR versus mean signal intensity.
 
+**We will perform Image-QC on images before spillover correction**
+
 ```{r image-snr, message=FALSE, warning=FALSE}
+#Load uncompensated images
+images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+
 #Randomly select 100 images
-set.seed(22)
+set.seed(22011995)
 img_random <- sample(seq_len(length(images)), 100)
 
 cur_snr <- lapply(images[img_random], function(img){
@@ -176,7 +181,6 @@ cur_snr <- cur_snr %>%
 
 #Inf for p53, panCK, ki67
 ```
-
 
 Another quality indicator is the image area covered by cells (or biological tissue).
 This metric identifies ROIs where little cells are present, possibly hinting
@@ -224,10 +228,10 @@ ggplot(cell_density) +
   xlab("")
 
 ## Visualize critical images
-#Kick-out criteria need to be defined!
-#e.g. n_cells < 300, covered_area < 8, tissue_area < 150000?
-image_id_cri <- cell_density %>% filter(n_cells < 300 | covered_area < 8 | tissue_area < 150000) %>% pull(sample_id)
-
+#Kick-out criteria:
+#n_cells < 300, covered_area < 8, tissue_area < 150000?
+#split acquisitions should also be excluded
+image_id_cri <- cell_density %>% filter(n_cells < 300 | covered_area < 8 | tissue_area < 150000 | str_detect(cell_density$sample_id, "split")) %>% pull(sample_id)
 
 # Normalize and clip images
 cur_images <- images[names(images) %in% image_id_cri]
@@ -248,13 +252,13 @@ plotPixels(cur_images,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7))
 
+#ZTMA249.3_ZTMA249_ID_16_AX8Y2 - split_364 looks fine - keep
+
 #Remove outlying images and cells (n=1843 cells)
-image_id_cri
+image_id_cri <- image_id_cri[!image_id_cri %in% "ZTMA249.3_ZTMA249_ID_16_AX8Y2 - split_364"]
+
 summary(colData(sce)$sample_id %in% image_id_cri)
-
-#Remove split image aquisitions
-
-sce <- sce[,!colData(sce)$sample_id %in% image_id_cri] 
+sce <- sce[,!colData(sce)$sample_id %in% image_id_cri]
 ```
 
 ## Cell-level quality control
@@ -300,9 +304,12 @@ colData(sce) %>%
     group_by(sample_id) %>%
     ggplot() +
         geom_boxplot(aes(reorder(sample_id,area), area)) +
-        theme_minimal(base_size = 15) + 
-        theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8)) +
-        ylab("Cell area") + xlab("")
+        theme_classic(base_size = 15) + 
+        theme(axis.text.x = element_blank()) +
+        ylab(~ "Cell area " (mu * m^2)) + xlab("")+
+  geom_hline(yintercept = median(colData(sce)$area), linetype="dashed", color = "grey")+
+  geom_hline(yintercept = quantile(colData(sce)$area)[2],linetype="dashed", color = "grey")+
+  geom_hline(yintercept = quantile(colData(sce)$area)[4],linetype="dashed", color = "grey")
 
 #Cell area range
 summary(sce$area)
@@ -315,52 +322,33 @@ sce <- sce[,sce$area > 5]
 **Staining artifacts**
 Observing potential staining differences (e.g. between samples/batches) can be crucial to assess data quality. We will use ridgeline visualizations to check differences in staining patterns:
 
-```{r stainingarti, message=FALSE, warning=FALSE}
-#Randomly select 5 sample Ids for visualization
+```{r stainingarti, message=FALSE, warning=FALSE, fig.width=20, fig.height=20}
+#Randomly select 10 sample Ids for visualization
 set.seed(22)
-sampleid_random <- sample(unique(sce$sample_id), 5)
+sampleid_random <- sample(unique(sce$sample_id), 10)
 
-multi_dittoPlot(sce[,sce$sample_id %in% sampleid_random], vars = rownames(sce)[rowData(sce)$use_channel],
-               group.by = "sample_id", plots = c("ridgeplot"), 
-               assay = "exprs")+
-  guides(color="none")
-               
-```
+dittoRidgePlot(sce[,sce$sample_id %in% sampleid_random], var = "panCK", group.by = "sample_id", assay = "exprs")
+dittoRidgePlot(sce[,1:10000], var = "CD44", group.by = "sample_id", assay = "exprs")
+dittoRidgePlot(sce[,1:10000], var = "CD45", group.by = "sample_id", assay = "exprs")
 
-**Dimensionality reduction**
-Finally, we will use non-linear dimensionality reduction methods to project cells from a high-dimensional (40) down to a low-dimensional (2) space. For this the scater package provides the runUMAP (and runTSNE) function. To ensure reproducibility, we will set a seed. 
-
-**Goal:** Visualization of the low-dimensional embedding facilitates assessment of potential "batch effects".
-
-```{r dim_red, fig.width=15,fig.height=15}
-## Use all cells
-set.seed(22)
-sce <- runUMAP(sce, subset_row = rowData(sce)$use_channel, exprs_values = "exprs", BPPARAM = MulticoreParam(workers = 14)) 
-
-#Visualize sample IDs
-plotReducedDim(sce, dimred = "UMAP", colour_by = "sample_id")+
-  guides(color="none")
-
-#Visualize marker of interest
-dittoDimPlot(sce, var = "panCK", reduction.use = "UMAP", 
-                   assay = "exprs", size = 0.2) +
-    scale_color_viridis(name = "panCK") +
-    ggtitle("panCK expression on UMAP")
-
-
-#Visualize all marker expression
-all_plots <- lapply(c(rownames(sce)[rowData(sce)$use_channel]),
+ridge_plots <- lapply(c(rownames(sce)[rowData(sce)$use_channel]),
                     function(x){
-                      p <- plotReducedDim(sce, dimred = "UMAP", 
-                                          colour_by = x, 
-                                          by_exprs_values = "exprs",
-                                          point_size = 0.5)
+                      p <- dittoRidgePlot(sce[,sce$sample_id %in% sampleid_random], 
+                                          var = x, 
+                                          group.by = "sample_id", 
+                                          assay = "exprs")
                       return(p)                    
                     })
 
-library(cowplot)
-plot_grid(plotlist = all_plots)
+plot_grid(plotlist = ridge_plots)
+```
 
+**Dimensionality reduction**
+Finally, we will use non-linear dimensionality reduction methods to project cells from a high-dimensional (40) down to a low-dimensional (2) space. For this the scater package provides the runUMAP (and runTSNE) function. To ensure reproducibility, we will set a seed. For computing time, we will subsample to 10% of the cells.
+
+**Goal:** Visualization of the low-dimensional embedding facilitates assessment of potential "batch effects". Should not be present in present cohort.
+
+```{r dim_red, fig.width=15,fig.height=15}
 ## Subsample 10% of cells from each core 
 #to save time and not get super crowded dimensionality reduction plots
 set.seed(22)
@@ -389,6 +377,34 @@ all_plots <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
 
 library(cowplot)
 plot_grid(plotlist = all_plots)
+
+# ## Also possible to use all cells, but more time intensive
+# #set.seed(22)
+# #sce <- runUMAP(sce, subset_row = rowData(sce)$use_channel, exprs_values = "exprs", BPPARAM = MulticoreParam(workers = 14)) 
+# #
+# #Visualize sample IDs
+# #plotReducedDim(sce, dimred = "UMAP", colour_by = "sample_id")+
+# #  guides(color="none")
+# 
+# #Visualize marker of interest
+# dittoDimPlot(sce, var = "panCK", reduction.use = "UMAP", 
+#                    assay = "exprs", size = 0.2) +
+#     scale_color_viridis(name = "panCK") +
+#     ggtitle("panCK expression on UMAP")
+# 
+# 
+# #Visualize all marker expression
+# all_plots <- lapply(c(rownames(sce)[rowData(sce)$use_channel]),
+#                     function(x){
+#                       p <- plotReducedDim(sce, dimred = "UMAP", 
+#                                           colour_by = x, 
+#                                           by_exprs_values = "exprs",
+#                                           point_size = 0.5)
+#                       return(p)                    
+#                     })
+# 
+# library(cowplot)
+# plot_grid(plotlist = all_plots)
 ```
 
 ## Save objects

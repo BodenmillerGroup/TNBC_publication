@@ -47,7 +47,9 @@ library(harmony)
 
 ```
 
-# Batch correction
+# Optional: Batch correction
+
+**All samples stem from the same run on the IMC machine, thus no batch correction was performed**
 
 The presence of batch effects (sample-specific; can be technical or even biological) hinders cell phenotyping via clustering. 
 If batch/patient specific-effects are present, I can perform batch correction with the `fastMNN`(Mutual nearest neighbors) from the [batchelor](https://bioconductor.org/packages/release/bioc/html/batchelor.html) package. 
@@ -105,75 +107,19 @@ out <- fastMNN(sce, batch = sce$sample_id,
                assay.type = "exprs",
                cos.norm = FALSE,
                BSPARAM = RandomParam(deferred = TRUE),
-               BPPARAM = MulticoreParam(workers = 14),
+               BPPARAM = MulticoreParam(),
                BNPARAM = AnnoyParam()
               )
 
-# Transfer the correction results to the main spe object
+# Transfer the correction results to the main sce object
 reducedDim(sce, "fastMNN") <- reducedDim(out, "corrected")
-```
 
-```{r, echo=FALSE}
-end_time <- Sys.time()
-```
-
-The computational time of the `fastMNN` function call is 
-`r round(as.numeric(difftime(end_time, start_time, units = "mins")), digits = 2)` minutes.
-
-
-```{r batch-corr, message = FALSE, warning = FALSE}
-# Run MNN for sample ID correction
-set.seed(22)
-mnn.out <- fastMNN(sce, batch = sce$SampleId, 
-                   assay.type = "exprs",
-                   subset.row=rowData(sce)$use_channel) 
-
-#the corrected matrix contains low-dimensional corrected coordinates for all cells, which we will use in "cell-based" downstream analyses.
-dim(reducedDim(mnn.out, "corrected"))
-
-reducedDim(sce,"fastMNN") <- reducedDim(mnn.out, "corrected")
-
-set.seed(22)
-sce <- runUMAP(sce, dimred="corrected",name = "UMAP_cor") 
+# Run UMAP again
+sce <- runUMAP(sce, dimred="fastMNN",name = "UMAP_cor") 
 
 #Compare before and after                        
-plotReducedDim(sce, dimred = "UMAP", colour_by = "SampleId")
-plotReducedDim(sce, dimred = "UMAP_cor", colour_by = "SampleId")
-
-###Save RDS object after MNN
-saveRDS(sce, "/Volumes/rcc_volume/RCC/IMMUCAN/rcc_sce_BatchCombined_MNN.rds")
+plotReducedDim(sce, dimred = "UMAP", colour_by = "sample_id")
+plotReducedDim(sce, dimred = "UMAP_cor", colour_by = "sample_id")
 ```
 
-
-
-To integrate cells across samples, we can use computational
-strategies developed for correcting batch effects in single-cell RNA sequencing
-data. In the following sections, we will use functions of the
-[batchelor](https://www.bioconductor.org/packages/release/bioc/html/batchelor.html),
-[harmony](https://github.com/immunogenomics/harmony) and
-[Seurat](https://satijalab.org/seurat/articles/integration_introduction.html)
-packages to correct for such batch effects.
-
-Of note: the correction approaches presented here aim at removing any
-differences between samples. This will also remove biological differences
-between the patients/indications. Nevertheless, integrating cells across samples
-can facilitate the detection of cell phenotypes via clustering.
-
-```{r, echo=FALSE}
-start_time <- Sys.time()
-```
-
-```{r batch-correction-harmony, message=FALSE, warning=FALSE}
-mat <- t(assay(sce, "exprs")[rowData(sce)$use_channel,])
-
-harmony_emb <- HarmonyMatrix(mat, sce$sample_id, do_pca = TRUE)
-
-?HarmonyMatrix
-
-reducedDim(spe, "harmony") <- harmony_emb
-```
-
-```{r, echo=FALSE}
-end_time <- Sys.time()
-```
-
+## Also possible to perform batch correction with harmony! 
