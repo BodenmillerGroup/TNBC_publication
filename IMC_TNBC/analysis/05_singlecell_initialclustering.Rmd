@@ -73,23 +73,6 @@ sce <- sce[,str_detect(colData(sce)$sample_id,"ZTMA249")]
 Next, we will run a granular Rphenograph (Jaccard-based weights, Louvain clustering as community detection algorithm) clustering. 
 
 ```{r overcluster, message=FALSE}
-## To perform downstream visualization: Generate dummy variables!
-#sce$dummy_clusters <- round(runif(length((sce$sample_id)), min=1, max=20))
-
-## To be performed! 
-
-# #Granual Phenograph clustering - "Overclustering"
-# set.seed(22)
-# out <- Rphenograph(t(assay(sce,"exprs")),k = 30)
-# clusters_30 <- factor(membership(out[[2]]))
-# sce$clusters_50 <- clusters_50
-# 
-# sample(unique(sce$sample_id), 5)
-# 
-# sample(length(unique(sce$sample_id)))
-
-#vs.
-
 set.seed(22)
 snn.sce <- buildSNNGraph(sce[rowData(sce)$use_channel==TRUE,], k=30, 
                          d = NA, 
@@ -142,6 +125,9 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 Heatmap of clusters with GMM information 
 
 ```{r}
+#Read sce after clustering and GMM
+#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+
 ### 1. Marker Heatmap 
 
 #Min-Max [0,1] normalization of arcsinh-transformed counts
@@ -155,7 +141,23 @@ mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster,
                                  subset.row = rowData(sce)$use_channel)
 
 ### 2. Spatial Heatmap
-spatial <- colData(sce) %>% as.data.frame %>% select(area,eccentricity,cluster)
+#Add number of neighbors to sce object (saved in ColPair)
+n_neighbors <- colPair(sce) %>% as.data.frame() %>% group_by(from) %>% count() %>% arrange(desc(n))
+
+sce$n_neighbors <- n_neighbors$n[match(seq_along(colnames(sce)),n_neighbors$from)]
+sce$n_neighbors <- sce$n_neighbors %>% replace_na(0)
+
+#Double-check 
+p1 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = FALSE, node_color_by = "n_neighbors",node_size_fix = 2)+
+  scale_color_continuous(type = "viridis")+
+  theme_classic()
+p2 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = TRUE, node_color_by = "GMM_CK")+
+  scale_color_brewer(palette = "Set1")+
+  theme_classic()
+p1+p2
+
+#Select spatial features and average over clusters 
+spatial <- colData(sce) %>% as.data.frame %>% select(area,eccentricity,cluster,n_neighbors)
 spatial <- spatial %>% select(-cluster) %>% aggregate(by = list(cluster = spatial$cluster), FUN = mean) %>% column_to_rownames("cluster")
 #define min_max fct
 min_max_norm <- function(x) {(x - min(x)) / (max(x) - min(x))}
@@ -211,8 +213,12 @@ draw(h)
 
 ### Add cluster_categories to sce
 sce$cluster_category <- anno_tumor$cluster_category[match(sce$cluster,anno_tumor$cluster)]
+
+#Save sce
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 ```
-## Proportion of tumor cells per cluster category
+
+## Pie plots for categories
 
 ```{r prop_tumor, message=FALSE, warning=FALSE}
 #panCK+ per cluster category
@@ -247,9 +253,6 @@ pie(prop_tumor_4$fr_tumor_clus, labels = paste0(prop_tumor_4$GMM_CK," - ",round(
 
 ## Visualization of Clustering/GMM on UMAP/TSNE
 
-
-## CONTINUE HERE TOMORROW :) 
-
 ```{r viz_sub, message = FALSE, warning=FALSE}
 ## Subsample 10% of cells from each core 
 #to save time and not get super crowded dimensionality reduction plots
@@ -263,8 +266,7 @@ sce_sub = runTSNE(sce_sub, exprs_values = "exprs", external_neighbors=TRUE, BPPA
 
 ## 1. Visualize UMAP
 #panCK and GMM_CK
-plotReducedDim(sce_sub, dimred = "TSNE", by_exprs_values = "exprs", colour_by = "panCK")
-plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster")
+p1 <- plotReducedDim(sce_sub, dimred = "UMAP", by_exprs_values = "exprs",colour_by = "panCK")
 
 p2 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "GMM_CK")+
   scale_color_brewer(palette="Set1")
@@ -272,14 +274,10 @@ p2 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "GMM_CK")+
 p3 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "cluster")+
   scale_color_manual(values = col_list_1[[1]])
 
-p1+p2+p3
+p4 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "cluster_category")+
+  scale_color_manual(values = col_list_1[[2]])
 
-                     
-                     
-
-summary(colData(sce)$cluster)
-
-
+(p1+p2)/(p3+p4)
 
 #Visualize all marker expression
 all_plots <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
@@ -294,8 +292,37 @@ all_plots <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
 library(cowplot)
 plot_grid(plotlist = all_plots)
 
-#Save
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
+
+## 2. Visualize TSNE
+#panCK and GMM_CK
+p1 <- plotReducedDim(sce_sub, dimred = "TSNE", by_exprs_values = "exprs",colour_by = "panCK")
+
+p2 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "GMM_CK")+
+  scale_color_brewer(palette="Set1")
+
+p3 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster")+
+  scale_color_manual(values = col_list_1[[1]])
+
+p4 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_category")+
+  scale_color_manual(values = col_list_1[[2]])
+
+(p1+p2)/(p3+p4)
+
+#Visualize all marker expression
+all_plots <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
+                    function(x){
+                      p <- plotReducedDim(sce_sub, dimred = "TSNE", 
+                                          colour_by = x, 
+                                          by_exprs_values = "exprs",
+                                          point_size = 0.5)
+                      return(p)                    
+                    })
+
+library(cowplot)
+plot_grid(plotlist = all_plots)
+
+#Save sce_sub
+saveRDS(sce_sub, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
 ```
 
 
