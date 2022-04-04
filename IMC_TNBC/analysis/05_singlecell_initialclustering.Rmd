@@ -46,6 +46,7 @@ library(Rphenograph)
 library(igraph)
 library(RColorBrewer)
 library(foreach)
+library(VennDiagram)
 
 #Batch correction
 library(batchelor)
@@ -126,7 +127,7 @@ Heatmap of clusters with GMM information
 
 ```{r}
 #Read sce after clustering and GMM
-#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 
 ### 1. Marker Heatmap 
 
@@ -172,11 +173,12 @@ fr_tum <- fr_tum %>% transmute(fr_tum = `panCK+`/rowSums(fr_tum)) %>% as.data.fr
 col_main = viridis(100)
 
 ### 4. Define tumor and stroma cluster (Fraction of tumor cells according to GMM >80%)
-anno_tumor <- fr_tum %>% rownames_to_column(var = "cluster") %>% mutate(cluster_category = ifelse(fr_tum > 0.9,"Tumor",
-                                                                                                  ifelse(fr_tum < 0.9 & fr_tum > 0.4,"Mixed","Stroma")))
+anno_tumor <- fr_tum %>% rownames_to_column(var = "cluster") %>% mutate(cluster_category = ifelse(fr_tum > 0.8,"Epithelial",
+                                                                                                  ifelse(fr_tum < 0.8 & fr_tum > 0.3,"Mixed","Non_Epithelial")))
 
+anno_tumor
 col <- list(cluster = colorRampPalette(brewer.pal(9, "Paired"))(length(unique(anno_tumor$cluster))),
-           cluster_category = c("#A6CEE3","#B2DF8A","#1F78B4"))
+           cluster_category = c("#1F78B4","#A6CEE3","#B2DF8A"))
 
 col_list_1 <- foreach(i=1:2) %do% {
   color= col[[i]]
@@ -202,8 +204,8 @@ h <- Heatmap(t(assay(mean_sce, "min_max")),
         show_column_names =  T, 
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
-  rowAnnotation(Fraction_tumor = anno_barplot(fr_tum, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),annotation_name_rot = 90)+
-  rowAnnotation(Number_tumor = anno_barplot(nr_tum, width = unit(10, "mm"),gp = gpar(fill = c("#E41A1C","#377EB8"), col = 1)),annotation_name_rot = 90)+
+  rowAnnotation(Fraction_Epi = anno_barplot(fr_tum, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),annotation_name_rot = 90)+
+  rowAnnotation(Number_Cells = anno_barplot(nr_tum, width = unit(10, "mm"),gp = gpar(fill = c("#E41A1C","#377EB8"), col = 1)),annotation_name_rot = 90)+
   rowAnnotation(cluster = anno_tumor$cluster,
                 cluster_category = anno_tumor$cluster_category,
                 col = col_list_1, 
@@ -215,12 +217,13 @@ draw(h)
 sce$cluster_category <- anno_tumor$cluster_category[match(sce$cluster,anno_tumor$cluster)]
 
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+saveRDS(sce, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 ```
 
-## Pie plots for categories
+## Venn diagrams / Pie plots for categories
 
 ```{r prop_tumor, message=FALSE, warning=FALSE}
+## Pie plots 
 #panCK+ per cluster category
 prop_tumor <- colData(sce) %>% as.data.frame() %>%
   select(GMM_CK,cluster_category) %>% filter(GMM_CK == "panCK+") %>% group_by(cluster_category) %>% count()
@@ -236,9 +239,9 @@ pie(prop_tumor_1$fr_tumor_clus, labels = paste0(prop_tumor_1$cluster_category," 
 
 #Tumor per GMM_CK
 prop_tumor_2 <- colData(sce) %>% as.data.frame() %>%
-  select(GMM_CK,cluster_category) %>% filter(cluster_category == "Tumor") %>% group_by(GMM_CK) %>% count()
+  select(GMM_CK,cluster_category) %>% filter(cluster_category == "Epithelial") %>% group_by(GMM_CK) %>% count()
 prop_tumor_2 <- prop_tumor_2 %>% mutate(fr_tumor_clus = n/sum(prop_tumor_2$n))
-pie(prop_tumor_2$fr_tumor_clus, labels = paste0(prop_tumor_2$GMM_CK," - ",round(prop_tumor_2$fr_tumor_clus,3),"%"), col =c("#E41A1C","#377EB8"), main = "Tumor")
+pie(prop_tumor_2$fr_tumor_clus, labels = paste0(prop_tumor_2$GMM_CK," - ",round(prop_tumor_2$fr_tumor_clus,3),"%"), col =c("#E41A1C","#377EB8"), main = "Epithelial")
 
 prop_tumor_3 <- colData(sce) %>% as.data.frame() %>%
   select(GMM_CK,cluster_category) %>% filter(cluster_category == "Mixed") %>% group_by(GMM_CK) %>% count()
@@ -246,9 +249,19 @@ prop_tumor_3 <- prop_tumor_3 %>% mutate(fr_tumor_clus = n/sum(prop_tumor_3$n))
 pie(prop_tumor_3$fr_tumor_clus, labels = paste0(prop_tumor_3$GMM_CK," - ",round(prop_tumor_3$fr_tumor_clus,3),"%"), col =c("#E41A1C","#377EB8"), main = "Mixed")
 
 prop_tumor_4 <- colData(sce) %>% as.data.frame() %>%
-  select(GMM_CK,cluster_category) %>% filter(cluster_category == "Stroma") %>% group_by(GMM_CK) %>% count()
+  select(GMM_CK,cluster_category) %>% filter(cluster_category == "Non_Epithelial") %>% group_by(GMM_CK) %>% count()
 prop_tumor_4 <- prop_tumor_4 %>% mutate(fr_tumor_clus = n/sum(prop_tumor_4$n))
-pie(prop_tumor_4$fr_tumor_clus, labels = paste0(prop_tumor_4$GMM_CK," - ",round(prop_tumor_4$fr_tumor_clus,3),"%"), col =c("#E41A1C","#377EB8"), main = "Stroma")
+pie(prop_tumor_4$fr_tumor_clus, labels = paste0(prop_tumor_4$GMM_CK," - ",round(prop_tumor_4$fr_tumor_clus,3),"%"), col =c("#E41A1C","#377EB8"), main = "Non_Epithelial")
+
+## Upset plot
+#panCK+ vs Epithelial/mixed clusters
+library(UpSetR)
+x = list(
+Epithelial_Mixed_Clus = colData(sce) %>% as.data.frame %>% filter(cluster_category %in% c("Epithelial","Mixed")) %>% rownames_to_column() %>% pull("rowname"),
+GMM_panCK = colData(sce) %>% as.data.frame %>% filter(GMM_CK == "panCK+") %>% rownames_to_column() %>% pull("rowname")
+)
+
+upset(fromList(x), order.by = "freq")
 ```
 
 ## Visualization of Clustering/GMM on UMAP/TSNE
@@ -322,7 +335,7 @@ library(cowplot)
 plot_grid(plotlist = all_plots)
 
 #Save sce_sub
-saveRDS(sce_sub, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
+saveRDS(sce_sub, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
 ```
 
 
