@@ -1,0 +1,466 @@
+---
+title: "06_singlecell_tumor"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(scuttle)
+library(scater)
+library(scran)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(parallel)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(Rphenograph)
+library(igraph)
+library(RColorBrewer)
+library(foreach)
+library(clValid)
+
+#Batch correction
+library(batchelor)
+library(harmony)
+```
+
+# Single-cell analysis - Pipeline 2 - TNBC tumor phenotypes
+
+Here, we will perform the second single cell analysis steps, including phenotyping tumor cells.
+
+## Read in data and filter for ZTMA249
+First, we will read in the `SingleCellExperiment` object containing the cleaned, spillover- and (batch-corrected) single-cell data. 
+**Important:** For now, We will filter the object for ZTMA249 samples, since we are sure that those are TNBC. 
+
+```{r read-data-batch-correction, message=FALSE}
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+```
+
+## Define markers for clustering
+```{r tumor_markers, message = FALSE, warning = FALSE}
+tumor_channel = c("CK5","CK8_18","CD15","KRT14","cMYC","HER2","ER","PR","p53","AR","GATA3","EGFR","p_mTOR","CK7")
+
+cell_state_channel = c("pH3","H3K27me3","Bcl2", "c_Cas3_PARP","S6", "CD44","Ki67")
+
+other_immune_channel = c("panCK","Ecad","SMA","Fibronectin","Vimentin","CD68","CD3","CD68","CD20","HLA_DR","CD11c","CD45","CD20","CD8a","CD4","CD31_vWF")
+
+cluster_channel = c("CK5","CK8_18","CD15","KRT14","cMYC","HER2","ER","PR","p53","AR","GATA3","EGFR","p_mTOR","CK7","Ki67","Vimentin")
+
+#Add to sce
+rowData(sce)$tumor_channel <- (rowData(sce)$clean_target %in% tumor_channel)
+rowData(sce)$cell_state_channel <- (rowData(sce)$clean_target %in% cell_state_channel)
+rowData(sce)$cluster_channel <- (rowData(sce)$clean_target %in% cluster_channel)
+rowData(sce)$other_immune_channel <- (rowData(sce)$clean_target %in% other_immune_channel)
+```
+
+## Filter sce for tumor cells
+Here, we will test two approaches: 1. based on panCK GMM; 2. based on tumor clusters
+
+```{r filter sce, message=FALSE}
+#based on GMM (n=336052)
+sce_1 <- sce[,colData(sce)$GMM_CK == "panCK+"]
+sce_1
+
+#based on tumor clusters (n=272442)
+sce_2 <- sce[,colData(sce)$cluster_category == "Tumor"]
+sce_2
+
+##Overlap of cells in both approaches in Venn diagram
+brewer.pal(3,"Paired")
+
+venn.diagram(
+  x = list(colnames(sce_1),colnames(sce_2)),
+  category.names = c("GMM_panCK","TumorCluster"),
+  filename = "/mnt/rcc_volume/TNBC/data_analysis/TNBC_TumorClus_twoapproaches_venn.png",
+  output = FALSE,
+  imagetype="png" ,
+  height = 800, 
+  width = 800, 
+  resolution = 300,
+  compression = "lzw",
+  lwd = 1,
+  col=c("#1F78B4","#A6CEE3"),
+  fill = c(alpha("#A6CEE3",0.3), alpha("#1F78B4",0.3)),
+  cex = 0.5,
+  fontfamily = "sans",
+  cat.cex = 0.3,
+  cat.default.pos = "outer",
+  cat.pos = c(-27, 27),
+  cat.dist = c(0.055, 0.055),
+  cat.fontfamily = "sans",
+  cat.col = c("#1F78B4", "#A6CEE3"),
+  print.mode = c("raw","percent")
+)
+```
+
+## Perform overclustering and hierarchical clustering
+Next, we will run Rphenograph (Jaccard-based weights, Louvain clustering as community detection algorithm) clustering. 
+
+```{r overcluster, message=FALSE}
+#1: for sce_1
+set.seed(22)
+snn.sce_1 <- buildSNNGraph(sce_1[rowData(sce_1)$cluster_channel==TRUE,], k=50, 
+                         d = NA, 
+                         type = "jaccard",
+                         assay.type = "exprs",
+                         BNPARAM=AnnoyParam(),
+                         BPPARAM = MulticoreParam(workers = (detectCores()-2), progressbar = TRUE)
+                         )
+
+clusters <- igraph::cluster_louvain(snn.sce_1)
+sce_1$cluster <- as.factor(clusters$membership)
+unique(sce_1$cluster)
+
+#2: for sce_2
+set.seed(22)
+snn.sce_2 <- buildSNNGraph(sce_2[rowData(sce_2)$cluster_channel==TRUE,], k=50, 
+                         d = NA, 
+                         type = "jaccard",
+                         assay.type = "exprs",
+                         BNPARAM=AnnoyParam(),
+                         BPPARAM = MulticoreParam(workers = (detectCores()-2), progressbar = TRUE)
+                         )
+
+clusters <- igraph::cluster_louvain(snn.sce_2)
+sce_2$cluster <- as.factor(clusters$membership)
+numbering <- data.frame(old = sort(unique(sce_2$cluster)),new = sort(1:33)) #numbering was not sequential - changed!
+sce_2$cluster <- numbering$new[match(sce_2$cluster,numbering$old)]
+
+#Save SCEs after clustering
+saveRDS(sce_1, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_GMM_ClusterChannelClus.rds")
+saveRDS(sce_2, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus.rds")
+```
+
+## Heatmap 
+
+Heatmap of clusters
+
+```{r heatmap sce_1, message=FALSE,warning=FALSE}
+#Read sce after clustering and GMM
+#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+sce <- sce_1
+
+### 1. Marker Heatmaps (Cluster channels, other_immune channels)
+
+#Min-Max [0,1] normalization of arcsinh-transformed counts
+assay(sce, "min_max") <- assay(sce, "exprs") - rowMins(assay(sce, "exprs"))
+assay(sce, "min_max") <- assay(sce, "min_max") / (rowMaxs(assay(sce, "exprs")) - rowMins(assay(sce, "exprs")))
+
+#Aggregrate across cells with the mean (median is also possible)
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$cluster_channel)
+
+cell_state_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$cell_state_channel)
+
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$other_immune_channel)
+
+
+
+
+tumor_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$tumor_channel)
+
+cell_state_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$cell_state_channel)
+
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$other_immune_channel)
+
+### 2. Spatial Heatmap
+#Add number of neighbors to sce object (saved in ColPair)
+n_neighbors <- colPair(sce) %>% as.data.frame() %>% group_by(from) %>% count() %>% arrange(desc(n))
+
+sce$n_neighbors <- n_neighbors$n[match(seq_along(colnames(sce)),n_neighbors$from)]
+sce$n_neighbors <- sce$n_neighbors %>% replace_na(0)
+
+#Double-check 
+p1 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = FALSE, node_color_by = "n_neighbors",node_size_fix = 2)+
+  scale_color_continuous(type = "viridis")+
+  theme_classic()
+p2 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = TRUE, node_color_by = "GMM_CK")+
+  scale_color_brewer(palette = "Set1")+
+  theme_classic()
+p1+p2
+
+#Select spatial features and average over clusters 
+spatial <- colData(sce) %>% as.data.frame %>% select(area,eccentricity,cluster,n_neighbors)
+spatial <- spatial %>% select(-cluster) %>% aggregate(by = list(cluster = spatial$cluster), FUN = mean) %>% column_to_rownames("cluster")
+#define min_max fct
+min_max_norm <- function(x) {(x - min(x)) / (max(x) - min(x))}
+#normalize
+spatial_norm <- as.data.frame(lapply(spatial, min_max_norm))
+
+
+### 3. Find metaclusters based on hierarchical clustering
+
+# clValid package - cluster analysis testing
+# Comparing agnes, diana, kmeans, pam
+# Stability measures
+#testCL<- clValid(assay(cluster_mean_sce, "min_max"),nClust = 4:14,clMethods = c("agnes","diana","kmeans","pam"),validation="internal",metric="euclidean", method = "ward")
+
+#summary(testCL)
+#plot(testCL,legend = FALSE)
+
+#Summary
+#Selected Method: Agnes (Ward linkage)
+#Clusters: 6
+
+#Plot dendogram
+#avg_dend_obj_MCP <- as.dendrogram(agnes(t(res_MCP_z_filtered),metric = "euclidean",method = "ward"))
+#avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 6)
+
+
+###4.  Define annotation dataframe with n cells, clusters, metaclusters
+anno <- colData(cluster_mean_sce) %>% as.data.frame %>% select(cluster, ncells)
+
+col <- list(cluster = colorRampPalette(brewer.pal(9, "Paired"))(length(unique(anno$cluster))))
+
+col_list_1 <- foreach(i=1:1) %do% {
+  color= col[[i]]
+  names(color)= sort(unique(anno[,names(col)[i]]))
+  color
+}
+names(col_list_1) <- c(names(col))
+
+col_main = viridis(100)
+
+### Plot combined Heatmap
+h <- Heatmap(t(assay(cluster_mean_sce, "min_max")),
+        col = col_main,
+        name= "min-max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  Heatmap(t(assay(tumor_mean_sce, "min_max")),
+        col = col_main,
+        name= "min-max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  Heatmap(t(assay(cell_state_mean_sce, "min_max")),
+        col = col_main,
+        name= "min-max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  Heatmap(t(assay(other_mean_sce, "min_max")),
+        col = col_main,
+        name= "min-max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  Heatmap(spatial_norm,
+        col = col_main,
+        name= "min-max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  rowAnnotation(n_cells = anno_barplot(anno$ncells, width = unit(10, "mm"),gp = gpar(fill = "black"), col = 1),annotation_name_rot = 90)+
+  rowAnnotation(cluster = anno$cluster,
+                #cluster_category = anno_tumor$cluster_category,
+                col = col_list_1, 
+                border = TRUE)
+
+draw(h)
+```
+
+```{r heatmap sce_2, message=FALSE,warning=FALSE}
+#Read sce after clustering and GMM
+#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+sce <- sce_2
+
+### 1. Marker Heatmaps (Cluster channels, other_immune channels)
+
+#Min-Max [0,1] normalization of arcsinh-transformed counts
+assay(sce, "min_max") <- assay(sce, "exprs") - rowMins(assay(sce, "exprs"))
+assay(sce, "min_max") <- assay(sce, "min_max") / (rowMaxs(assay(sce, "exprs")) - rowMins(assay(sce, "exprs")))
+
+#Aggregrate across cells with the mean (median is also possible)
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$cluster_channel)
+
+tumor_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$tumor_channel)
+
+cell_state_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$cell_state_channel)
+
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$other_immune_channel)
+
+### 2. Spatial Heatmap
+#Add number of neighbors to sce object (saved in ColPair)
+n_neighbors <- colPair(sce) %>% as.data.frame() %>% group_by(from) %>% count() %>% arrange(desc(n))
+
+sce$n_neighbors <- n_neighbors$n[match(seq_along(colnames(sce)),n_neighbors$from)]
+sce$n_neighbors <- sce$n_neighbors %>% replace_na(0)
+
+#Double-check 
+p1 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = FALSE, node_color_by = "n_neighbors",node_size_fix = 2)+
+  scale_color_continuous(type = "viridis")+
+  theme_classic()
+p2 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = TRUE, node_color_by = "GMM_CK")+
+  scale_color_brewer(palette = "Set1")+
+  theme_classic()
+p1+p2
+
+#Select spatial features and average over clusters 
+spatial <- colData(sce) %>% as.data.frame %>% select(area,eccentricity,cluster,n_neighbors)
+spatial <- spatial %>% select(-cluster) %>% aggregate(by = list(cluster = spatial$cluster), FUN = mean) %>% column_to_rownames("cluster")
+#define min_max fct
+min_max_norm <- function(x) {(x - min(x)) / (max(x) - min(x))}
+#normalize
+spatial_norm <- as.data.frame(lapply(spatial, min_max_norm))
+
+
+### 3. Find metaclusters based on hierarchical clustering
+
+#clValid package - cluster analysis testing
+#Comparing agnes, diana, kmeans, pam
+#Stability measures
+#testCL<- clValid(assay(cluster_mean_sce, "min_max"),nClust = 4:20,clMethods = c("agnes","diana","kmeans","pam"),validation="internal",metric="euclidean", method = "ward")
+#summary(testCL)
+#plot(testCL,legend = FALSE)
+
+#Summary
+#Selected Method: Agnes (Ward linkage)
+#Clusters: 6
+
+#Plot dendogram
+#avg_dend_obj_MCP <- as.dendrogram(agnes(t(res_MCP_z_filtered),metric = "euclidean",method = "ward"))
+#avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 6)
+
+
+###4.  Define annotation dataframe with n cells, clusters, metaclusters
+anno <- colData(cluster_mean_sce) %>% as.data.frame %>% select(cluster, ncells)
+
+col <- list(cluster = colorRampPalette(brewer.pal(9, "Paired"))(length(unique(anno$cluster))))
+
+col_list_1 <- foreach(i=1:1) %do% {
+  color= col[[i]]
+  names(color)= sort(unique(anno[,names(col)[i]]))
+  color
+}
+names(col_list_1) <- c(names(col))
+
+col_main = viridis(100)
+
+### Plot combined Heatmap
+h <- Heatmap(t(assay(cluster_mean_sce, "min_max")),
+        col = col_main,
+        name= "min-max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  Heatmap(t(assay(tumor_mean_sce, "min_max")),
+        col = col_main,
+        name= "min-max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  Heatmap(t(assay(cell_state_mean_sce, "min_max")),
+        col = col_main,
+        name= "min-max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  Heatmap(t(assay(other_mean_sce, "min_max")),
+        col = col_main,
+        name= "min-max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  Heatmap(spatial_norm,
+        col = col_main,
+        name= "min-max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  rowAnnotation(n_cells = anno_barplot(anno$ncells, width = unit(10, "mm"),gp = gpar(fill = "black"), col = 1),annotation_name_rot = 90)+
+  rowAnnotation(cluster = anno$cluster,
+                #cluster_category = anno_tumor$cluster_category,
+                col = col_list_1, 
+                border = TRUE)
+
+draw(h)
+```
+
+
+
+
+
+
+
+

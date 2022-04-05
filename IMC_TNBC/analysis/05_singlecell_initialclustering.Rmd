@@ -2,6 +2,8 @@
 title: "05_SingleCell_InitialClustering"
 output: html_document
 date: '2022-03-30'
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -93,6 +95,8 @@ We will use a two component gaussian mixture model to distinguish between tumor 
 
 ```{r GMM_CK, message=FALSE,warning=FALSE}
 #Gaussian mixture model to distinguish tumor/stroma based on panCK expression
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+
 GMM_CK <- Mclust(assay(sce, "exprs")["panCK",], G = 2)
 
 GMM_df <- data.frame(class_CK = ifelse(GMM_CK$classification == 2 & GMM_CK$uncertainty == 0, "panCK+", "panCK-"), 
@@ -100,19 +104,19 @@ GMM_df <- data.frame(class_CK = ifelse(GMM_CK$classification == 2 & GMM_CK$uncer
                      uncertainty = GMM_CK$uncertainty)
 
 #Visualize GMM
-p1 <- ggplot(GMM_df, aes(x = panCK_exprs, fill = class_CK))+
+GMM_plot_exp <- ggplot(GMM_df, aes(x = panCK_exprs, fill = class_CK))+
   geom_density()+
   theme_classic(base_size = 15)+
   theme(axis.title.x = element_blank())+
   scale_fill_brewer(palette = "Set1")
   
-p2 <- ggplot(GMM_df, aes(x = panCK_exprs, y = uncertainty, color = class_CK))+
+GMM_plot_unc <- ggplot(GMM_df, aes(x = panCK_exprs, y = uncertainty, color = class_CK))+
   geom_line()+
   theme_classic(base_size = 15)+
   theme(axis.title.x = element_blank())+
   scale_color_brewer(palette = "Set1")
 
-p1/p2
+GMM_plot_exp/GMM_plot_unc
 
 #Add GMM CK class to SCE
 sce$GMM_CK <- GMM_df$class_CK
@@ -127,7 +131,7 @@ Heatmap of clusters with GMM information
 
 ```{r}
 #Read sce after clustering and GMM
-sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+#sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 
 ### 1. Marker Heatmap 
 
@@ -149,13 +153,16 @@ sce$n_neighbors <- n_neighbors$n[match(seq_along(colnames(sce)),n_neighbors$from
 sce$n_neighbors <- sce$n_neighbors %>% replace_na(0)
 
 #Double-check 
-p1 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = FALSE, node_color_by = "n_neighbors",node_size_fix = 2)+
+sp1 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = FALSE, assay_type = "exprs",node_color_by = "panCK")+
   scale_color_continuous(type = "viridis")+
   theme_classic()
-p2 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = TRUE, node_color_by = "GMM_CK")+
+sp2 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = FALSE, node_color_by = "GMM_CK")+
   scale_color_brewer(palette = "Set1")+
   theme_classic()
-p1+p2
+sp3 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = FALSE, node_color_by = "n_neighbors",node_size_fix = 2)+
+  scale_color_continuous(type = "viridis")+
+  theme_classic()
+sp1+sp2+sp3
 
 #Select spatial features and average over clusters 
 spatial <- colData(sce) %>% as.data.frame %>% select(area,eccentricity,cluster,n_neighbors)
@@ -204,7 +211,7 @@ h <- Heatmap(t(assay(mean_sce, "min_max")),
         show_column_names =  T, 
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
-  rowAnnotation(Fraction_Epi = anno_barplot(fr_tum, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),annotation_name_rot = 90)+
+  rowAnnotation(Fraction_panCK = anno_barplot(fr_tum, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),annotation_name_rot = 90)+
   rowAnnotation(Number_Cells = anno_barplot(nr_tum, width = unit(10, "mm"),gp = gpar(fill = c("#E41A1C","#377EB8"), col = 1)),annotation_name_rot = 90)+
   rowAnnotation(cluster = anno_tumor$cluster,
                 cluster_category = anno_tumor$cluster_category,
@@ -217,7 +224,7 @@ draw(h)
 sce$cluster_category <- anno_tumor$cluster_category[match(sce$cluster,anno_tumor$cluster)]
 
 #Save sce
-saveRDS(sce, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+#saveRDS(sce, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 ```
 
 ## Venn diagrams / Pie plots for categories
@@ -261,7 +268,8 @@ Epithelial_Mixed_Clus = colData(sce) %>% as.data.frame %>% filter(cluster_catego
 GMM_panCK = colData(sce) %>% as.data.frame %>% filter(GMM_CK == "panCK+") %>% rownames_to_column() %>% pull("rowname")
 )
 
-upset(fromList(x), order.by = "freq")
+upset <- upset(fromList(x), order.by = "freq")
+upset
 ```
 
 ## Visualization of Clustering/GMM on UMAP/TSNE
@@ -273,9 +281,10 @@ set.seed(22011995)
 sub <- colData(sce) %>% as.data.frame() %>% group_by("sample_id") %>% slice_sample(prop = 0.1) %>% arrange("sample_id") %>% mutate(sub_id = paste(sample_id,ObjectNumber,sep="_")) %>% pull(sub_id)
 sce_sub = sce[,sub]
 sce_sub$cluster = as.factor(sce_sub$cluster)  
+
 #Run UMAP/TSNE
-sce_sub = runUMAP(sce_sub, exprs_values = "exprs", external_neighbors=TRUE, BPPARAM = MulticoreParam((detectCores()-2)))
-sce_sub = runTSNE(sce_sub, exprs_values = "exprs", external_neighbors=TRUE, BPPARAM = MulticoreParam((detectCores()-2)))
+sce_sub = runUMAP(sce_sub[rowData(sce_sub)$use_channel,], n_neighbors = 30, pca = 50,exprs_values = "exprs", external_neighbors=TRUE, BPPARAM = MulticoreParam((detectCores()-2)))
+sce_sub = runTSNE(sce_sub[rowData(sce_sub)$use_channel,], exprs_values = "exprs", external_neighbors=TRUE, BPPARAM = MulticoreParam((detectCores()-2)))
 
 ## 1. Visualize UMAP
 #panCK and GMM_CK
@@ -293,7 +302,7 @@ p4 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "cluster_category")+
 (p1+p2)/(p3+p4)
 
 #Visualize all marker expression
-all_plots <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
+all_plots_UMAP <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
                     function(x){
                       p <- plotReducedDim(sce_sub, dimred = "UMAP", 
                                           colour_by = x, 
@@ -303,26 +312,26 @@ all_plots <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
                     })
 
 library(cowplot)
-plot_grid(plotlist = all_plots)
+plots_UMAP_exp <- plot_grid(plotlist = all_plots_UMAP)
 
 
 ## 2. Visualize TSNE
 #panCK and GMM_CK
-p1 <- plotReducedDim(sce_sub, dimred = "TSNE", by_exprs_values = "exprs",colour_by = "panCK")
+p5 <- plotReducedDim(sce_sub, dimred = "TSNE", by_exprs_values = "exprs",colour_by = "panCK")
 
-p2 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "GMM_CK")+
+p6 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "GMM_CK")+
   scale_color_brewer(palette="Set1")
 
-p3 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster")+
+p7 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster")+
   scale_color_manual(values = col_list_1[[1]])
 
-p4 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_category")+
+p8 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_category")+
   scale_color_manual(values = col_list_1[[2]])
 
-(p1+p2)/(p3+p4)
+(p5+p6)/(p7+p8)
 
 #Visualize all marker expression
-all_plots <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
+all_plots_TSNE <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
                     function(x){
                       p <- plotReducedDim(sce_sub, dimred = "TSNE", 
                                           colour_by = x, 
@@ -332,10 +341,41 @@ all_plots <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
                     })
 
 library(cowplot)
-plot_grid(plotlist = all_plots)
+plots_TSNE_exp <- plot_grid(plotlist = all_plots_TSNE)
 
 #Save sce_sub
-saveRDS(sce_sub, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
+#saveRDS(sce_sub, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
 ```
 
+## Save plots as pdf
 
+```{r save_plots}
+##IMPORTANT: change to chunk output in console for this last part 
+
+##save plots as pdf (vector graphics)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_GMMpanCK.pdf",width = 10,height = 8)
+GMM_plot_exp+GMM_plot_unc
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_GMMpanCKspatial.pdf",width = 12,height = 6)
+sp1+sp2+sp3
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_HeatmapGMMCC.pdf",width = 13,height = 10)
+draw(h)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_UpsetGMMCC.pdf",width = 8,height = 6)
+upset
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_UMAPGMMCC.pdf",width = 10,height = 8)
+(p1+p2)/(p3+p4)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_TSNEGMMCC.pdf",width = 10,height = 8)
+(p5+p6)/(p7+p8)
+dev.off()
+
+##IMPORTANT: change back to chunk output inline
+```
