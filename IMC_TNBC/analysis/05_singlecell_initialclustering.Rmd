@@ -3,7 +3,7 @@ title: "05_SingleCell_InitialClustering"
 output: html_document
 date: '2022-03-30'
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -52,7 +52,6 @@ library(VennDiagram)
 
 #Batch correction
 library(batchelor)
-library(harmony)
 ```
 
 # Single-cell analysis - Pipeline 1 - Distinguish tumor and immune cells
@@ -125,11 +124,26 @@ sce$GMM_CK <- GMM_df$class_CK
 saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 ```
 
+## Check correlation of panCK and Ecad as epithelial cell markers
+
+```{r marker correlations, message = FALSE}
+sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+sce
+library(psych)
+# For specific markers of interest (also shows the value distribution which is recommended)
+pairs.panels(cor_sce,
+             method = "spearman",
+             hist.col = "#A6CEE3",
+             digits = 2)
+
+```
+
+
 ## Heatmap 
 
 Heatmap of clusters with GMM information 
 
-```{r}
+```{r heatmap, message=FALSE, warning=FALSE}
 #Read sce after clustering and GMM
 #sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 
