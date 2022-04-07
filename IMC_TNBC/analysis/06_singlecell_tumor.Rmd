@@ -57,7 +57,6 @@ library(psych)
 
 #Batch correction
 library(batchelor)
-library(harmony)
 ```
 
 # Single-cell analysis - Pipeline 2 - TNBC tumor phenotypes
@@ -96,9 +95,27 @@ sce
 ```
 
 ## Perform overclustering and hierarchical clustering
-Next, we will run Rphenograph (Jaccard-based weights, Louvain clustering as community detection algorithm) clustering with different resolution parameters (k=50,75,100,125). 
+Next, we will run Rphenograph (Jaccard-based weights, Louvain clustering as community detection algorithm) clustering with different resolution parameters (k=30,50,75,100). 
 
 ```{r overcluster, message=FALSE}
+#k=30
+set.seed(22)
+snn.sce <- buildSNNGraph(sce[rowData(sce)$cluster_channel==TRUE,], k=30, 
+                         d = NA, 
+                         type = "jaccard",
+                         assay.type = "exprs",
+                         BNPARAM=AnnoyParam(),
+                         BPPARAM = MulticoreParam(workers = (detectCores()-2), progressbar = TRUE)
+                         )
+
+clusters_3 <- igraph::cluster_louvain(snn.sce)
+sce$cluster_30 <- as.factor(clusters_3$membership)
+unique(sce$cluster_30)
+
+#Save SCEs after clustering
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+
+
 #k=50
 set.seed(22)
 snn.sce <- buildSNNGraph(sce[rowData(sce)$cluster_channel==TRUE,], k=50, 
@@ -149,49 +166,35 @@ unique(sce$cluster_100)
 
 #Save SCEs after clustering
 saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
-
-#k=125
-set.seed(22)
-snn.sce <- buildSNNGraph(sce[rowData(sce)$cluster_channel==TRUE,], k=125, 
-                         d = NA, 
-                         type = "jaccard",
-                         assay.type = "exprs",
-                         BNPARAM=AnnoyParam(),
-                         BPPARAM = MulticoreParam(workers = (detectCores()-2), progressbar = TRUE)
-                         )
-
-clusters_3 <- igraph::cluster_louvain(snn.sce)
-sce$cluster_125 <- as.factor(clusters_3$membership)
-unique(sce$cluster_125)
-
-#Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 ```
 
 ### Cluster stability testing and comparison
 
 ```{r clustree, message = FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 sce
 
 #Pairwise rand index 
 #Agreement between two clustering approaches - ARI > 0.5 = "good" similarity
+pairwiseRand(sce$cluster_30,sce$cluster_50, mode = "index")
 pairwiseRand(sce$cluster_50,sce$cluster_75, mode = "index")
 pairwiseRand(sce$cluster_75,sce$cluster_100, mode = "index")
-
 
 #Over different resolution parameters - Silhouette width [-1,1,max], Purity[0,1,max], Root-mean-squared difference [min]
 clusters <- colnames(colData(sce))[str_detect(colnames(colData(sce)),"cluster_[:digit:]")]
 df <- foreach(i = seq_along(clusters),.combine = rbind) %do% {
 num_clus <- length(unique(colData(sce)[,clusters[i]]))
 sil <- approxSilhouette(t(assay(sce, "exprs")), clusters=colData(sce)[,clusters[i]])
-purity <- neighborPurity(t(assay(sce, "exprs")), clusters=colData(sce)[,clusters[i]])
+#purity <- neighborPurity(t(assay(sce, "exprs")), clusters=colData(sce)[,clusters[i]]) #takes very long to compute - do once and then save figure
+rmsd <- clusterRMSD(t(assay(sce, "exprs")), clusters=colData(sce)[,clusters[i]])
 data.frame(num_clus = num_clus,
            k = as.numeric(str_split(clusters[i],"_",simplify = TRUE)[,2]), 
            sil = mean(sil$width), 
-           purity = mean(purity$purity))
+#           purity = mean(purity$purity),
+           rmsd = sum(rmsd))
 }
+
 
 p1 <- ggplot(df, aes(x=k, y=num_clus))+ 
   geom_line(lwd = 2,color = "#377EB8")+
@@ -199,9 +202,11 @@ p1 <- ggplot(df, aes(x=k, y=num_clus))+
 p2 <- ggplot(df, aes(x=k, y=sil))+ 
   geom_line(lwd = 2,color = "#377EB8")+
   theme_classic()
-p3 <- ggplot(df, aes(x=k, y=purity))+ 
+p3 <- ggplot(df, aes(x=k, y=rmsd))+ 
   geom_line(lwd = 2,color = "#377EB8")+
   theme_classic()
+
+p1+p2+p3 
 
 #Chosen method => k=100
 
@@ -263,7 +268,7 @@ Heatmap of clusters with additional information (other channels, spatial, grade,
 
 ```{r heatmap sce_1, message=FALSE,warning=FALSE}
 #Read sce after clustering and GMM
-sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+#sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 
 ### 1. Marker Heatmaps (Cluster channels, other_immune channels)
 
@@ -295,13 +300,12 @@ sce$n_neighbors <- n_neighbors$n[match(seq_along(colnames(sce)),n_neighbors$from
 sce$n_neighbors <- sce$n_neighbors %>% replace_na(0)
 
 #Double-check 
-p5 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = FALSE, node_color_by = "n_neighbors",node_size_fix = 2)+
+plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = FALSE, node_color_by = "n_neighbors",node_size_fix = 2)+
   scale_color_continuous(type = "viridis")+
   theme_classic()
-p6 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = TRUE, node_color_by = "GMM_CK")+
+plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = TRUE, node_color_by = "GMM_CK")+
   scale_color_brewer(palette = "Set1")+
   theme_classic()
-p5+p6
 
 #Select spatial features and average over clusters 
 spatial <- colData(sce) %>% as.data.frame %>% select(area,eccentricity,cluster_100,n_neighbors)
@@ -316,18 +320,9 @@ spatial_norm <- as.data.frame(lapply(spatial, min_max_norm))
 anno <- colData(cluster_mean_sce) %>% as.data.frame %>% select(cluster_100, ncells)
 
 ##Set Preliminary cluster names (after visual inspection)
-cluster_names <- c("CK5/7+","p53/EGFR/Ki67+","Vim/KRT14+","CK5low","Vim+","Unclear","Unclear","Ki67/p53+","Vim/Ki67+","Unclear","Her2/KRT14+","CD15+","Vim/Ki67/p53+","CK7+","Vim/Her2/CK7+","Vim/Ki67+_2","Vim/p53+","GATA3low","HER2+","CK7/8/18+","Vim/CK5+","ER/GATA3+","KRT14+","KRT14/Ki67+","p53/cMYC+")
+cluster_names <- c("CK5/7+","p53/EGFR/Ki67+","KRT14/Vim+","CK5low","Vim+","Unclear","Unclear","Ki67/p53+","Vim/Ki67+","Unclear","KRT14/HER2+","CD15+","Vim/Ki67/p53+","CK7+","Vim/Her2/CK7+","Vim/Ki67+_2","Vim/p53/cMYC+","GATA3low","HER2+","CK7/8/18+","Vim/CK5+","ER/GATA3+","KRT14+","KRT14/Ki67+","p53/cMYC+")
 anno$names <- cluster_names
 sce$cluster_names <- anno$names[match(sce$cluster_100,anno$cluster_100)]
-
-col <- list(cluster_100 = colorRampPalette(brewer.pal(9, "Paired"))(length(unique(anno$cluster_100))))
-
-col_list_1 <- foreach(i=1:1) %do% {
-  color= col[[i]]
-  names(color)= sort(unique(anno[,names(col)[i]]))
-  color
-}
-names(col_list_1) <- c(names(col))
 
 
 ###4. Patient metadata - grade / lehmann subtype
@@ -344,10 +339,41 @@ subtype <- subtype %>% select(-Freq) %>% pivot_wider(id_cols = cluster_100,names
 
 col_lehmann = colorRampPalette(brewer.pal(9, "Set2"))(length(unique(colData(sce)$lehmann_subtype)))
 
-#General heatmap color scheme
+# Number of contributing patients/samples per cluster
+cluster_SID <- colData(sce) %>% as.data.frame() %>% select(cluster_100,sample_id) %>% group_by(cluster_100) %>% table() %>% as.data.frame
+n_SID <- cluster_SID %>% filter(Freq>0) %>% group_by(cluster_100) %>% count(name = "n_SID") %>% column_to_rownames("cluster_100")
+
+cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cluster_100,PID) %>% group_by(cluster_100) %>% table() %>% as.data.frame
+n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(cluster_100) %>% count(name = "n_PID") %>% column_to_rownames("cluster_100")
+
+nPID_SID <- cbind(n_SID,n_PID)
+
+###5. General heatmap color schemes 
+#Heatmap body color 
 col_main = viridis(100)
 
-### Plot combined Heatmap
+#retrieve row_order for sequential color scheme 
+row_order_clusters <- row_order(Heatmap(t(assay(cluster_mean_sce, "min_max")),
+        column_title = "cluster_channels",
+        col = col_main,
+        name= "min-max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2"))
+
+
+
+#Color scheme for clusters
+col <- list(cluster_100 = colorRampPalette(brewer.pal(9, "Paired"))(length(unique(anno$cluster_100))))
+col_clusters <- col[[1]]
+names(col_clusters) = row_order_clusters
+col_clusters <- list(col_clusters)
+names(col_clusters) <- "cluster_100"
+
+
+###6. Plot combined Heatmap
 h <-Heatmap(t(assay(cluster_mean_sce, "min_max")),
         column_title = "cluster_channels",
         col = col_main,
@@ -384,17 +410,23 @@ h <-Heatmap(t(assay(cluster_mean_sce, "min_max")),
         show_column_names =  T, 
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
-  rowAnnotation(cluster_100 = anno$cluster_100,
-                annotation_name_rot = 90,
-                #cluster_category = anno_tumor$cluster_category,
-                col = col_list_1, 
-                border = TRUE)+
+  rowAnnotation(cluster_100 = anno_simple(unfactor(anno$cluster_100), pch = unfactor(anno$cluster_100),border=TRUE,col=col_clusters$cluster_100))+
   rowAnnotation(foo = anno_text(anno$names))+
-  rowAnnotation(n_cells = anno_barplot(anno$ncells, width = unit(10, "mm"),gp = gpar(fill = "black"), col = 1),annotation_name_rot = 90)+
+  rowAnnotation(n_cells = anno_barplot(anno$ncells, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)+
+  rowAnnotation(n_PID = anno_barplot(n_PID, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)+
   rowAnnotation(grade = anno_barplot(grade, width = unit(10, "mm"),gp = gpar(fill = c("#FFF5F0","#FB6A4A","#67000D")), col = 1),annotation_name_rot = 90)+
     rowAnnotation(lehmann_subtype = anno_barplot(subtype, width = unit(15, "mm"), gp = gpar(fill = col_lehmann),col = 1,show_legend = TRUE),annotation_name_rot = 90)
   
 draw(h)
+
+#Cluster annotation heatmap
+h_cluster_anno <- rowAnnotation(cluster_100 = anno_simple((row_order_clusters), pch = as.character(row_order_clusters),border=TRUE,col=col_clusters$cluster_100))+
+  rowAnnotation(foo = anno_text(anno$names[row_order_clusters]))
+
+draw(h_cluster_anno)
+
+#Save sce
+#saveRDS(sce,"/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 ```
 
 ## Dimensionality reduction 
@@ -447,6 +479,20 @@ library(cowplot)
 exp_plots_TSNE <- plot_grid(plotlist = all_plots_TSNE)
 ```
 
+### Heatmap for subset of cells
+
+```{r heatmap sub}
+#Heatmap visualization (all cells)
+dittoHeatmap(sce_sub, 
+             genes = rownames(sce_sub)[rowData(sce_sub)$cluster_channel],
+             assay = "min_max", 
+             scale = "none", 
+             order.by = "cluster_100", 
+             heatmap.colors = viridis(100), 
+             annot.by = c("cluster_100"),
+             annot.colors=col_clusters$cluster_100[order(as.numeric(names(col_clusters$cluster_100)))])
+```
+
 ## Stacked barplots / Correlation of cluster fractions
 
 ```{r cluster-pro, message = FALSE, warning = FALSE}
@@ -485,7 +531,7 @@ PID_cluster <- PID_cluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
 p_PID_cluster <- ggplot(PID_cluster) +
   geom_tile(color = "black",aes(PID, fra, fill = cluster_100), position = "stack")+
-  scale_fill_manual(values=col_list_1[[1]]) + 
+  scale_fill_manual(values=col_clusters$cluster_100) + 
   theme_classic(base_size = 12)+
   ylab("Fraction")+
   xlab("PID")+
@@ -493,7 +539,7 @@ p_PID_cluster <- ggplot(PID_cluster) +
 
 p_SID_cluster <- ggplot(SID_cluster) +
   geom_tile(color = "black",aes(sample_id, fra, fill = cluster_100), position = "stack")+
-    scale_fill_manual(values=col_list_1[[1]]) + 
+    scale_fill_manual(values=col_clusters$cluster_100) + 
   theme_classic(base_size = 15)+
   ylab("Fraction")+
   xlab("Sample_ID")+
@@ -550,40 +596,38 @@ pairs.panels(cor_sce[,c("Ki67","p53")],
              digits = 2)
 ```
 
-
 ## Make patientgroups based on primary tumor cluster compositions
 
 ```{r pgroups, eval = F}
-PID_cluster
-## Aim: Cluster patients based on tumor cluster fractions
-
-#kick out unclear clustering with little information (here 6 clusters)"
-PID_groups <- PID_cluster %>% #filter(!cluster_100 %in% c("4","6","7","10","14","18")) %>% 
-  
-  #PID_cluster <- PID_cluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
-  
-  
-  pivot_wider(id_cols = "PID",names_from = "cluster_100",values_from = "fra") %>% column_to_rownames("PID")
+#kick out unclear clustering with little information (here 6 clusters)
+#Proportions are aligned again (Correct???? - ask Nils)
+PID_cluster_1 <- PID_cluster %>% filter(!cluster_100 %in% c("10","6","7","4","18")) %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+  PID_groups <- PID_cluster_1 %>% pivot_wider(id_cols = "PID",names_from = "cluster_100",values_from = "fra") %>% column_to_rownames("PID")
 
 #double-check that rowsums are 1 
 #TO DO: need to calculate new fractions per PID if I remove cluster
 rowSums(PID_groups)
 
-meta_PID_groups <- PID_groups %>% rownames_to_column(var = "PID")
-
+#Annotation dataframes
+row_anno <- PID_groups %>% rownames_to_column(var = "PID")
+col_anno <- anno %>% filter(!cluster_100 %in% c("10","6","7","4","18"))
 
 ### Heatmap of TNBC patient groups
 
-#Prepare matrix for heatmap
-main <- PID_groups
+#Coloring
 col_main = viridis(100)
+col_cluster_groups <- col_clusters$cluster_100[names(col_clusters$cluster_100) %in% col_anno$cluster_100]
 
 ### 1. Cluster-testing
 library(clValid)
 #Internal measures
-testCL_1<- clValid(main,nClust = 3:25,clMethods = c("hierarchical","agnes","pam","kmeans"),validation="internal",metric="euclidean", method = "ward")
+testCL_1<- clValid(PID_groups,nClust = 3:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
 summary(testCL_1)
 plot(testCL_1, legend = FALSE)
+
+out_k <- kmeans(PID_groups,14,nstart = 1000,iter.max = 1000)
+
+row_anno$PID_groups <- out_k$cluster
 
 #Plot dendogram for hierarchical clustering
 #library(dendextend)
@@ -592,10 +636,49 @@ plot(testCL_1, legend = FALSE)
 #plot(avg_col_dend_MCP)
 
 #Print heatmap
-Heatmap(main, name = "Cluster fraction", col = col_main,km = 21,row_km_repeats = 1000,
-            show_column_names = T, show_row_names =  F, clustering_method_rows = "ward.D2",
-            clustering_method_columns = "ward.D2")
+Heatmap(PID_groups, name = "Cluster fraction", 
+        col = col_main,split = row_anno$PID_groups,
+        show_column_names = T, show_row_names =  F, 
+        row_title_side = c("right"),
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")%v%
+        #right_annotation = ha_right) 
+  columnAnnotation(cluster_100 = anno_simple(unfactor(col_anno$cluster_100), pch = unfactor(col_anno$cluster_100),
+                                             border=TRUE, col = col_cluster_groups),annotation_name_side = "left") %v%
+  columnAnnotation(foo = anno_text(col_anno$names))
 
+?Heatmap
+
+ha_right  <- rowAnnotation(PID_groups = anno_simple(row_anno$PID_groups,border=TRUE))
+
+
+
+
+set.seed(22)
+<- Heatmap(PID_groups, name = "Cluster fraction", col = col_main,km = 14,row_km_repeats = 1000,
+            show_column_names = T, show_row_names =  F, clustering_method_rows = "ward.D2",
+            clustering_method_columns = "ward.D2")%v%
+  columnAnnotation(cluster_100 = anno_simple(unfactor(col_anno$cluster_100), pch = unfactor(col_anno$cluster_100),border=TRUE, col = col_cluster_groups,annotation_name_side = "left"))%v%
+  columnAnnotation(foo = anno_text(col_anno$names))
+
+
+  
+
+h_PID <- draw(h_PID)
+h_PID
+
+row_order(h_PID)
+
+
+?Heatmap
+  rowAnnotation(meta_PID_groups$)
+
+
+ha <- columnAnnotation(cluster_100 = anno_simple(unfactor(col_anno$cluster_100), pch = unfactor(col_anno$cluster_100),border=TRUE))
+ha %v%  NULL            
+                 
+                 
+                 col=col_clusters$cluster_100))
 
 
 
@@ -662,6 +745,45 @@ pg1+pg2
 
 ```
 
+```{r centerlog, message = FALSE, warning = FALSE}
+#Centered log ratio transform of cluster counts per patient
+PID_groups_clr <- PID_cluster_1 %>% pivot_wider(id_cols = "PID",names_from = "cluster_100",values_from = "Freq") %>% column_to_rownames("PID")
+PID_clr <- clr(PID_groups_clr) ##Center log transformation
+PID_clr <- as.data.frame(PID_clr)
+rowSums(PID_clr) #approx 0
+
+testCL_1<- clValid(PID_clr,nClust = 3:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
+summary(testCL_1)
+plot(testCL_1, legend = FALSE)
+#k=16 with kmeans
+
+##Perform kmeans clustering - read into that
+set.seed(22)
+out_k <- kmeans(PID_clr,centers = 16,iter.max = 1000,nstart = 10000)
+row_anno$PID_groups <- out_k$cluster
+
+?kmeans
+#Print heatmap
+col_main = viridis(100)
+
+Heatmap(PID_clr, name = "CLR", 
+        col = col_main,
+        split = row_anno$PID_groups,
+        show_column_names = T, show_row_names =  F, 
+        row_title_side = c("right"),
+        border=TRUE,
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")%v%
+  columnAnnotation(cluster_100 = anno_simple(unfactor(col_anno$cluster_100), pch = unfactor(col_anno$cluster_100),
+                                             border=TRUE, col = col_cluster_groups),annotation_name_side = "left") %v%
+  columnAnnotation(foo = anno_text(col_anno$names))
+
+
+
+
+
+
+```
 
 
 
@@ -682,7 +804,7 @@ pg1+pg2
 ##IMPORTANT: change to chunk output in console for this last part 
 
 ##save plots as pdf (vector graphics)
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_ClusterTesting.pdf",width = 10,height = 5)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_ClusterTesting.pdf",width = 10,height = 5)
 p1+p2+p3
 dev.off()
 
@@ -690,9 +812,34 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_Silhouette_
 p4
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapCluster.pdf",width = 12,height = 8)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapCluster.pdf",width = 13,height = 8)
 h
 dev.off()
+
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_ClusterAnno.pdf",width = 5,height = 8)
+h_cluster_anno
+dev.off()
+
+
+dittoHeatmap(sce_sub, 
+             genes = rownames(sce_sub)[rowData(sce_sub)$cluster_channel],
+             assay = "min_max", 
+             scale = "none", 
+             order.by = "cluster_100", 
+             heatmap.colors = viridis(100), 
+             annot.by = c("cluster_100"),
+             annot.colors=col_clusters$cluster_100[order(as.numeric(names(col_clusters$cluster_100)))])
+
+corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, name="RdBu"),  
+         type="upper", order="hclust",hclust.method = "ward.D2", 
+         addCoef.col = "black", addCoefasPercent = F,# Add coefficient of correlation
+         tl.col="black", tl.srt=40, #Text label color and rotation
+         # Combine with significance
+         #p.mat = p.mat, sig.level = 0.01, insig = "blank", 
+         # hide correlation coefficient on the principal diagonal
+         diag=F
+)
+
 
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_UMAPTSNECluster.pdf",width = 12,height = 6)
 UMAP_clus+TSNE_clus
