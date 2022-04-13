@@ -127,15 +127,16 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 ## Check correlation of panCK and Ecad as epithelial cell markers
 
 ```{r marker correlations, message = FALSE}
-sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
-sce
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+
+GOI <- c("panCK","Ecad","CK7","CK5","KRT14","CK8_18")
+cor_sce <- as.data.frame(t(assay(sce,"exprs")[rowData(sce)$cluster_channel,]))
 library(psych)
 # For specific markers of interest (also shows the value distribution which is recommended)
 pairs.panels(cor_sce,
              method = "spearman",
              hist.col = "#A6CEE3",
              digits = 2)
-
 ```
 
 ## Astir for automated cell type assignment 
@@ -163,7 +164,7 @@ astir_sum <- astir_type %>% group_by(cell_type) %>% count()
 sce$astir_type <- astir_type$cell_type
 
 #Mark channels used for cell type assignment 
-astir_channel = c("panCK","Vimentin","Fibronectin","SMA","CD31_vWF","CD3","CD20","CD68")
+astir_channel = c("panCK","CD3","CD20","CD68")
 
 rowData(sce)$use_astir <- rowData(sce) %>% as.data.frame() %>% mutate(use_astir = ifelse(rownames(sce) %in% astir_channel,TRUE,FALSE)) %>% pull(use_astir)
 ```
@@ -175,7 +176,7 @@ Heatmap of clusters with GMM and ASTIR information
 
 ```{r heatmap, message=FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-#sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 
 ### 1. Marker Heatmap 
 
@@ -272,7 +273,7 @@ h <- Heatmap(t(assay(mean_sce, "min_max")),
 draw(h)
 
 ### Add cluster_categories to sce
-#sce$cluster_category <- anno_tumor$cluster_category[match(sce$cluster,anno_tumor$cluster)]
+sce$cluster_category <- anno_tumor$cluster_category[match(sce$cluster,anno_tumor$cluster)]
 
 #Save sce
 #saveRDS(sce, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
@@ -337,7 +338,7 @@ snn.sce_mixed <- buildSNNGraph(sce_mixed[rowData(sce_mixed)$use_channel==TRUE,],
                          BPPARAM = MulticoreParam(workers = (detectCores()-2), progressbar = TRUE)
                          )
 
-clusters <- igraph::cluster_louvain(snn.sce_mixed) #Memory issues with this function!
+clusters <- igraph::cluster_louvain(snn.sce_mixed) #Memory issues with this function depending on size of graph
 sce_mixed$cluster <- as.factor(clusters$membership)
 unique(sce_mixed$cluster)
 
@@ -356,6 +357,7 @@ dittoHeatmap(sce_mixed, genes = rownames(sce_mixed)[rowData(sce_mixed)$use_chann
              assay = "exprs", cluster_cols = F, order.by = "GMM_CK", scale = "none",
              heatmap.colors = viridis(100), annot.by = c("GMM_CK","GMM_CK_2","astir_type","cluster","cluster_category"))
 ```
+
 ## Define categories for downstream analysis
 Use all epithelial clusters and mixed clusters with panCK+ GMM for downstream tumor analysis.
 
@@ -379,6 +381,7 @@ Epithelial_Mixed_Clus = colData(sce) %>% as.data.frame %>% filter(cluster_catego
 upset <- upset(fromList(x), order.by = "freq")
 upset
 ```
+
 ## Visualization of results on UMAP/TSNE
 
 ```{r viz_sub, message = FALSE, warning=FALSE}
@@ -400,8 +403,8 @@ p1 <- plotReducedDim(sce_sub, dimred = "UMAP", by_exprs_values = "exprs",colour_
 p2 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "GMM_CK")+
   scale_color_brewer(palette="Set1")
 
-p3 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "astir_type")+
-  scale_color_brewer(palette="Set1")
+#p3 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "astir_type")+
+#  scale_color_brewer(palette="Set1")
 
 p4 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "cluster_category")+
   scale_color_manual(values = col_list_1[[2]])
@@ -456,7 +459,14 @@ plots_TSNE_exp <- plot_grid(plotlist = all_plots_TSNE)
 #Save sce_sub
 #saveRDS(sce_sub, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
 ```
+## Save sce objects
 
+```{r save_objects, message = FALSE, warning=FALSE}
+#Save sce
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+#Save sce_sub
+saveRDS(sce_sub, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
+```
 
 ## Save plots as pdf
 
@@ -476,16 +486,22 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_HeatmapGMMCC.p
 draw(h)
 dev.off()
 
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_HeatmapMixed.pdf",width = 10,height = 12)
+dittoHeatmap(sce_mixed, genes = rownames(sce_mixed)[rowData(sce_mixed)$use_channel],
+             assay = "exprs", cluster_cols = F, order.by = "GMM_CK", scale = "none",
+             heatmap.colors = viridis(100), annot.by = c("GMM_CK","GMM_CK_2","astir_type","cluster","cluster_category"))
+dev.off()
+
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_UpsetGMMCC.pdf",width = 8,height = 6)
 upset
 dev.off()
 
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_UMAPGMMCC.pdf",width = 10,height = 8)
-(p1+p2)/(p3+p4)
+(p1+p2)/(p4+p5)
 dev.off()
 
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_TSNEGMMCC.pdf",width = 10,height = 8)
-(p5+p6)/(p7+p8)
+(p6+p7)/(p8+p9)
 dev.off()
 
 ##IMPORTANT: change back to chunk output inline
