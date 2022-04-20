@@ -230,13 +230,13 @@ ggplot(cell_density) +
 ## Visualize critical images
 #Kick-out criteria:
 #n_cells < 300, covered_area < 8, tissue_area < 150000?
-#split acquisitions should also be excluded
-image_id_cri <- cell_density %>% filter(n_cells < 300 | covered_area < 8 | tissue_area < 150000 | str_detect(cell_density$sample_id, "split")) %>% pull(sample_id)
+#split acquisitions should also be excluded #str_detect(cell_density$sample_id, "split")
+image_id_cri <- cell_density %>% filter(n_cells < 300 | covered_area < 8 | tissue_area < 150000) %>% pull(sample_id)
 
 # Normalize and clip images
 cur_images <- images[names(images) %in% image_id_cri]
-cur_images <- normalize(cur_images, separateImages = TRUE)
-cur_images <- normalize(cur_images, inputRange = c(0, 0.2))
+cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
+cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
 
 plotPixels(cur_images,
            mask = masks[names(masks) %in% image_id_cri],
@@ -290,7 +290,7 @@ cell_snr %>% ggplot() +
     geom_point(aes(log2(ps), log2(snr),color = log2(snr))) +
     geom_label_repel(aes(log2(ps), log2(snr), label = marker)) +
     theme_classic(base_size = 15) + ylab("Signal-to-noise ratio") +
-      geom_vline(xintercept = 0,linetype="dashed", color = "grey")+
+      #geom_vline(xintercept = 0,linetype="dashed", color = "grey")+
     xlab("Signal intensity")+
   ggtitle("Cell-level QC")
 ```

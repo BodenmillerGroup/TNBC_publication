@@ -86,11 +86,11 @@ rowData(sce)$other_immune_channel <- (rowData(sce)$clean_target %in% other_immun
 ```
 
 ## Filter sce for tumor cells
-Here, we will filter for tumor cells using identified epithelial and mixed clusters (cluster categories).
+Here, we will filter for tumor cells based on the cluster category and GMM approach.
 
 ```{r filter sce, message=FALSE}
-#based on cluster categories (n=327897)
-sce <- sce[,colData(sce)$cluster_category %in% c("Epithelial","Mixed")]
+#based on cluster categories (n=315070)
+sce <- sce[,colData(sce)$analysis_cat == "tumor"]
 sce
 ```
 
@@ -172,7 +172,7 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterCh
 
 ```{r clustree, message = FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 sce
 
 #Pairwise rand index 
@@ -206,7 +206,7 @@ p3 <- ggplot(df, aes(x=k, y=rmsd))+
   geom_line(lwd = 2,color = "#377EB8")+
   theme_classic()
 
-p1+p2+p3 
+p1+p3+p2 
 
 #Chosen method => k=100
 
@@ -247,14 +247,14 @@ Observation:
 ## Add metadata to SCE object
 
 ```{r metadata addition, message=FALSE, warning=TRUE}
-sample_meta <- read.csv("/Volumes/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed.csv")
+sample_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed.csv")
 colData(sce)$ID <- str_split(colData(sce)$sample_id,"_",simplify = TRUE)[,4]
 
 #Add PID and lehmann_subtype
 colData(sce)$PID <- sample_meta$PID[match(colData(sce)$ID,sample_meta$ID_Number)]
 colData(sce)$lehmann_subtype <- sample_meta$lehmann_subtype[match(colData(sce)$ID,sample_meta$ID_Number)]
 
-patient_meta <- read.csv("/Volumes/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed_byPID.csv")
+patient_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed_byPID.csv")
 #Add Grade
 colData(sce)$grade <- patient_meta$grade[match(colData(sce)$PID,patient_meta$PID)]
 
@@ -264,18 +264,56 @@ colData(sce)$grade <- patient_meta$grade[match(colData(sce)$PID,patient_meta$PID
 
 ## Heatmap 
 
-Heatmap of clusters with additional information (other channels, spatial, grade, subtype)
+Heatmaps with different scales
 
-```{r heatmap sce_1, message=FALSE,warning=FALSE}
+```{r heatmap scales, message=FALSE,warning=FALSE}
 #Read sce after clustering and GMM
 #sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 
-### 1. Marker Heatmaps (Cluster channels, other_immune channels)
+### 1. Mean exprs counts
+#Aggregrate across cells with the mean (median is also possible)
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$cluster_channel)
 
-#Min-Max [0,1] normalization of arcsinh-transformed counts
-assay(sce, "min_max") <- assay(sce, "exprs") - rowMins(assay(sce, "exprs"))
-assay(sce, "min_max") <- assay(sce, "min_max") / (rowMaxs(assay(sce, "exprs")) - rowMins(assay(sce, "exprs")))
+cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$cell_state_channel)
 
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$other_immune_channel)
+
+h_exprs <- Heatmap(t(assay(cluster_mean_sce, "exprs")),
+        column_title = "1. mean exprs",
+        col = col_main,
+        name= "mean exprs",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+Heatmap(t(assay(cellstate_mean_sce, "exprs")),
+        col = col_main,
+        name= "mean exprs",
+        km = 1,
+        show_row_names = T,
+        show_column_names =  T,
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  Heatmap(t(assay(other_mean_sce, "exprs")),
+        col = col_main,
+        name= "mean exprs",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")
+
+### 2. Mean exprs counts
 #Aggregrate across cells with the mean (median is also possible)
 cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
                                  statistics = "mean",
@@ -290,6 +328,167 @@ cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
 other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
                                  statistics = "mean",
                                  use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$other_immune_channel)
+
+h_min_max <- Heatmap(t(assay(cluster_mean_sce, "min_max")),
+        column_title = "2. mean min_max",
+        col = col_main,
+        name= "min_max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+Heatmap(t(assay(cellstate_mean_sce, "min_max")),
+        col = col_main,
+        name= "min_max",
+        km = 1,
+        show_row_names = T,
+        show_column_names =  T,
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+Heatmap(t(assay(other_mean_sce, "min_max")),
+        col = col_main,
+        name= "min_max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")
+
+### 3. Min_max scaled mean exprs counts
+#Aggregrate across cells with the mean (median is also possible)
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$cluster_channel)
+
+assay(cluster_mean_sce, "min_max") <- assay(cluster_mean_sce, "exprs") - rowMins(assay(cluster_mean_sce, "exprs"))
+assay(cluster_mean_sce, "min_max") <- assay(cluster_mean_sce, "min_max") / (rowMaxs(assay(cluster_mean_sce, "exprs")) - rowMins(assay(cluster_mean_sce, "exprs")))
+
+cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$cell_state_channel)
+assay(cellstate_mean_sce, "min_max") <- assay(cellstate_mean_sce, "exprs") - rowMins(assay(cellstate_mean_sce, "exprs"))
+assay(cellstate_mean_sce, "min_max") <- assay(cellstate_mean_sce, "min_max") / (rowMaxs(assay(cellstate_mean_sce, "exprs")) - rowMins(assay(cellstate_mean_sce, "exprs")))
+
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$other_immune_channel)
+assay(other_mean_sce, "min_max") <- assay(other_mean_sce, "exprs") - rowMins(assay(other_mean_sce, "exprs"))
+assay(other_mean_sce, "min_max") <- assay(other_mean_sce, "min_max") / (rowMaxs(assay(other_mean_sce, "exprs")) - rowMins(assay(other_mean_sce, "exprs")))
+
+h_exprs_min_max <- Heatmap(t(assay(cluster_mean_sce, "min_max")),
+        column_title = "3. Min_max mean exprs",
+        col = col_main,
+        name= "min_max mean exprs",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+Heatmap(t(assay(cellstate_mean_sce, "min_max")),
+        col = col_main,
+        name= "min_max mean exprs",
+        km = 1,
+        show_row_names = T,
+        show_column_names =  T,
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  Heatmap(t(assay(other_mean_sce, "min_max")),
+        col = col_main,
+        name= "min_max mean exprs",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")
+
+### 4. Z-scored mean exprs counts
+#Aggregrate across cells with the mean (median is also possible)
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$cluster_channel)
+
+assay(cluster_mean_sce, "z") <- t(scale(t(assay(cluster_mean_sce, "exprs")), center = TRUE,scale=TRUE)) 
+
+#double-check Z scores
+#z_t <- as.data.frame(t(assay(cluster_mean_sce, "z")))
+#summary(z_t)
+
+cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$cell_state_channel)
+assay(cellstate_mean_sce, "z") <- t(scale(t(assay(cellstate_mean_sce, "exprs")), center = TRUE,scale=TRUE)) 
+
+
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$other_immune_channel)
+assay(other_mean_sce, "z") <- t(scale(t(assay(other_mean_sce, "exprs")), center = TRUE,scale=TRUE)) 
+
+h_exprs_z <- Heatmap(t(assay(cluster_mean_sce, "z")),
+        column_title = "4. Z-scores mean exprs",
+        #col = col_main,
+        name= "z mean exprs",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+Heatmap(t(assay(cellstate_mean_sce, "z")),
+        #col = col_main,
+        name= "z mean exprs",
+        km = 1,
+        show_row_names = T,
+        show_column_names =  T,
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+Heatmap(t(assay(other_mean_sce, "z")),
+        #col = col_main,
+        name= "z mean exprs",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")
+
+h_exprs+
+h_min_max+
+h_exprs_min_max+
+h_exprs_z
+
+#Observation: Mean "raw" exprs counts are most interpretable and logical - use for downstream analysis
+```
+
+
+Rich heatmap of clusters with additional information (other channels, spatial, grade, subtype)
+
+```{r heatmap sce_1, message=FALSE,warning=FALSE}
+#Read sce after clustering and GMM
+#sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+
+### 1. Marker Heatmaps (Cluster channels, other_immune channels)
+
+#Aggregrate across cells with the mean (median is also possible)
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$cluster_channel)
+
+cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$cell_state_channel)
+
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
                                  subset.row = rowData(sce)$other_immune_channel)
 
 ### 2. Spatial Heatmap
@@ -320,7 +519,8 @@ spatial_norm <- as.data.frame(lapply(spatial, min_max_norm))
 anno <- colData(cluster_mean_sce) %>% as.data.frame %>% select(cluster_100, ncells)
 
 ##Set Preliminary cluster names (after visual inspection)
-cluster_names <- c("CK5/7+","p53/EGFR/Ki67+","KRT14/Vim+","CK5low","Vim+","Unclear","Unclear","Ki67/p53+","Vim/Ki67+","Unclear","KRT14/HER2+","CD15+","Vim/Ki67/p53+","CK7+","Vim/Her2/CK7+","Vim/Ki67+_2","Vim/p53/cMYC+","GATA3low","HER2+","CK7/8/18+","Vim/CK5+","ER/GATA3+","KRT14+","KRT14/Ki67+","p53/cMYC+")
+cluster_names <- c("CK5/7+","EGFR/Ki67/p53+","CK5/KRT14+","CK5+/Ki67low","Vim+","Vim_low","Low","Vim/CK7+","Ki67+","Low","Vim/Ki67+","KRT14+/Vim","CD15+","Ki67/Vim+/CK5_low","CK7+","CK5/KRT14/Vim+",
+                   "Vim/p53/cMYC+","Ki67/CK7/8/18+","CK8/18low","Her2low","CK7/8/18+/mTORlow","CK5/8/18/CD15/Vim+","ER/GATA3+","GATA3+")
 anno$names <- cluster_names
 sce$cluster_names <- anno$names[match(sce$cluster_100,anno$cluster_100)]
 
@@ -346,7 +546,6 @@ n_SID <- cluster_SID %>% filter(Freq>0) %>% group_by(cluster_100) %>% count(name
 cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cluster_100,PID) %>% group_by(cluster_100) %>% table() %>% as.data.frame
 n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(cluster_100) %>% count(name = "n_PID") %>% column_to_rownames("cluster_100")
 
-
 # Cluster categories contributing to clusters
 cluster_CC <- colData(sce) %>% as.data.frame() %>% select(cluster_100,cluster_category) %>% group_by(cluster_100) %>% table() %>% as.data.frame
 cluster_CC <- cluster_CC %>% group_by(cluster_100) %>% mutate(fra = Freq/sum(Freq)) 
@@ -359,10 +558,10 @@ nPID_SID <- cbind(n_SID,n_PID)
 col_main = viridis(100)
 
 #retrieve row_order for sequential color scheme 
-row_order_clusters <- row_order(Heatmap(t(assay(cluster_mean_sce, "min_max")),
+row_order_clusters <- row_order(Heatmap(t(assay(cluster_mean_sce, "exprs")),
         column_title = "cluster_channels",
         col = col_main,
-        name= "min-max",
+        name= "mean exprs",
         km = 1,
         show_row_names = T, 
         show_column_names =  T, 
@@ -380,28 +579,29 @@ names(col_clusters) <- "cluster_100"
 
 
 ###6. Plot combined Heatmap
-h <-Heatmap(t(assay(cluster_mean_sce, "min_max")),
+#6.1 Heatmap not scaled min_max scores
+h <-Heatmap(t(assay(cluster_mean_sce, "exprs")),
         column_title = "cluster_channels",
         col = col_main,
-        name= "min-max",
+        name= "mean exprs",
         km = 1,
         show_row_names = T, 
         show_column_names =  T, 
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
-  Heatmap(t(assay(cellstate_mean_sce, "min_max")),
+  Heatmap(t(assay(cellstate_mean_sce, "exprs")),
         column_title = "cellstate_channels",
         col = col_main,
-        name= "min-max",
+        name= "mean exprs",
         km = 1,
         show_row_names = T,
         show_column_names =  T,
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
-  Heatmap(t(assay(other_mean_sce, "min_max")),
+  Heatmap(t(assay(other_mean_sce, "exprs")),
         column_title = "other_channels",
         col = col_main,
-        name= "min-max",
+        name= "mean exprs",
         km = 1,
         show_row_names = T, 
         show_column_names =  T, 
@@ -410,7 +610,7 @@ h <-Heatmap(t(assay(cluster_mean_sce, "min_max")),
   Heatmap(spatial_norm,
           column_title = "spatial_features",
           col = col_main,
-        name= "min-max",
+        name= "mean exprs",
         km = 1,
         show_row_names = T, 
         show_column_names =  T, 
@@ -426,7 +626,8 @@ h <-Heatmap(t(assay(cluster_mean_sce, "min_max")),
 
 draw(h)
 
-#Cluster annotation heatmap
+
+#6.3 Cluster annotation heatmap
 h_cluster_anno <- rowAnnotation(cluster_100 = anno_simple((row_order_clusters), pch = as.character(row_order_clusters),border=TRUE,col=col_clusters$cluster_100))+
   rowAnnotation(foo = anno_text(anno$names[row_order_clusters]))
 
@@ -453,10 +654,10 @@ sce_sub = runTSNE(sce_sub[rowData(sce_sub)$cluster_channel,], exprs_values = "ex
 ## 1. Visualize UMAP and TSNE
 #panCK and GMM_CK
 UMAP_clus <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "cluster_100")+
-  scale_color_manual(values = col_list_1[[1]])
+  scale_color_manual(values = col_clusters$cluster_100)
 
 TSNE_clus <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_100")+
-  scale_color_manual(values = col_list_1[[1]])
+  scale_color_manual(values = col_clusters$cluster_100)
 
 (UMAP_clus+TSNE_clus)
 
@@ -492,7 +693,7 @@ exp_plots_TSNE <- plot_grid(plotlist = all_plots_TSNE)
 #Heatmap visualization (all cells)
 dittoHeatmap(sce_sub, 
              genes = rownames(sce_sub)[rowData(sce_sub)$cluster_channel],
-             assay = "min_max", 
+             assay = "exprs", 
              scale = "none", 
              order.by = "cluster_100", 
              heatmap.colors = viridis(100), 
@@ -597,7 +798,7 @@ corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, n
 )
 
 # For specific markers of interest (also shows the value distribution which is recommended)
-pairs.panels(cor_sce[,c("Ki67","p53")],
+pairs.panels(cor_sce[,c("CK5","KRT14")],
              method = "spearman",
              hist.col = "royalblue1",
              digits = 2)
@@ -608,10 +809,8 @@ pairs.panels(cor_sce[,c("Ki67","p53")],
 #Option 1: Based on cluster fractions per PID
 
 ```{r pgroups, eval = F}
-#kick out unclear clustering with little information (here 6 clusters)
-#Proportions are aligned again (Correct???? - ask Nils)
-PID_cluster_1 <- PID_cluster %>% filter(!cluster_100 %in% c("10","6","7","4","18")) %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
-  PID_groups <- PID_cluster_1 %>% pivot_wider(id_cols = "PID",names_from = "cluster_100",values_from = "fra") %>% column_to_rownames("PID")
+#kick out unclear clustering with little information ("7","10") or little cells (n<2000 cells, "22","24")
+PID_groups <- PID_cluster %>% filter(!cluster_100 %in% c("7","10","22","24")) %>% pivot_wider(id_cols = "PID",names_from = "cluster_100",values_from = "fra") %>% column_to_rownames("PID")
 
 #double-check that rowsums are 1 
 #TO DO: need to calculate new fractions per PID if I remove cluster
@@ -619,7 +818,7 @@ rowSums(PID_groups)
 
 #Annotation dataframes
 row_anno <- PID_groups %>% rownames_to_column(var = "PID")
-col_anno <- anno %>% filter(!cluster_100 %in% c("10","6","7","4","18"))
+col_anno <- anno %>% filter(!cluster_100 %in% c("7","10","22","24"))
 
 ### 1. Cluster-testing
 library(clValid)
@@ -627,154 +826,15 @@ library(clValid)
 testCL<- clValid(PID_groups,nClust = 3:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
 summary(testCL)
 plot(testCL, legend = FALSE)
-#Selected method: kmeans, 14
+
+#testCL_1<- clValid(PID_groups,nClust = 3:20,clMethods = c("hierarchical","agnes","kmeans"),validation="stability",metric="euclidean", method = "ward")
+#summary(testCL_1)
+#plot(testCL_1, legend = FALSE)
+#Selected method: kmeans, 12
 
 #kmeans clustering
 set.seed(22)
-out_k <- kmeans(PID_groups,14,nstart = 10000,iter.max = 10000)
-
-row_anno$PID_groups <- out_k$cluster
-
-### 2. Row annotation
-#Add grade / lehmann subtype (potentiually as bubble plot? - not yet performed)
-row_anno$grade <- sce$grade[match(row_anno$PID,sce$PID)]
-row_anno$lehmann_subtype <- sce$lehmann_subtype[match(row_anno$PID,sce$PID)]
-
-row_anno[is.na(row_anno)]<- "Unknown"
-
-# Proportion of grade per patient group
-grade <- row_anno %>% select(PID_groups,grade) %>% group_by(PID_groups) %>% table() %>% as.data.frame
-grade <- grade %>% group_by(PID_groups) %>% mutate(fra = Freq/sum(Freq)) 
-grade <- grade %>% select(-Freq) %>% pivot_wider(id_cols = PID_groups,names_from = grade,values_from = fra) %>% column_to_rownames("PID_groups")
-
-# Proportion of lehmann subtype per patient group
-subtype <- row_anno  %>% select(PID_groups,lehmann_subtype) %>% group_by(PID_groups) %>% table() %>% as.data.frame
-subtype <- subtype %>% group_by(PID_groups) %>% mutate(fra = Freq/sum(Freq)) 
-subtype <- subtype %>% select(-Freq) %>% pivot_wider(id_cols = PID_groups,names_from = lehmann_subtype,values_from = fra) %>% column_to_rownames("PID_groups")
-
-#Color scheme
-col <- list(PID_groups = colorRampPalette(brewer.pal(9, "Set3"))(length(unique(row_anno$PID_groups))),
-           lehmann_subtype = colorRampPalette(brewer.pal(9, "Set2"))(length(unique(row_anno$lehmann_subtype))),
-           grade = colorRampPalette(brewer.pal(2, "Reds"))(length(unique(row_anno$grade)))
-)
-
-col_list_1 <- foreach(i=1:3) %do% {
-  color= col[[i]]
-  names(color)= sort(unique(row_anno[,names(col)[i]]))
-  color
-}
-names(col_list_1) <- c(names(col))
-
-ha_right  <-  rowAnnotation(PID_groups = as.factor(row_anno$PID_groups), col = col_list_1[1], border = TRUE)
-
-#Coloring main heatmap and column anno
-col_main = viridis(100)
-col_cluster_groups <- col_clusters$cluster_100[names(col_clusters$cluster_100) %in% col_anno$cluster_100]
-
-#Print heatmap
-h_g <- Heatmap(PID_groups, name = "Cluster fraction", 
-        col = col_main,split = row_anno$PID_groups,
-        show_column_names = T, show_row_names =  F, 
-        row_title_side = c("right"),
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2",
-        right_annotation = ha_right,
-        row_title_rot = 0) %v%
-  columnAnnotation(cluster_100 = anno_simple(unfactor(col_anno$cluster_100), pch = unfactor(col_anno$cluster_100),
-                                             border=TRUE, col = col_cluster_groups),annotation_name_side = "left") %v%
-  columnAnnotation(foo = anno_text(col_anno$names))
-
-draw(h_g)
-
-### 2. Graph-based clustering based on cluster fractions
-
-# #k=5
-# set.seed(22)
-# out <- Rphenograph(PID_groups, k = 5)
-# PID_groups_5 <- factor(membership(out[[2]]))
-# PID_groups_5
-# PID_groups_df <- data.frame(PID_groups = PID_groups_5, PID = rownames(PID_groups))
-# sce$PID_groups_5 <- PID_groups_df$PID_groups[match(sce$PID,PID_groups_df$PID)]
-# meta_PID_groups$PID_groups_5 <- PID_groups_df$PID_groups[match(meta_PID_groups$PID,PID_groups_df$PID)]
-# 
-# #k=10
-# set.seed(22)
-# out <- Rphenograph(PID_groups, k = 10)
-# PID_groups_10 <- factor(membership(out[[2]]))
-# PID_groups_10
-# PID_groups_df <- data.frame(PID_groups = PID_groups_10, PID = rownames(PID_groups))
-# sce$PID_groups_10 <- PID_groups_df$PID_groups[match(sce$PID,PID_groups_df$PID)]
-# meta_PID_groups$PID_groups_10 <- PID_groups_df$PID_groups[match(meta_PID_groups$PID,PID_groups_df$PID)]
-# 
-# #k=30
-# set.seed(22)
-# out <- Rphenograph(PID_groups, k = 30)
-# PID_groups_30 <- factor(membership(out[[2]]))
-# PID_groups_30
-# PID_groups_df <- data.frame(PID_groups = PID_groups_30, PID = rownames(PID_groups))
-# sce$PID_groups_30 <- PID_groups_df$PID_groups[match(sce$PID,PID_groups_df$PID)]
-# meta_PID_groups$PID_groups_30 <- PID_groups_df$PID_groups[match(meta_PID_groups$PID,PID_groups_df$PID)]
-# 
-# #k=50
-# set.seed(22)
-# out <- Rphenograph(PID_groups, k = 50)
-# PID_groups_50 <- factor(membership(out[[2]]))
-# PID_groups_50
-# PID_groups_df <- data.frame(PID_groups = PID_groups_50, PID = rownames(PID_groups))
-# sce$PID_groups_50 <- PID_groups_df$PID_groups[match(sce$PID,PID_groups_df$PID)]
-# meta_PID_groups$PID_groups_50 <- PID_groups_df$PID_groups[match(meta_PID_groups$PID,PID_groups_df$PID)]
-# 
-# #Over different resolution parameters - Silhouette width [-1,1,max], Purity[0,1,max]
-# clusters <- colnames(meta_PID_groups)[str_detect(colnames(meta_PID_groups),"PID_groups_[:digit:]")]
-# 
-# df <- foreach(i = seq_along(clusters),.combine = rbind) %do% {
-# num_clus <- length(unique(meta_PID_groups[,clusters[i]]))
-# sil <- approxSilhouette(PID_groups, clusters=meta_PID_groups[,clusters[i]])
-# data.frame(num_clus = num_clus,
-#            k = as.numeric(str_split(clusters[i],"_",simplify = TRUE)[,3]), 
-#            sil = mean(sil$width))
-# }
-# 
-# pg1 <- ggplot(df, aes(x=k, y=num_clus))+ 
-#   geom_line(lwd = 2,color = "#377EB8")+
-#   theme_classic()
-# pg2 <- ggplot(df, aes(x=k, y=sil))+ 
-#   geom_line(lwd = 2,color = "#377EB8")+
-#   theme_classic()
-# 
-# pg1+pg2
-```
-#Option 2: Based on center-log-ratio of cluster counts per PID
-
-```{r centerlog, message = FALSE, warning = FALSE}
-#Centered log ratio transform of cluster counts per patient
-PID_groups_clr <- PID_cluster_1 %>% pivot_wider(id_cols = "PID",names_from = "cluster_100",values_from = "Freq") %>% column_to_rownames("PID")
-PID_clr <- clr(PID_groups_clr) ##Center log transformation
-PID_clr <- as.data.frame(PID_clr)
-rowSums(PID_clr) #approx 0
-
-## is the same as computing the CLR from the proportions??
-# PID_groups_clr_1 <- PID_cluster_1 %>% pivot_wider(id_cols = "PID",names_from = "cluster_100",values_from = "fra") %>% column_to_rownames("PID")
-# PID_clr_1 <- clr(PID_groups_clr_1) ##Center log transformation
-# PID_clr_1 <- as.data.frame(PID_clr_1)
-# rowSums(PID_clr_1) #approx 0
-
-#Annotation dataframes
-row_anno <- PID_clr %>% rownames_to_column(var = "PID")
-col_anno <- anno %>% filter(!cluster_100 %in% c("10","6","7","4","18"))
-
-### 1. Cluster-testing
-library(clValid)
-#Internal measures
-testCL_1<- clValid(PID_clr,nClust = 3:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
-summary(testCL_1)
-plot(testCL_1, legend = FALSE)
-#Selected method: kmeans, 16
-
-#kmeans clustering
-set.seed(22)
-out_k <- kmeans(PID_clr,16,nstart = 10000,iter.max = 10000)
-
+out_k <- kmeans(PID_groups,16,nstart = 10000,iter.max = 10000)
 row_anno$PID_groups <- out_k$cluster
 
 ### 2. Row annotation
@@ -814,20 +874,169 @@ col_main = viridis(100)
 col_cluster_groups <- col_clusters$cluster_100[names(col_clusters$cluster_100) %in% col_anno$cluster_100]
 
 #Print heatmap
-h_g_1 <- Heatmap(PID_clr, name = "CLR of cluster fraction", 
+h_g <- Heatmap(PID_groups, name = "Cluster fraction", 
         col = col_main,split = row_anno$PID_groups,
         show_column_names = T, show_row_names =  F, 
         row_title_side = c("right"),
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2",
         right_annotation = ha_right,
-        row_title_rot = 0)%v%
+        row_title_rot = 0) %v%
+  columnAnnotation(cluster_100 = anno_simple(unfactor(col_anno$cluster_100), pch = unfactor(col_anno$cluster_100),
+                                             border=TRUE, col = col_cluster_groups),annotation_name_side = "left") %v%
+  columnAnnotation(foo = anno_text(col_anno$names))
+
+draw(h_g)
+
+```
+#Option 2: Based on center-log-ratio of cluster counts per PID
+
+```{r centerlog, message = FALSE, warning = FALSE}
+library(compositions)
+#Centered log ratio transform of cluster counts per patient
+PID_groups_clr <- PID_groups
+PID_clr <- clr(PID_groups_clr) ##Center log transformation
+PID_clr <- as.data.frame(PID_clr)
+rowSums(PID_clr) #approx 0
+
+## is the same as computing the CLR from the proportions??
+# PID_groups_clr_1 <- PID_cluster_1 %>% pivot_wider(id_cols = "PID",names_from = "cluster_100",values_from = "fra") %>% column_to_rownames("PID")
+# PID_clr_1 <- clr(PID_groups_clr_1) ##Center log transformation
+# PID_clr_1 <- as.data.frame(PID_clr_1)
+# rowSums(PID_clr_1) #approx 0
+
+#Annotation dataframes
+row_anno_1 <- PID_clr %>% rownames_to_column(var = "PID")
+col_anno <- anno %>% filter(!cluster_100 %in% c("7","10","22","24"))
+
+### 1. Cluster-testing
+library(clValid)
+#Internal measures
+testCL_1<- clValid(PID_clr,nClust = 3:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
+summary(testCL_1)
+plot(testCL_1, legend = FALSE)
+#Selected method: kmeans, 16
+
+#kmeans clustering
+set.seed(22)
+out_k <- kmeans(PID_clr,centers = 14,nstart = 10000,iter.max = 10000)
+
+row_anno_1$PID_groups <- out_k$cluster
+
+### 2. Row annotation
+#Add grade / lehmann subtype (potentiually as bubble plot? - not yet performed)
+row_anno_1$grade <- sce$grade[match(row_anno_1$PID,sce$PID)]
+row_anno_1$lehmann_subtype <- sce$lehmann_subtype[match(row_anno_1$PID,sce$PID)]
+
+row_anno_1[is.na(row_anno_1)]<- "Unknown"
+
+# # Proportion of grade per patient group
+# grade <- row_anno_1 %>% select(PID_groups,grade) %>% group_by(PID_groups) %>% table() %>% as.data.frame
+# grade <- grade %>% group_by(PID_groups) %>% mutate(fra = Freq/sum(Freq)) 
+# grade <- grade %>% select(-Freq) %>% pivot_wider(id_cols = PID_groups,names_from = grade,values_from = fra) %>% column_to_rownames("PID_groups")
+# 
+# # Proportion of lehmann subtype per patient group
+# subtype <- row_anno_1  %>% select(PID_groups,lehmann_subtype) %>% group_by(PID_groups) %>% table() %>% as.data.frame
+# subtype <- subtype %>% group_by(PID_groups) %>% mutate(fra = Freq/sum(Freq)) 
+# subtype <- subtype %>% select(-Freq) %>% pivot_wider(id_cols = PID_groups,names_from = lehmann_subtype,values_from = fra) %>% column_to_rownames("PID_groups")
+
+#Color scheme
+col <- list(PID_groups = colorRampPalette(brewer.pal(9, "Set3"))(length(unique(row_anno_1$PID_groups))),
+           lehmann_subtype = colorRampPalette(brewer.pal(9, "Set2"))(length(unique(row_anno_1$lehmann_subtype))),
+           grade = colorRampPalette(brewer.pal(2, "Reds"))(length(unique(row_anno_1$grade)))
+)
+
+col_list_1 <- foreach(i=1:3) %do% {
+  color= col[[i]]
+  names(color)= sort(unique(row_anno_1[,names(col)[i]]))
+  color
+}
+names(col_list_1) <- c(names(col))
+
+ha_right  <-  rowAnnotation(PID_groups = as.factor(row_anno_1$PID_groups), col = col_list_1[1], border = TRUE)
+
+#Coloring main heatmap and column anno
+col_main = viridis(100)
+col_cluster_groups <- col_clusters$cluster_100[names(col_clusters$cluster_100) %in% col_anno$cluster_100]
+
+#Print heatmap
+h_g_1 <- Heatmap(PID_clr, name = "CLR of cluster fraction", 
+        #col = col_main,
+        split = row_anno_1$PID_groups,
+        show_column_names = T, show_row_names =  F, 
+        row_title_side = c("right"),
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        right_annotation = ha_right,
+        row_title_rot = 0,
+        border = TRUE)%v%
   
 columnAnnotation(cluster_100 = anno_simple(unfactor(col_anno$cluster_100), pch = unfactor(col_anno$cluster_100),
                                              border=TRUE, col = col_cluster_groups),annotation_name_side = "left") %v%
   columnAnnotation(foo = anno_text(col_anno$names))
 
 draw(h_g_1)
+```
+```{r compare_PIDgroups, message = FALSE, warning=FALSE}
+#all.equal(row_anno_1$PID,row_anno$PID)
+#log10(x+1) possible
+PID_group_comp <- Heatmap(table(row_anno_1$PID_groups,row_anno$PID_groups),
+        cluster_rows = FALSE,
+        cluster_columns = FALSE, 
+        col = col_main,
+        row_title = "CLR_PID_groups",
+        row_title_side = "right",
+        column_title = "Fraction_PID_groups",
+        column_title_side = "bottom",
+        name = "n_PID per group")
+draw(PID_group_comp)
+
+
+
+## Cluster fraction correlation for each patient group
+PID_groups_cor <- PID_cluster
+PID_groups_cor$PID_group <- row_anno$PID_groups[match(PID_groups_cor$PID,row_anno$PID)]
+PID_groups_cor$PID_group_clr <- row_anno_1$PID_groups[match(PID_groups_cor$PID,row_anno_1$PID)]
+
+#by fraction approach
+PID_groups_cor_1 <- foreach(i = unique(PID_groups_cor$PID_group),.combine = "rbind")%do%{
+PID <- PID_groups_cor %>% filter(PID_group == i) %>% select(-Freq,-PID_group,-PID_group_clr) %>% pivot_wider(id_cols = cluster_100,names_from = PID,values_from = fra) %>% column_to_rownames("cluster_100")
+cor <- cor(PID,method = "spearman")
+cor <- unique(as.vector(cor))
+cor <- cor[!cor == 1]
+data.frame(cor = cor, PID_group = as.character(i), category = "PID_group")
+}
+
+ggplot(PID_groups_cor_1, aes(x = category, y = cor))+
+  facet_wrap(~as.factor(PID_group))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID_group), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  theme_classic(base_size = 12)+
+  theme(axis.title.x = element_blank())+
+  ylab("Cor. of cluster fractions in PID groups (fraction-based)")+
+  ggtitle(paste("Median Spearman rho = ",round(median(PID_groups_cor_1$cor, na.rm = TRUE), digits = 2)))
+
+#by clr approach
+PID_groups_cor_clr <- foreach(i = unique(PID_groups_cor$PID_group_clr),.combine = "rbind")%do%{
+PID <- PID_groups_cor %>% filter(PID_group_clr == i) %>% select(-Freq,-PID_group,-PID_group_clr) %>% pivot_wider(id_cols = cluster_100,names_from = PID,values_from = fra) %>% column_to_rownames("cluster_100")
+cor <- cor(PID,method = "spearman")
+cor <- unique(as.vector(cor))
+cor <- cor[!cor == 1]
+data.frame(cor = cor, PID_group = as.character(i), category = "PID_group")
+}
+
+ggplot(PID_groups_cor_clr, aes(x = category, y = cor))+
+  facet_wrap(~as.factor(PID_group))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID_group), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  theme_classic(base_size = 12)+
+  theme(axis.title.x = element_blank())+
+  ylab("Cor. of cluster fractions in PID groups (fraction-based)")+
+  ggtitle(paste("Median Spearman rho = ",round(median(PID_groups_cor_clr$cor, na.rm = TRUE), digits = 2)))
+
+
 ```
 
 ## Save plots as pdf
