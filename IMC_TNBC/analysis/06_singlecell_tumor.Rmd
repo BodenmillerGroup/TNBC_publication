@@ -471,7 +471,7 @@ Rich heatmap of clusters with additional information (other channels, spatial, g
 
 ```{r heatmap sce_1, message=FALSE,warning=FALSE}
 #Read sce after clustering and GMM
-#sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 
 ### 1. Marker Heatmaps (Cluster channels, other_immune channels)
 
@@ -579,7 +579,7 @@ names(col_clusters) <- "cluster_100"
 
 
 ###6. Plot combined Heatmap
-#6.1 Heatmap not scaled min_max scores
+#6.1 Heatmap not scaled exprs scores
 h <-Heatmap(t(assay(cluster_mean_sce, "exprs")),
         column_title = "cluster_channels",
         col = col_main,
@@ -626,13 +626,11 @@ h <-Heatmap(t(assay(cluster_mean_sce, "exprs")),
 
 draw(h)
 
-
-#6.3 Cluster annotation heatmap
+#6.2 Cluster annotation heatmap
 h_cluster_anno <- rowAnnotation(cluster_100 = anno_simple((row_order_clusters), pch = as.character(row_order_clusters),border=TRUE,col=col_clusters$cluster_100))+
   rowAnnotation(foo = anno_text(anno$names[row_order_clusters]))
 
 draw(h_cluster_anno)
-
 #Save sce
 #saveRDS(sce,"/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 ```
@@ -977,6 +975,8 @@ columnAnnotation(cluster_100 = anno_simple(unfactor(col_anno$cluster_100), pch =
 
 draw(h_g_1)
 ```
+
+
 ```{r compare_PIDgroups, message = FALSE, warning=FALSE}
 #all.equal(row_anno_1$PID,row_anno$PID)
 #log10(x+1) possible
@@ -990,8 +990,6 @@ PID_group_comp <- Heatmap(table(row_anno_1$PID_groups,row_anno$PID_groups),
         column_title_side = "bottom",
         name = "n_PID per group")
 draw(PID_group_comp)
-
-
 
 ## Cluster fraction correlation for each patient group
 PID_groups_cor <- PID_cluster
@@ -1033,11 +1031,100 @@ ggplot(PID_groups_cor_clr, aes(x = category, y = cor))+
   guides(color = "none")+
   theme_classic(base_size = 12)+
   theme(axis.title.x = element_blank())+
-  ylab("Cor. of cluster fractions in PID groups (fraction-based)")+
+  ylab("Cor. of cluster fractions in PID groups (CLR-based)")+
   ggtitle(paste("Median Spearman rho = ",round(median(PID_groups_cor_clr$cor, na.rm = TRUE), digits = 2)))
+```
+## Calculate shannon diversity index for PID groups
+
+```{r shannon div, message = FALSE, warning= FALSE}
+library(vegan)
+library(ggpubr)
+
+## 1.For fraction-based
+#Calculate shannon-diversity/equitability for each patient separately
+shannon_df <- PID_groups_cor %>% pivot_wider(id_cols = PID,names_from = cluster_100, values_from = fra) %>% column_to_rownames("PID")
+diversity(shannon_df)
+
+shannon_plot <- data.frame(shannon_div = diversity(shannon_df),
+                           number = specnumber(shannon_df),
+                           shannon_equi = (diversity(shannon_df)/log(specnumber(shannon_df))),
+                           #PID = rownames(shannon_df),
+                           PID_group = as.character(PID_groups_cor$PID_group[match(rownames(shannon_df),PID_groups_cor$PID)]))
+
+kw_shannon <- compare_means(formula = shannon_equi ~ PID_group,method = "kruskal.test",p.adjust.method = "BH",shannon_plot)
+
+#Plot shannon equitability for PID groups and compare
+ggplot(shannon_plot,aes(x=reorder(PID_group,shannon_equi),y=shannon_div,size=number,color=PID_group))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID_group), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  theme_classic()+
+  xlab("PID_group")+
+  ylab("Shannon Equitability Index")+
+  ggtitle("Epithelial phenotypes", subtitle = paste("p(Kruskal-Wallis) = ",kw_shannon$p))
+
+## Use linear model
+#NOT SURE WHAT I AM CALCULATING HERE - double-check!!!
+lm_shannon <- summary(lm(shannon_equi ~ PID_group, shannon_plot))
+lm_shannon <- as.data.frame(lm_shannon$coefficients) 
+lm_shannon$p_adj <- p.adjust(lm_shannon$`Pr(>|t|)`,"BH")
+lm_shannon <- cbind(lm_shannon,confint(lm(shannon_equi ~ PID_group, shannon_plot)))
+lm_shannon$PID_group <- rownames(lm_shannon)
+
+ggplot(lm_shannon,aes(x=PID_group,y=Estimate,color=PID_group))+
+  geom_point(aes(size = desc(p_adj)))+
+  geom_errorbar(aes(ymin = lm_shannon$`2.5 %`,
+                    ymax = lm_shannon$`97.5 %`))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  geom_hline(yintercept = 0)+
+  xlab("PID_group")+
+  ylab("Association with Shannon Equitability Index")+
+  coord_cartesian(ylim = (c(-1,1)))
+  
+
+## 2.For CLR-based
+shannon_plot_1 <- data.frame(shannon_div = diversity(shannon_df),
+                           number = specnumber(shannon_df),
+                           shannon_equi = (diversity(shannon_df)/log(specnumber(shannon_df))),
+                           #PID = rownames(shannon_df),
+                           PID_group_clr = as.character(PID_groups_cor$PID_group_clr[match(rownames(shannon_df),PID_groups_cor$PID)]))
+
+kw_shannon_1 <- compare_means(formula = shannon_equi ~ PID_group_clr,method = "kruskal.test",p.adjust.method = "BH",shannon_plot_1)
+
+#Plot shannon equitability for PID groups and compare
+ggplot(shannon_plot_1,aes(x=reorder(PID_group_clr,shannon_equi),y=shannon_div,size=number,color=PID_group_clr))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID_group_clr), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  theme_classic()+
+  xlab("PID_group")+
+  ylab("Shannon Equitability Index")+
+  ggtitle("Epithelial phenotypes", subtitle = paste("p(Kruskal-Wallis) = ",kw_shannon_1$p))
+  
+## Use linear model
+#NOT SURE WHAT I AM CALCULATING HERE - double-check!!!
+lm_shannon <- summary(lm(shannon_equi ~ PID_group_clr, shannon_plot_1))
+lm_shannon <- as.data.frame(lm_shannon$coefficients) 
+lm_shannon$p_adj <- p.adjust(lm_shannon$`Pr(>|t|)`,"BH")
+lm_shannon <- cbind(lm_shannon,confint(lm(shannon_equi ~ PID_group_clr, shannon_plot_1)))
+lm_shannon$PID_group_clr <- rownames(lm_shannon)
+
+ggplot(lm_shannon,aes(x=PID_group_clr,y=Estimate,color=PID_group_clr))+
+  geom_point(aes(size = desc(p_adj)))+
+  geom_errorbar(aes(ymin = lm_shannon$`2.5 %`,
+                    ymax = lm_shannon$`97.5 %`))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  geom_hline(yintercept = 0)+
+  xlab("PID_group_clr")+
+  ylab("Association with Shannon Equitability Index")+
+  coord_cartesian(ylim = (c(-1,1)))
 
 
 ```
+
+
+
+
 
 ## Save plots as pdf
 
