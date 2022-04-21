@@ -73,24 +73,24 @@ sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 
 ## Define markers for clustering
 ```{r tumor_markers, message = FALSE, warning = FALSE}
-cluster_channel = c("CK5","CK8_18","CD15","KRT14","cMYC","HER2","ER","PR","p53","AR","GATA3","EGFR","p_mTOR","CK7","Ki67","Vimentin","HLADR")
+cluster_channel = c("Vimentin","SMA","Fibronectin","CD68","CD3","CD20","CD11c","CD45","CD20","CD8a","CD4","CD31_vWF","CD15","GATA3")
 
-cell_state_channel = c("pH3","H3K27me3","Bcl2", "c_Cas3_PARP","S6", "CD44","CAIX")
+other_epi_channel = c("panCK","Ecad","CK5","CK8_18","KRT14","cMYC","HER2","ER","PR","p53","AR","EGFR","p_mTOR","CK7")
 
-other_immune_channel = c("panCK","Ecad","SMA","Fibronectin","CD68","CD3","CD20","HLA_DR","CD11c","CD45","CD20","CD8a","CD4","CD31_vWF")
+cell_state_channel = c("pH3","H3K27me3","Bcl2", "c_Cas3_PARP","S6", "CD44","CAIX","Ki67")
 
 #Add to sce
 rowData(sce)$cluster_channel <- (rowData(sce)$clean_target %in% cluster_channel)
 rowData(sce)$cell_state_channel <- (rowData(sce)$clean_target %in% cell_state_channel)
-rowData(sce)$other_immune_channel <- (rowData(sce)$clean_target %in% other_immune_channel)
+rowData(sce)$other_epi_channel <- (rowData(sce)$clean_target %in% other_epi_channel)
 ```
 
 ## Filter sce for tumor cells
 Here, we will filter for tumor cells based on the cluster category and GMM approach.
 
 ```{r filter sce, message=FALSE}
-#based on cluster categories (n=315070)
-sce <- sce[,colData(sce)$analysis_cat == "tumor"]
+#based on cluster categories (n=339287)
+sce <- sce[,colData(sce)$analysis_cat == "non_tumor"]
 sce
 ```
 
@@ -113,7 +113,7 @@ sce$cluster_30 <- as.factor(clusters_3$membership)
 unique(sce$cluster_30)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 
 
 #k=50
@@ -131,7 +131,7 @@ sce$cluster_50 <- as.factor(clusters$membership)
 unique(sce$cluster_50)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 
 #k=75
 set.seed(22)
@@ -148,7 +148,7 @@ sce$cluster_75 <- as.factor(clusters_1$membership)
 unique(sce$cluster_75)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 
 #k=100
 set.seed(22)
@@ -165,7 +165,7 @@ sce$cluster_100 <- as.factor(clusters_2$membership)
 unique(sce$cluster_100)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 
 #k=125
 set.seed(22)
@@ -182,14 +182,14 @@ sce$cluster_125 <- as.factor(clusters_3$membership)
 unique(sce$cluster_125)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 ```
 
 ### Cluster stability testing and comparison
 
 ```{r clustree, message = FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 sce
 
 #Pairwise rand index 
@@ -276,7 +276,7 @@ patient_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_met
 colData(sce)$grade <- patient_meta$grade[match(colData(sce)$PID,patient_meta$PID)]
 
 #SaveSCEwithmetadata
-#saveRDS(sce,"/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+#saveRDS(sce,"/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 ```
 
 ## Heatmap 
@@ -285,7 +285,7 @@ Heatmaps with different scales
 
 ```{r heatmap scales, message=FALSE,warning=FALSE}
 #Read sce after clustering and GMM
-#sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+#sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 
 ### 1. Mean exprs counts
 #Aggregrate across cells with the mean (median is also possible)
@@ -488,7 +488,7 @@ Rich heatmap of clusters with additional information (other channels, spatial, g
 
 ```{r heatmap sce_1, message=FALSE,warning=FALSE}
 #Read sce after clustering and GMM
-#sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+#sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 
 ### 1. Marker Heatmaps (Cluster channels, other_immune channels)
 
@@ -681,7 +681,7 @@ h_cluster_anno <- rowAnnotation(cluster_100 = anno_simple((row_order_clusters), 
 draw(h_cluster_anno)
 
 #Save sce
-saveRDS(sce,"/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+saveRDS(sce,"/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 ```
 
 ## Dimensionality reduction 
@@ -1210,23 +1210,23 @@ ggplot(lm_shannon,aes(x=PID_group_clr,y=Estimate,color=PID_group_clr))+
 ##IMPORTANT: change to chunk output in console for this last part 
 
 ##save plots as pdf (vector graphics)
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_ClusterTesting.pdf",width = 10,height = 5)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_ClusterTesting.pdf",width = 10,height = 5)
 p1+p2+p3
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_Silhouette_Cluster100.pdf",width = 12,height = 10)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_Silhouette_Cluster100.pdf",width = 12,height = 10)
 p4
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapCluster.pdf",width = 13,height = 8)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_HeatmapCluster.pdf",width = 13,height = 8)
 h
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_ClusterAnno.pdf",width = 5,height = 8)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_ClusterAnno.pdf",width = 5,height = 8)
 h_cluster_anno
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapCluster_subcells.pdf",width = 10,height = 8)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_HeatmapCluster_subcells.pdf",width = 10,height = 8)
 dittoHeatmap(sce_sub, 
              genes = rownames(sce_sub)[rowData(sce_sub)$cluster_channel],
              assay = "min_max", 
@@ -1237,7 +1237,7 @@ dittoHeatmap(sce_sub,
              annot.colors=col_clusters$cluster_100[order(as.numeric(names(col_clusters$cluster_100)))])
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_ExpressionCor.pdf",width = 10,height = 8)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_ExpressionCor.pdf",width = 10,height = 8)
 corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, name="RdBu"),  
          type="upper", order="hclust",hclust.method = "ward.D2", 
          addCoef.col = "black", addCoefasPercent = F,# Add coefficient of correlation
@@ -1249,31 +1249,31 @@ corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, n
 )
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_UMAPTSNECluster.pdf",width = 12,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_UMAPTSNECluster.pdf",width = 12,height = 6)
 UMAP_clus+TSNE_clus
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_TSNEExpression.pdf",width = 12,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_TSNEExpression.pdf",width = 12,height = 6)
 exp_plots_TSNE
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_UMAPExpression.pdf",width = 12,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_UMAPExpression.pdf",width = 12,height = 6)
 exp_plots_UMAP
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_ClusterPIDSID.pdf",width = 12,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_ClusterPIDSID.pdf",width = 12,height = 6)
 p_clusterPID+p_clusterSID
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_PIDCluster_ClusterCor.pdf",width = 14,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_PIDCluster_ClusterCor.pdf",width = 14,height = 6)
 p_PID_cluster+SID_cluster_cor_plot
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapPIDgroups.pdf",width = 11,height = 7)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_HeatmapPIDgroups.pdf",width = 11,height = 7)
 h_g
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapPIDgroupsCLR.pdf",width = 11,height = 7)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_HeatmapPIDgroupsCLR.pdf",width = 11,height = 7)
 h_g_1
 dev.off()
 
