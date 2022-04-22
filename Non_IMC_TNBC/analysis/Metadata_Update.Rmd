@@ -200,12 +200,20 @@ SID_249_lehmann_unclear <- Meta_249[!Meta_249$Lehmann_Binary %in% c("Ja","ja", "
 
 Meta_249 <- Meta_249 %>% mutate(lehmann_subtype = ifelse(Meta_249$sample_ID == SID_249_lehmann_unclear, "Unclear",Meta_249$lehmann_subtype))
 
+write.csv(Meta_249, "/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA249_metadata_processed.csv", col.names = TRUE)
+
+
 #2. Collapse data by PID (two samples per PID)
 Meta_249 <- aggregate(Meta_249,by=list(Meta_249$PID),function(x){paste(x[!is.na(x)], collapse = ",")})
 Meta_249 <- Meta_249 %>% mutate(PID = Meta_249$Group.1) %>% select(-"Group.1")
 
 #3. Survival data availability and n_samples
 Meta_249 <- Meta_249 %>% mutate(OS_data = TRUE) %>% mutate(DFS_data = TRUE) %>% mutate(n_samples = 2)
+
+#4. Perform OS/DFS status censoring for survival analysis
+Meta_249 <- Meta_249 %>% mutate(status_OS = ifelse(status_2018 == "4", "1","0")) %>% mutate(status_DFS = ifelse(status_2018 %in% c("2","3","4"), "1", "0"))
+
+write.csv(Meta_249, "/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA249_metadata_processed_byPID.csv", col.names = TRUE)
 ```
 
 
