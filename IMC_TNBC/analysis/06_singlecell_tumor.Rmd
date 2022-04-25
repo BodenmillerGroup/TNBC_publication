@@ -493,7 +493,7 @@ Rich heatmap of clusters with additional information (other channels, spatial, g
 
 ```{r heatmap sce_1, message=FALSE,warning=FALSE}
 #Read sce after clustering and GMM
-#sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 
 ### 1. Marker Heatmaps (Cluster channels, other_immune channels)
 
@@ -687,6 +687,7 @@ draw(h_cluster_anno)
 
 #Save sce
 saveRDS(sce,"/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+saveRDS(col_clusters, "/mnt/rcc_volume/TNBC/data_analysis/color_Tumorpheno.rds")
 ```
 
 ## Dimensionality reduction 
@@ -932,7 +933,6 @@ row_anno$PID_groups <- row_groups$PID_group[match(row_anno$PID,row_groups$PID)]
 sce$PID_groups <- row_anno$PID_groups[match(sce$PID,row_anno$PID)]
 ```
 
-
 #Display rich heatmap for PID groups using mean cluster fractions 
 
 ```{r averaged PID group heatmap}
@@ -986,9 +986,6 @@ Heatmap(hb, name = "Cluster fraction",
   rowAnnotation(lehmann_subtype = anno_barplot(subtype, width = unit(15, "mm"), gp = gpar(fill = col_lehmann),col = 1,show_legend = TRUE),annotation_name_rot = 90)
 
 ```
-
-
-
 
 #Option 2: Based on center-log-ratio of cluster counts per PID
 

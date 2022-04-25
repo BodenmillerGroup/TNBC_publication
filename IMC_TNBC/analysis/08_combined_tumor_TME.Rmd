@@ -1,0 +1,195 @@
+---
+title: "08_combined_tumor_TME"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(scuttle)
+library(scater)
+library(scran)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(parallel)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(Rphenograph)
+library(igraph)
+library(RColorBrewer)
+library(foreach)
+library(clValid)
+library(bluster)
+library(psych)
+library(corrplot)
+library(psych)
+
+#Batch correction
+library(batchelor)
+```
+
+# Single-cell analysis - Pipeline 4 - Combined analysis
+
+Here, we will perform the first combined analysis steps for tumor and TME phenotypes.
+
+## Load data and color mapping of phenotypes
+
+```{r load data, message = FALSE, warning = FALSE}
+#Set global seed
+set.seed(22)
+
+#tumor sce
+sce_tumor <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds") 
+sce_tumor
+
+#TME sce
+sce_TME <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds") 
+sce_TME
+
+#sce with all cells
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+sce
+
+##Load color mapping of tumor and TME phenotypes
+col_TMEpheno <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/color_TMEpheno.rds")
+col_tumorpheno <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/color_Tumorpheno.rds")
+```
+
+## Combine tumor and TME phenotypes information and PID groups
+
+```{r combine tumor TME, message=FALSE,warning=FALSE}
+#Combine cluster phenotypes from tumor and TME (add "TME" character for distinguishment)
+tumor_pheno <- colData(sce_tumor) %>% as.data.frame %>% mutate(cluster_combined = sce_tumor$cluster_100) %>% select(cluster_combined,cluster_names) %>% rownames_to_column(var = "cell_id")
+TME_pheno <- colData(sce_TME) %>% as.data.frame %>% mutate(cluster_combined = paste0("TME_",sce_TME$cluster_75_merg)) %>% select(cluster_combined,cluster_names) %>% rownames_to_column(var = "cell_id")
+tumor_TME_pheno <- rbind(tumor_pheno, TME_pheno)
+
+sce$cluster_combined <- tumor_TME_pheno$cluster_combined[match(rownames(colData(sce)),tumor_TME_pheno$cell_id)]
+sce$cluster_names <- tumor_TME_pheno$cluster_names[match(rownames(colData(sce)),tumor_TME_pheno$cell_id)]
+sce$cluster_origin <- ifelse(str_detect(unfactor(sce$cluster_combined),"TME"),"TME","tumor")
+
+#Combine color mapping
+names(col_TMEpheno$cluster_75_merg) <- paste0("TME_",names(col_TMEpheno$cluster_75_merg))
+col_clusters <- list(c(col_TMEpheno$cluster_75_merg,col_tumorpheno$cluster_100))
+names(col_clusters) <- "cluster_combined"
+
+#Add PID_groups - still to do
+```
+
+## Overlay tumor and TME cluster colors onto combined tSNE
+
+```{r combined tSNE}
+#Read subsampled sce from pipeline 1
+sce_sub <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
+
+#Add cluster_combined info
+sce_sub$cluster_combined <- sce$cluster_combined[match(rownames(colData(sce_sub)),rownames(colData(sce)))]
+sce_sub$cluster_origin <- sce$cluster_origin[match(rownames(colData(sce_sub)),rownames(colData(sce)))]
+
+#Plot TSNE
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_combined",shape_by = "cluster_origin")+
+  scale_color_manual(values = col_clusters$cluster_combined)
+```
+
+## Plot cell features onto image using cytomapper
+
+```{r cytomapper, eval =F}
+
+#Add sample identifiers to own column for cytomapper
+sce$sample_id_short <- as.numeric(str_split(sce$sample_id,"_",simplify = TRUE)[,6])
+
+#Load images and masks
+images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+
+#Randomly select 10 images and add 10 manually selected ones
+set.seed(22)
+img_random <- sample(seq_len(length(images)), 10)
+
+img_files <- list.files("/mnt/rcc_volume/TNBC/img/")
+img_selected <- c(which(str_detect(img_files ,"ZTMA249_ID_320_CX8Y10")),which(str_detect(img_files ,"ZTMA249_ID_289_CX1Y7")),which(str_detect(img_files ,"ZTMA249_ID_36_AX4Y5")),which(str_detect(img_files ,"ZTMA249_ID_7_AX7Y1")),which(str_detect(img_files ,"ZTMA249_ID_220_BX4Y13")),which(str_detect(img_files ,"ZTMA249_ID_271_CX7Y4")),which(str_detect(img_files ,"ZTMA249_ID_82_AX2Y11")), which(str_detect(img_files ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(img_files ,"ZTMA249_ID_183_BX7Y8")), which(str_detect(img_files ,"ZTMA174_B08.26868_79_AX7Y10")))
+
+img_ids <- c(img_selected,img_random)
+
+
+#Plot masks of cell phenotypes
+plotCells(mask = masks[img_ids[1:9]], object = sce,
+           img_id = "sample_id", cell_id = "ObjectNumber", colour_by = "cluster_combined",colour = col_clusters,outline_by = "cluster_origin")
+           
+
+
+### CONTINUE HERE
+
+
+
+#Load example images
+path = "/home/rstudio/mnt/ZTMA_21_25_26/tiffs/"
+
+#load tiss
+all_tiffs = loadImages(path, pattern = "ZTMA25.3_s0_p3_r233_a233_ac_full.tiff")
+channels = fread(paste0(path,'ZTMA25.1_s0_p3_r37_a37_ac_full.csv'),header = F)
+
+#Assign core names to metadata
+mcols(all_tiffs)$core <- getInfoFromFileList(names(all_tiffs),sep = "_",1:5)
+channel_names = c(rownames(sce),"Ir191_Iridium")[order(match(getInfoFromFileList(c(rownames(sce),"Ir191_Iridium"),sep = "_",1),channels$V1))]
+channelNames(all_tiffs) <- channel_names
+all_tiffs = cytomapper::normalize(all_tiffs)
+all_tiffs = cytomapper::normalize(all_tiffs,inputRange = c(0,0.3))
+
+setChannels(all_tiffs,"Tb159_p53") <- cytomapper::normalize(getChannels(all_tiffs, "Tb159_p53"), inputRange = c(0, 0.5))
+setChannels(all_tiffs, "Lu175_Keratin Epithelial") <- cytomapper::normalize(getChannels(all_tiffs, "Lu175_Keratin Epithelial"), inputRange = c(0, 0.5))
+setChannels(all_tiffs, "Dy163_GATA3") <- cytomapper::normalize(getChannels(all_tiffs, "Dy163_GATA3"), inputRange = c(0, 0.5))
+setChannels(all_tiffs, "Sm149_Vimentin") <- normalize(getChannels(all_tiffs, "Sm149_Vimentin"), inputRange = c(0, 0.5))
+setChannels(all_tiffs, "Er167_E-Cadherin / P-Cadherin") <- normalize(getChannels(all_tiffs, "Er167_E-Cadherin / P-Cadherin"), inputRange = c(0, 0.5))
+
+plotPixels(image = all_tiffs,colour_by = c("Tb159_p53","Lu175_Keratin Epithelial","Ir193_Iridium"),image_title = NULL,legend = NULL,save_plot = list(filename = "/home/rstudio/mnt/R_out/Image_Fig10000.tiff",scale = 1))
+
+
+#,save_plot = list(filename = "/home/ubuntu/tmp/server_homes/janaf/Data/2020/ZTMA21_25_26/R_dat/Image_Fig1.tiff",scale = 2)
+
+plotPixels(image = all_tiffs,colour_by = c("Gd155_Bcl-2"))
+plotPixels(image = all_tiffs,colour_by = c("Dy162_CD45"))
+plotPixels(image = all_tiffs,colour_by = c("Sm149_Vimentin"))
+plotPixels(image = all_tiffs,colour_by = c("Yb172_vWF"))
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
