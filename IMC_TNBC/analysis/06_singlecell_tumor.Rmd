@@ -264,14 +264,14 @@ Observation:
 ## Add metadata to SCE object
 
 ```{r metadata addition, message=FALSE, warning=TRUE}
-sample_meta <- read.csv("/Volumes/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed.csv")
+sample_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed.csv")
 colData(sce)$ID <- str_split(colData(sce)$sample_id,"_",simplify = TRUE)[,4]
 
 #Add PID and lehmann_subtype
 colData(sce)$PID <- sample_meta$PID[match(colData(sce)$ID,sample_meta$ID_Number)]
 colData(sce)$lehmann_subtype <- sample_meta$lehmann_subtype[match(colData(sce)$ID,sample_meta$ID_Number)]
 
-patient_meta <- read.csv("/Volumes/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed_byPID.csv")
+patient_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed_byPID.csv")
 #Add Grade and survival information
 colData(sce)$grade <- patient_meta$grade[match(colData(sce)$PID,patient_meta$PID)]
 colData(sce)$OS_months <- patient_meta$OS_months[match(colData(sce)$PID,patient_meta$PID)]
@@ -686,8 +686,8 @@ h_cluster_anno <- rowAnnotation(cluster_100 = anno_simple((row_order_clusters), 
 draw(h_cluster_anno)
 
 #Save sce
-saveRDS(sce,"/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
-saveRDS(col_clusters, "/mnt/rcc_volume/TNBC/data_analysis/color_Tumorpheno.rds")
+#saveRDS(sce,"/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+#saveRDS(col_clusters, "/mnt/rcc_volume/TNBC/data_analysis/color_Tumorpheno.rds")
 ```
 
 ## Dimensionality reduction 
@@ -760,6 +760,7 @@ dittoHeatmap(sce_sub,
 #Fraction of PID/SID per cluster
 cluster_SID <- colData(sce) %>% as.data.frame() %>% select(cluster_100,sample_id) %>% group_by(cluster_100) %>% table() %>% as.data.frame
 cluster_SID <- cluster_SID %>% group_by(cluster_100) %>% mutate(fra = Freq/sum(Freq))
+
 cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cluster_100,PID) %>% group_by(cluster_100) %>% table() %>% as.data.frame
 cluster_PID <- cluster_PID %>% group_by(cluster_100) %>% mutate(fra = Freq/sum(Freq))
 
@@ -859,12 +860,41 @@ pairs.panels(cor_sce[,c("CK5","KRT14")],
 
 ## Make patientgroups based on primary tumor cluster compositions
 
+#Quality control: Check number of tumor cells per sample/PID
+```{r n tumor cells, message = FALSE, warning=FALSE}
+n_tumor_SID <- cluster_SID %>% ungroup %>% group_by(sample_id) %>% mutate(sum = sum(Freq)) %>% select(sample_id,sum) %>% unique() %>% arrange(sum)
+
+ggplot(n_tumor_SID) +
+  geom_point(aes(reorder(sample_id,sum), sum, color = sum))+
+  geom_hline(yintercept = median(n_tumor_SID$sum), linetype="dashed", color = "grey")+
+  geom_hline(yintercept = quantile(n_tumor_SID$sum)[2],linetype="dashed", color = "grey")+
+  geom_hline(yintercept = quantile(n_tumor_SID$sum)[4],linetype="dashed", color = "grey")+
+  theme_classic(base_size = 15)+
+  theme(axis.text.x = element_blank())+
+  ylab("Number of tumor cells per sample")+ 
+  xlab("")
+
+n_tumor_PID <- cluster_PID %>% ungroup %>% group_by(PID) %>% mutate(sum = sum(Freq)) %>% select(PID,sum) %>% unique() %>% arrange(sum)
+
+ggplot(n_tumor_PID) +
+  geom_point(aes(reorder(PID,sum), sum, color = sum))+
+  geom_hline(yintercept = median(n_tumor_PID$sum), linetype="dashed", color = "grey")+
+  geom_hline(yintercept = quantile(n_tumor_PID$sum)[2],linetype="dashed", color = "grey")+
+  geom_hline(yintercept = quantile(n_tumor_PID$sum)[4],linetype="dashed", color = "grey")+
+  theme_classic(base_size = 15)+
+  theme(axis.text.x = element_blank())+
+  ylab("Number of tumor cells per PID")+ 
+  xlab("")
+
+##Filter with thresholds??
+#e.g. >=20 cells per sample or >=30 cells per PID
+```
+
 #Option 1: Based on cluster fractions per PID
 
 ```{r pgroups, eval = F}
 #kick out unclear clustering with little cells (n<2000 cells, "26","23")
-PID_groups <- PID_cluster %>% 
-  #filter(!cluster_100 %in% c("26","23","1","22","14","5","6","7","16","19","11")) %>% 
+PID_groups <- PID_cluster %>% #filter(!cluster_100 %in% c("26","23","1","22","14","5","6","7","16","19","11")) %>% 
   pivot_wider(id_cols = "PID",names_from = "cluster_100",values_from = "fra") %>% column_to_rownames("PID")
 
 #"5","6","7","19","11","16"
@@ -931,6 +961,8 @@ row_anno$PID_groups <- row_groups$PID_group[match(row_anno$PID,row_groups$PID)]
 
 #Add to sce
 sce$PID_groups <- row_anno$PID_groups[match(sce$PID,row_anno$PID)]
+#Save sce
+saveRDS(sce,"/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 ```
 
 #Display rich heatmap for PID groups using mean cluster fractions 
@@ -974,7 +1006,7 @@ col_PIDgroups <- list(col_PIDgroups)
 names(col_PIDgroups) <- "PID_groups"
 
 ## Plot heatmap
-Heatmap(hb, name = "Cluster fraction", 
+h_g_rich <- Heatmap(hb, name = "Cluster fraction", 
         col = col_main,
         bottom_annotation = ha_bottom,
         show_column_names = FALSE,
@@ -985,6 +1017,7 @@ Heatmap(hb, name = "Cluster fraction",
   rowAnnotation(grade = anno_barplot(grade, width = unit(10, "mm"),gp = gpar(fill = c("#FFF5F0","#FB6A4A","#67000D")), col = 1),annotation_name_rot = 90)+
   rowAnnotation(lehmann_subtype = anno_barplot(subtype, width = unit(15, "mm"), gp = gpar(fill = col_lehmann),col = 1,show_legend = TRUE),annotation_name_rot = 90)
 
+draw(h_g_rich)
 ```
 
 #Option 2: Based on center-log-ratio of cluster counts per PID
@@ -1335,6 +1368,11 @@ dev.off()
 pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapPIDgroupsCLR.pdf",width = 11,height = 7)
 h_g_1
 dev.off()
+
+
+
+
+
 
 ##IMPORTANT: change back to chunk output inline
 ```

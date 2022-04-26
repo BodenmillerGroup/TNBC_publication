@@ -96,12 +96,22 @@ sce$cluster_combined <- tumor_TME_pheno$cluster_combined[match(rownames(colData(
 sce$cluster_names <- tumor_TME_pheno$cluster_names[match(rownames(colData(sce)),tumor_TME_pheno$cell_id)]
 sce$cluster_origin <- ifelse(str_detect(unfactor(sce$cluster_combined),"TME"),"TME","tumor")
 
+#Add PID groups 
+sce$PID_groups <- sce_tumor$PID_groups[match(sce$sample_id,sce_tumor$sample_id)]
+
+no_PID_group <- colData(sce)[is.na(sce$PID_groups),] %>% as.data.frame #Undefined PID_groups - "ZTMA249.1_ZTMA249_ID_212_BX4Y12_123" "ZTMA249.3_ZTMA249_ID_329_CX1Y12_339" - no panck+ cells detected
+unique(no_PID_group$sample_id)
+unique(no_PID_group$analysis_cat)
+
 #Combine color mapping
 names(col_TMEpheno$cluster_75_merg) <- paste0("TME_",names(col_TMEpheno$cluster_75_merg))
 col_clusters <- list(c(col_TMEpheno$cluster_75_merg,col_tumorpheno$cluster_100))
 names(col_clusters) <- "cluster_combined"
 
-#Add PID_groups - still to do
+#Add PID identifier to sce
+sample_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed.csv")
+colData(sce)$ID <- str_split(colData(sce)$sample_id,"_",simplify = TRUE)[,4]
+colData(sce)$PID <- sample_meta$PID[match(colData(sce)$ID,sample_meta$ID_Number)]
 ```
 
 ## Overlay tumor and TME cluster colors onto combined tSNE
@@ -118,17 +128,29 @@ sce_sub$cluster_origin <- sce$cluster_origin[match(rownames(colData(sce_sub)),ro
 plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_combined",shape_by = "cluster_origin")+
   scale_color_manual(values = col_clusters$cluster_combined)
 ```
+## Load masks and images 
+
+```{r masks images}
+#Load images and masks
+images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+
+#subset images and masks for TMA249
+images <- images[str_detect(mcols(images)$sample_id,"ZTMA249")]
+masks <- masks[str_detect(mcols(masks)$sample_id,"ZTMA249")]
+
+#update masks mcols with PID
+mcols(masks)$PID <- sce$PID[match(mcols(masks)$sample_id,sce$sample_id)]
+mcols(images)$PID <- sce$PID[match(mcols(images)$sample_id,sce$sample_id)]
+```
 
 ## Plot cell features onto image using cytomapper
 
 ```{r cytomapper, eval =F}
-
 #Add sample identifiers to own column for cytomapper
 sce$sample_id_short <- as.numeric(str_split(sce$sample_id,"_",simplify = TRUE)[,6])
 
-#Load images and masks
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
-masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+
 
 #Randomly select 10 images and add 10 manually selected ones
 set.seed(22)
@@ -139,14 +161,45 @@ img_selected <- c(which(str_detect(img_files ,"ZTMA249_ID_320_CX8Y10")),which(st
 
 img_ids <- c(img_selected,img_random)
 
-
 #Plot masks of cell phenotypes
-plotCells(mask = masks[img_ids[1:9]], object = sce,
-           img_id = "sample_id", cell_id = "ObjectNumber", colour_by = "cluster_combined",colour = col_clusters,outline_by = "cluster_origin")
+plotCells(mask = masks[img_ids[1:9]], 
+          object = sce,
+          img_id = "sample_id", 
+          cell_id = "ObjectNumber", 
+          colour_by = "cluster_combined",
+          colour = col_clusters,
+          outline_by = "cluster_origin")
            
+##Select images only from certain PID groups 
+PID_group_5_ids <- colData(sce) %>% as.data.frame %>% filter(PID_groups == "5") %>% pull("sample_id") %>% unique()
+
+#images[mcols(images)$sample_id %in% PID_group_5_ids]
+masks_PID_group_5 <- masks[mcols(masks)$sample_id %in% PID_group_5_ids]
+
+#Plot masks of cell phenotypes by PID group
+plotCells(mask = masks_PID_group_5, 
+          object = sce,
+          img_id = "sample_id", 
+          cell_id = "ObjectNumber", 
+          colour_by = "cluster_combined",
+          colour = col_clusters,
+          outline_by = "cluster_origin",
+          image_title = list(text = mcols(masks_PID_group_5)$PID),
+          save_plot = list(filename = "/mnt/rcc_volume/TNBC/data_analysis/01_figures/masks_celltypes_PIDgroup5.png", scale = 2))
 
 
-### CONTINUE HERE
+
+
+check <- colData(sce_tumor)[sce_tumor$sample_id == "ZTMA249.2_ZTMA249_ID_321_CX1Y11_174",] %>% as.data.frame
+check <- colData(sce_tumor)[sce_tumor$PID == "B16.56280",] %>% as.data.frame
+
+B16.56280
+
+
+
+
+
+### CONTINUE HERE - go back to PID-group definition
 
 
 
@@ -179,6 +232,10 @@ plotPixels(image = all_tiffs,colour_by = c("Gd155_Bcl-2"))
 plotPixels(image = all_tiffs,colour_by = c("Dy162_CD45"))
 plotPixels(image = all_tiffs,colour_by = c("Sm149_Vimentin"))
 plotPixels(image = all_tiffs,colour_by = c("Yb172_vWF"))
+
+
+
+
 
 
 ```

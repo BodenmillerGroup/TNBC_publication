@@ -459,6 +459,58 @@ plots_TSNE_exp <- plot_grid(plotlist = all_plots_TSNE)
 #Save sce_sub
 #saveRDS(sce_sub, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
 ```
+## Estimate fraction of tumor cells for each sample/image
+
+```{r tumor cell fraction}
+#Per sampleID
+tumor_cell_SID <- colData(sce) %>% as.data.frame() %>% select(sample_id,analysis_cat) %>% group_by(sample_id) %>% table() %>% as.data.frame
+tumor_cell_SID <- tumor_cell_SID %>% group_by(sample_id) %>% mutate(fra = ((Freq/sum(Freq))*100)) %>% filter(analysis_cat == "tumor")
+
+ggplot(tumor_cell_SID, aes(x = analysis_cat,y = fra))+
+  geom_boxplot()+
+  geom_jitter(aes(color = sample_id), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color=FALSE)
+
+tumor_cell_SID_cut_off <- foreach(i = 0:100, .combine = rbind) %do%{
+data.frame(cut_off = i, n_PID = tumor_cell_SID %>% filter(fra > i) %>% ungroup %>% count())
+}
+
+ggplot(tumor_cell_SID_cut_off, aes(x=cut_off,y = n))+
+  geom_bar(stat = "identity",color = "black")+
+  theme_classic()
+
+
+#By patient
+#Add PID to sce object
+sample_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed.csv")
+sce$ID <- str_split(sce$sample_id,"_",simplify = TRUE)[,4]
+
+#Add PID and lehmann_subtype
+sce$PID <- sample_meta$PID[match(sce$ID,sample_meta$ID_Number)]
+
+tumor_cell_PID <- colData(sce) %>% as.data.frame() %>% select(PID,analysis_cat) %>% group_by(PID) %>% table() %>% as.data.frame
+tumor_cell_PID <- tumor_cell_PID %>% group_by(PID) %>% mutate(fra = ((Freq/sum(Freq))*100)) %>% filter(analysis_cat == "tumor")
+
+ggplot(tumor_cell_PID, aes(x=analysis_cat,y = fra))+
+  geom_boxplot()+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color=FALSE)
+
+tumor_cell_PID_cut_off <- foreach(i = 0:100, .combine = rbind) %do%{
+data.frame(cut_off = i, n_PID = tumor_cell_PID %>% filter(fra > i) %>% ungroup %>% count())
+}
+
+ggplot(tumor_cell_PID_cut_off, aes(x=cut_off,y = n))+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()
+
+
+```
+
+
+
+
+
 ## Save sce objects
 
 ```{r save_objects, message = FALSE, warning=FALSE}
