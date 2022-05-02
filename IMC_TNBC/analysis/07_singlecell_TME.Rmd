@@ -71,6 +71,15 @@ First, we will read in the `SingleCellExperiment` object containing the cleaned,
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 ```
 
+## Filter sce for tumor cells
+Here, we will filter for TME cells based on the cluster category and GMM approach.
+
+```{r filter sce, message=FALSE}
+#based on cluster categories (n=327161)
+sce <- sce[,colData(sce)$analysis_cat == "non_tumor"]
+sce
+```
+
 ## Define markers for clustering
 ```{r tumor_markers, message = FALSE, warning = FALSE}
 cluster_channel = c("Vimentin","SMA","Fibronectin","CD68","CD3","CD20","CD11c","CD45","CD20","CD8a","CD4","CD31_vWF","CD15")
@@ -83,15 +92,6 @@ cell_state_channel = c("pH3","H3K27me3","Bcl2", "c_Cas3_PARP","S6", "CD44","CAIX
 rowData(sce)$cluster_channel <- (rowData(sce)$clean_target %in% cluster_channel)
 rowData(sce)$cell_state_channel <- (rowData(sce)$clean_target %in% cell_state_channel)
 rowData(sce)$other_epi_channel <- (rowData(sce)$clean_target %in% other_epi_channel)
-```
-
-## Filter sce for tumor cells
-Here, we will filter for TME cells based on the cluster category and GMM approach.
-
-```{r filter sce, message=FALSE}
-#based on cluster categories (n=339287)
-sce <- sce[,colData(sce)$analysis_cat == "non_tumor"]
-sce
 ```
 
 ## Perform overclustering and hierarchical clustering
@@ -247,7 +247,7 @@ colData(sce)$grade <- patient_meta$grade[match(colData(sce)$PID,patient_meta$PID
 
 ```{r heatmap scales, message=FALSE,warning=FALSE}
 #Read sce after clustering and GMM
-#sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 
 col_main = viridis(100)
 
@@ -512,7 +512,7 @@ anno <- colData(cluster_mean_sce) %>% as.data.frame %>% select(cluster_75_merg, 
 #Annotate clusters (after visual inspection)
 anno_clus <- as.character(sce$cluster_75_merg)
 
-anno_clus[anno_clus == "1_3"] <- "SMA+"
+anno_clus[anno_clus == "1_3"] <- "FibroMyo_SMA+"
 anno_clus[anno_clus == "2"] <- "Unclear"
 anno_clus[anno_clus == "4"] <- "Unclear_2"
 anno_clus[anno_clus == "5"] <- "Fibro/Vim+"
@@ -785,8 +785,6 @@ p_PID_cluster+SID_cluster_cor_plot
 
 
 cluster_SID %>% filter(cluster_75_merg == "13") %>% filter(!fra == 0) %>% arrange(desc(fra))
-
-
 ```
 
 ## Check correlation of markers
@@ -826,13 +824,18 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_Silhouette_Cl
 p4
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_HeatmapCluster.pdf",width = 13,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_HeatmapCluster.pdf",width = 13,height = 8)
 h
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_HeatmapCluster_Scales.pdf",width = 13,height = 8)
+h_exprs + h_min_max
 dev.off()
 
 pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_ClusterAnno.pdf",width = 5,height = 8)
 h_cluster_anno
 dev.off()
+
 
 pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_HeatmapCluster_subcells.pdf",width = 10,height = 8)
 dittoHeatmap(sce_sub, 
