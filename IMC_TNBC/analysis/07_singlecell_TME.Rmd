@@ -30,6 +30,7 @@ library(dittoSeq)
 library(pheatmap)
 library(cowplot)
 library(ComplexHeatmap)
+library(circlize)
 
 #Utilities
 library(tidyverse)
@@ -193,15 +194,15 @@ p1+p3+p2
 #Chosen method => k=50
 
 #Cluster colors 
-col_clus <- colorRampPalette(brewer.pal(9,"Paired"))(length(unique(sce$cluster_75)))
+col_clus <- colorRampPalette(brewer.pal(9,"Paired"))(length(unique(sce$cluster_50)))
 
-#By clusters for one method (here k=75)
+#By clusters for one method (here k=50)
 #1. Silhouette width [-1,1]
 #Clusters with large positive silhouette widths are well-separated from other clusters
-sil.approx <- approxSilhouette(t(assay(sce, "exprs")), clusters=sce$cluster_75)
+sil.approx <- approxSilhouette(t(assay(sce, "exprs")), clusters=sce$cluster_50)
 sil.data <- as.data.frame(sil.approx)
-sil.data$closest <- factor(ifelse(sil.data$width > 0, sce$cluster_75, sil.data$other))
-sil.data$cluster <- sce$cluster_75
+sil.data$closest <- factor(ifelse(sil.data$width > 0, sce$cluster_50, sil.data$other))
+sil.data$cluster <- sce$cluster_50
 
 p4 <- ggplot(sil.data, aes(x=cluster, y=width, colour=closest)) +
     ggbeeswarm::geom_quasirandom(method="smiley")+
@@ -223,20 +224,18 @@ p4
 ```
 
 Observation:  
-- Highest Silhouette width for k=75 => selected
+- Lowest RMSD and number of clusters for k=50 => selected for downstream phenotyping
 
 ## Add metadata to SCE object
 
 ```{r metadata addition, message=FALSE, warning=TRUE}
 sample_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed.csv")
-colData(sce)$ID <- str_split(colData(sce)$sample_id,"_",simplify = TRUE)[,4]
 
-#Add PID and lehmann_subtype
-colData(sce)$PID <- sample_meta$PID[match(colData(sce)$ID,sample_meta$ID_Number)]
+#Add lehmann_subtype by sample
 colData(sce)$lehmann_subtype <- sample_meta$lehmann_subtype[match(colData(sce)$ID,sample_meta$ID_Number)]
 
 patient_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed_byPID.csv")
-#Add Grade
+#Add Grade by PID
 colData(sce)$grade <- patient_meta$grade[match(colData(sce)$PID,patient_meta$PID)]
 
 #SaveSCEwithmetadata
@@ -247,30 +246,32 @@ colData(sce)$grade <- patient_meta$grade[match(colData(sce)$PID,patient_meta$PID
 
 ```{r heatmap scales, message=FALSE,warning=FALSE}
 #Read sce after clustering and GMM
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
+#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 
-col_main = viridis(100)
+#Heatmap body colors
+col_exprs <- colorRamp2(c(0,1,2,3,4), c("#440154FF","#3B518BFF","#20938CFF","#6ACD5AFF","#FDE725FF"))
+col_min_max <- colorRamp2(c(0,0.2,0.4,0.6,0.8), c("#440154FF", "#33628DFF", "#28AE80FF", "#DBE318FF", "#FDE725FF"))
 
 ### 1. Mean exprs counts
 #Aggregrate across cells with the mean (median is also possible)
-cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$cluster_channel)
 
-cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
+cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$cell_state_channel)
 
-other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$other_epi_channel)
 
 h_exprs <- Heatmap(t(assay(cluster_mean_sce, "exprs")),
         column_title = "1. mean exprs",
-        col = col_main,
+        col = col_exprs,
         name= "mean exprs",
         km = 1,
         show_row_names = T, 
@@ -278,7 +279,7 @@ h_exprs <- Heatmap(t(assay(cluster_mean_sce, "exprs")),
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
 Heatmap(t(assay(cellstate_mean_sce, "exprs")),
-        col = col_main,
+        col = col_exprs,
         name= "mean exprs",
         km = 1,
         show_row_names = T,
@@ -286,7 +287,7 @@ Heatmap(t(assay(cellstate_mean_sce, "exprs")),
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
   Heatmap(t(assay(other_mean_sce, "exprs")),
-        col = col_main,
+        col = col_exprs,
         name= "mean exprs",
         km = 1,
         show_row_names = T, 
@@ -296,24 +297,24 @@ Heatmap(t(assay(cellstate_mean_sce, "exprs")),
 
 ### 2. Mean min_max counts
 #Aggregrate across cells with the mean (median is also possible)
-cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
                                  statistics = "mean",
                                  use.assay.type = "min_max",
                                  subset.row = rowData(sce)$cluster_channel)
 
-cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
+cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
                                  statistics = "mean",
                                  use.assay.type = "min_max",
                                  subset.row = rowData(sce)$cell_state_channel)
 
-other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
                                  statistics = "mean",
                                  use.assay.type = "min_max",
                                  subset.row = rowData(sce)$other_epi_channel)
 
 h_min_max <- Heatmap(t(assay(cluster_mean_sce, "min_max")),
         column_title = "2. mean min_max",
-        col = col_main,
+        col = col_min_max,
         name= "min_max",
         km = 1,
         show_row_names = T, 
@@ -321,7 +322,7 @@ h_min_max <- Heatmap(t(assay(cluster_mean_sce, "min_max")),
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
 Heatmap(t(assay(cellstate_mean_sce, "min_max")),
-        col = col_main,
+        col = col_min_max,
         name= "min_max",
         km = 1,
         show_row_names = T,
@@ -329,7 +330,7 @@ Heatmap(t(assay(cellstate_mean_sce, "min_max")),
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
 Heatmap(t(assay(other_mean_sce, "min_max")),
-        col = col_main,
+        col = col_min_max,
         name= "min_max",
         km = 1,
         show_row_names = T, 
@@ -339,7 +340,7 @@ Heatmap(t(assay(other_mean_sce, "min_max")),
 
 ### 3. Min_max scaled mean exprs counts
 #Aggregrate across cells with the mean (median is also possible)
-cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$cluster_channel)
@@ -347,14 +348,14 @@ cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
 assay(cluster_mean_sce, "min_max") <- assay(cluster_mean_sce, "exprs") - rowMins(assay(cluster_mean_sce, "exprs"))
 assay(cluster_mean_sce, "min_max") <- assay(cluster_mean_sce, "min_max") / (rowMaxs(assay(cluster_mean_sce, "exprs")) - rowMins(assay(cluster_mean_sce, "exprs")))
 
-cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
+cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$cell_state_channel)
 assay(cellstate_mean_sce, "min_max") <- assay(cellstate_mean_sce, "exprs") - rowMins(assay(cellstate_mean_sce, "exprs"))
 assay(cellstate_mean_sce, "min_max") <- assay(cellstate_mean_sce, "min_max") / (rowMaxs(assay(cellstate_mean_sce, "exprs")) - rowMins(assay(cellstate_mean_sce, "exprs")))
 
-other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$other_epi_channel)
@@ -363,7 +364,7 @@ assay(other_mean_sce, "min_max") <- assay(other_mean_sce, "min_max") / (rowMaxs(
 
 h_exprs_min_max <- Heatmap(t(assay(cluster_mean_sce, "min_max")),
         column_title = "3. Min_max mean exprs",
-        col = col_main,
+        col = col_min_max,
         name= "min_max mean exprs",
         km = 1,
         show_row_names = T, 
@@ -371,7 +372,7 @@ h_exprs_min_max <- Heatmap(t(assay(cluster_mean_sce, "min_max")),
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
 Heatmap(t(assay(cellstate_mean_sce, "min_max")),
-        col = col_main,
+        col = col_min_max,
         name= "min_max mean exprs",
         km = 1,
         show_row_names = T,
@@ -379,7 +380,7 @@ Heatmap(t(assay(cellstate_mean_sce, "min_max")),
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
   Heatmap(t(assay(other_mean_sce, "min_max")),
-        col = col_main,
+        col = col_min_max,
         name= "min_max mean exprs",
         km = 1,
         show_row_names = T, 
@@ -389,7 +390,7 @@ Heatmap(t(assay(cellstate_mean_sce, "min_max")),
 
 ### 4. Z-scored mean exprs counts
 #Aggregrate across cells with the mean (median is also possible)
-cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$cluster_channel)
@@ -400,14 +401,14 @@ assay(cluster_mean_sce, "z") <- t(scale(t(assay(cluster_mean_sce, "exprs")), cen
 #z_t <- as.data.frame(t(assay(cluster_mean_sce, "z")))
 #summary(z_t)
 
-cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
+cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$cell_state_channel)
 assay(cellstate_mean_sce, "z") <- t(scale(t(assay(cellstate_mean_sce, "exprs")), center = TRUE,scale=TRUE)) 
 
 
-other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75,
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$other_epi_channel)
@@ -440,7 +441,8 @@ Heatmap(t(assay(other_mean_sce, "z")),
         clustering_method_columns = "ward.D2")
 
 h_exprs+
-h_min_max+
+h_min_max
+
 h_exprs_min_max+
 h_exprs_z
 ```
@@ -451,11 +453,14 @@ Observation: Mean "raw" or "min_max" exprs counts are most interpretable and log
 Here: 8&15, 10&17, 3&5 (maybe 14&16)
 
 ```{r cluster merg}
-sce$cluster_75_merg <- ifelse(sce$cluster_75 %in% c("8","15"), "8_15", sce$cluster_75)
-sce$cluster_75_merg <- ifelse(sce$cluster_75_merg %in% c("11","17"), "11_17", sce$cluster_75_merg)
-sce$cluster_75_merg <- ifelse(sce$cluster_75_merg %in% c("1","3"), "1_3", sce$cluster_75_merg)
-sce$cluster_75_merg <- as.factor(sce$cluster_75_merg)
-unique(sce$cluster_75_merg)
+sce$cluster_50_merg <- ifelse(sce$cluster_50 %in% c("11","15"), "11_15", sce$cluster_50)
+sce$cluster_50_merg <- ifelse(sce$cluster_50_merg %in% c("1","4"), "1_4", sce$cluster_50_merg)
+sce$cluster_50_merg <- ifelse(sce$cluster_50_merg %in% c("2","9"), "2_9", sce$cluster_50_merg)
+sce$cluster_50_merg <- as.factor(sce$cluster_50_merg)
+
+cluster_50_merg_df <- data.frame(cluster_50_merg = unique(sce$cluster_50_merg), cluster_50_merg_names = 1:13) #define new and sorted cluster names
+sce$cluster_50_renamed <- cluster_50_merg_df$cluster_50_merg_names[match(sce$cluster_50_merg,cluster_50_merg_df$cluster_50_merg)] 
+sce$cluster_50_renamed <- as.factor(sce$cluster_50_renamed)
 ```
 
 ## Rich heatmap of clusters with additional information (other channels, spatial, grade, subtype)
@@ -467,17 +472,17 @@ unique(sce$cluster_75_merg)
 ### 1. Marker Heatmaps (Cluster channels, other_immune channels)
 
 #Aggregrate across cells with the mean (median is also possible)
-cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75_merg,
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50_renamed,
                                  statistics = "mean",
                                  use.assay.type = "min_max",
                                  subset.row = rowData(sce)$cluster_channel)
 
-cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75_merg,
+cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50_renamed,
                                  statistics = "mean",
                                  use.assay.type = "min_max",
                                  subset.row = rowData(sce)$cell_state_channel)
 
-other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_75_merg,
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50_renamed,
                                  statistics = "mean",
                                  use.assay.type = "min_max",
                                  subset.row = rowData(sce)$other_epi_channel)
@@ -498,8 +503,8 @@ plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],im
   theme_classic()
 
 #Select spatial features and average over clusters 
-spatial <- colData(sce) %>% as.data.frame %>% select(area,eccentricity,cluster_75_merg,n_neighbors)
-spatial <- spatial %>% select(-cluster_75_merg) %>% aggregate(by = list(cluster_75_merg = spatial$cluster_75_merg), FUN = mean) %>% column_to_rownames("cluster_75_merg")
+spatial <- colData(sce) %>% as.data.frame %>% select(area,eccentricity,cluster_50_renamed,n_neighbors)
+spatial <- spatial %>% select(-cluster_50_renamed) %>% aggregate(by = list(cluster_50_renamed = spatial$cluster_50_renamed), FUN = mean) %>% column_to_rownames("cluster_50_renamed")
 #define min_max fct
 min_max_norm <- function(x) {(x - min(x)) / (max(x) - min(x))}
 #normalize
@@ -507,61 +512,60 @@ spatial_norm <- as.data.frame(lapply(spatial, min_max_norm))
 
 
 ###3.  Define annotation dataframe with n cells, clusters and names for clusters
-anno <- colData(cluster_mean_sce) %>% as.data.frame %>% select(cluster_75_merg, ncells)
+anno <- colData(cluster_mean_sce) %>% as.data.frame %>% select(cluster_50_renamed, ncells)
 
 #Annotate clusters (after visual inspection)
-anno_clus <- as.character(sce$cluster_75_merg)
+anno_clus <- as.character(sce$cluster_50_renamed)
 
-anno_clus[anno_clus == "1_3"] <- "FibroMyo_SMA+"
-anno_clus[anno_clus == "2"] <- "Unclear"
-anno_clus[anno_clus == "4"] <- "Unclear_2"
-anno_clus[anno_clus == "5"] <- "Fibro/Vim+"
-anno_clus[anno_clus == "6"] <- "Vim+"
-anno_clus[anno_clus == "7"] <- "Fibro/Ecad+"
-anno_clus[anno_clus == "8_15"] <- "CD8_Tcells"
-anno_clus[anno_clus == "9"] <- "CD4_Tcells"
-anno_clus[anno_clus == "10"] <- "Granu"
-anno_clus[anno_clus == "11_17"] <- "Bcells"
-anno_clus[anno_clus == "12"] <- "Macrophages"
-anno_clus[anno_clus == "13"] <- "Ecad+"
-anno_clus[anno_clus == "14"] <- "Endo_1"
-anno_clus[anno_clus == "16"] <- "Endo_2"
+anno_clus[anno_clus == "1"] <- "FibroVim_SMA+"
+anno_clus[anno_clus == "2"] <- "FibroVim"
+anno_clus[anno_clus == "3"] <- "Fibro_low"
+anno_clus[anno_clus == "4"] <- "Undefined_T"
+anno_clus[anno_clus == "5"] <- "Fibro_CD31_low"
+anno_clus[anno_clus == "6"] <- "CD4_Tcells"
+anno_clus[anno_clus == "7"] <- "Endo_SMA+"
+anno_clus[anno_clus == "8"] <- "Neutro_Granu"
+anno_clus[anno_clus == "9"] <- "Bcells"
+anno_clus[anno_clus == "10"] <- "Macrophages"
+anno_clus[anno_clus == "11"] <- "CD8_Tcells"
+anno_clus[anno_clus == "12"] <- "Endo"
+anno_clus[anno_clus == "13"] <- "FibroSMA"
 
-anno_clus <- data.frame(anno_clus = anno_clus, origin = as.character(sce$cluster_75_merg))
+anno_clus <- data.frame(anno_clus = anno_clus, origin = as.character(sce$cluster_50_renamed))
 
-anno$names <- anno_clus$anno_clus[match(anno$cluster_75_merg,anno_clus$origin)]
-sce$cluster_names <- anno_clus$anno_clus[match(sce$cluster_75_merg,anno_clus$origin)]
+anno$names <- anno_clus$anno_clus[match(anno$cluster_50_renamed,anno_clus$origin)]
+sce$cluster_names <- anno_clus$anno_clus[match(sce$cluster_50_renamed,anno_clus$origin)]
 
 
 ###4. Patient metadata - grade, number of SID/PID
 
 # Proportion of grade per cluster
-grade <- colData(sce) %>% as.data.frame() %>% select(cluster_75_merg,grade) %>% group_by(cluster_75_merg) %>% table() %>% as.data.frame
-grade <- grade %>% group_by(cluster_75_merg) %>% mutate(fra = Freq/sum(Freq)) 
-grade <- grade %>% select(-Freq) %>% pivot_wider(id_cols = cluster_75_merg,names_from = grade,values_from = fra) %>% column_to_rownames("cluster_75_merg")
+grade <- colData(sce) %>% as.data.frame() %>% select(cluster_50_renamed,grade) %>% group_by(cluster_50_renamed) %>% table() %>% as.data.frame
+grade <- grade %>% group_by(cluster_50_renamed) %>% mutate(fra = Freq/sum(Freq)) 
+grade <- grade %>% select(-Freq) %>% pivot_wider(id_cols = cluster_50_renamed,names_from = grade,values_from = fra) %>% column_to_rownames("cluster_50_renamed")
 
 # Number of contributing patients/samples per cluster
-cluster_SID <- colData(sce) %>% as.data.frame() %>% select(cluster_75_merg,sample_id) %>% group_by(cluster_75_merg) %>% table() %>% as.data.frame
-n_SID <- cluster_SID %>% filter(Freq>0) %>% group_by(cluster_75_merg) %>% count(name = "n_SID") %>% column_to_rownames("cluster_75_merg")
+cluster_SID <- colData(sce) %>% as.data.frame() %>% select(cluster_50_renamed,sample_id) %>% group_by(cluster_50_renamed) %>% table() %>% as.data.frame
+n_SID <- cluster_SID %>% filter(Freq>0) %>% group_by(cluster_50_renamed) %>% count(name = "n_SID") %>% column_to_rownames("cluster_50_renamed")
 
-cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cluster_75_merg,PID) %>% group_by(cluster_75_merg) %>% table() %>% as.data.frame
-n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(cluster_75_merg) %>% count(name = "n_PID") %>% column_to_rownames("cluster_75_merg")
+cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cluster_50_renamed,PID) %>% group_by(cluster_50_renamed) %>% table() %>% as.data.frame
+n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(cluster_50_renamed) %>% count(name = "n_PID") %>% column_to_rownames("cluster_50_renamed")
 
 # Cluster categories contributing to clusters
-cluster_CC <- colData(sce) %>% as.data.frame() %>% select(cluster_75_merg,cluster_category) %>% group_by(cluster_75_merg) %>% table() %>% as.data.frame
-cluster_CC <- cluster_CC %>% group_by(cluster_75_merg) %>% mutate(fra = Freq/sum(Freq)) 
-cluster_CC <- cluster_CC %>% select(-Freq) %>% pivot_wider(id_cols = cluster_75_merg,names_from = cluster_category,values_from = fra) %>% column_to_rownames("cluster_75_merg")
+cluster_CC <- colData(sce) %>% as.data.frame() %>% select(cluster_50_renamed,cluster_category) %>% group_by(cluster_50_renamed) %>% table() %>% as.data.frame
+cluster_CC <- cluster_CC %>% group_by(cluster_50_renamed) %>% mutate(fra = Freq/sum(Freq)) 
+cluster_CC <- cluster_CC %>% select(-Freq) %>% pivot_wider(id_cols = cluster_50_renamed,names_from = cluster_category,values_from = fra) %>% column_to_rownames("cluster_50_renamed")
 
 nPID_SID <- cbind(n_SID,n_PID)
 
 ###5. General heatmap color schemes 
 #Heatmap body color 
-col_main = viridis(100)
+col_min_max <- colorRamp2(c(0,0.2,0.4,0.6,0.8), c("#440154FF", "#33628DFF", "#28AE80FF", "#DBE318FF", "#FDE725FF")) #based on viridis(100)
 
 #retrieve row_order for sequential color scheme 
 row_order_clusters <- row_order(Heatmap(t(assay(cluster_mean_sce, "min_max")),
         column_title = "cluster_channels",
-        col = col_main,
+        col = col_min_max,
         name= "mean min_max exprs",
         km = 1,
         show_row_names = T, 
@@ -571,17 +575,17 @@ row_order_clusters <- row_order(Heatmap(t(assay(cluster_mean_sce, "min_max")),
 
 
 #Color scheme for clusters
-col <- list(cluster_75_merg = colorRampPalette(brewer.pal(12, "Accent"))(length(unique(anno$cluster_75_merg))))
+col <- list(cluster_50_renamed = colorRampPalette(brewer.pal(12, "Accent"))(length(unique(anno$cluster_50_renamed))))
 col_clusters <- col[[1]]
-names(col_clusters) = unique(anno$cluster_75_merg)[row_order_clusters]
+names(col_clusters) = unique(anno$cluster_50_renamed)[row_order_clusters]
 col_clusters <- list(col_clusters)
-names(col_clusters) <- "cluster_75_merg"
+names(col_clusters) <- "cluster_50_renamed"
 
 ###6. Plot combined Heatmap
 #6.1 Heatmap not scaled min_max scores
 h <-Heatmap(t(assay(cluster_mean_sce, "min_max")),
         column_title = "cluster_channels",
-        col = col_main,
+        col = col_min_max,
         name= "mean min_max exprs",
         km = 1,
         show_row_names = T, 
@@ -590,7 +594,7 @@ h <-Heatmap(t(assay(cluster_mean_sce, "min_max")),
         clustering_method_columns = "ward.D2")+
   Heatmap(t(assay(cellstate_mean_sce, "min_max")),
         column_title = "cellstate_channels",
-        col = col_main,
+        col = col_min_max,
         name= "mean min_max exprs",
         km = 1,
         show_row_names = T,
@@ -599,7 +603,7 @@ h <-Heatmap(t(assay(cluster_mean_sce, "min_max")),
         clustering_method_columns = "ward.D2")+
   Heatmap(t(assay(other_mean_sce, "min_max")),
         column_title = "other_channels",
-        col = col_main,
+        col = col_min_max,
         name= "mean min_max exprs",
         km = 1,
         show_row_names = T, 
@@ -608,14 +612,14 @@ h <-Heatmap(t(assay(cluster_mean_sce, "min_max")),
         clustering_method_columns = "ward.D2")+
   Heatmap(spatial_norm,
           column_title = "spatial_features",
-          col = col_main,
+          col = col_min_max,
         name= "mean min_max exprs",
         km = 1,
         show_row_names = T, 
         show_column_names =  T, 
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
-  rowAnnotation(cluster_75_merg = anno_simple(unfactor(anno$cluster_75_merg), pch = unfactor(anno$cluster_75_merg),border=TRUE,col=col_clusters$cluster_75_merg))+
+  rowAnnotation(cluster_50_renamed = anno_simple(unfactor(anno$cluster_50_renamed), pch = unfactor(anno$cluster_50_renamed),border=TRUE,col=col_clusters$cluster_50_renamed))+
   rowAnnotation(foo = anno_text(anno$names))+
   rowAnnotation(cluster_cat = anno_barplot(cluster_CC, width = unit(10, "mm"),gp = gpar(fill = c("#A6CEE3","#B2DF8A")), col = 1),annotation_name_rot = 90)+
   rowAnnotation(n_cells = anno_barplot(anno$ncells, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)+
@@ -625,7 +629,7 @@ h <-Heatmap(t(assay(cluster_mean_sce, "min_max")),
 draw(h)
 
 #6.3 Cluster annotation heatmap
-h_cluster_anno <- rowAnnotation(cluster_75_merg = anno_simple(unfactor((unique(anno$cluster_75_merg)[row_order_clusters])), pch = as.character(unfactor((unique(anno$cluster_75_merg)[row_order_clusters]))),border=TRUE,col=col_clusters$cluster_75_merg))+
+h_cluster_anno <- rowAnnotation(cluster_50_renamed = anno_simple(unfactor((unique(anno$cluster_50_renamed)[row_order_clusters])), pch = as.character(unfactor((unique(anno$cluster_50_renamed)[row_order_clusters]))),border=TRUE,col=col_clusters$cluster_50_renamed))+
   rowAnnotation(foo = anno_text(anno$names[row_order_clusters]))
 
 draw(h_cluster_anno)
@@ -651,11 +655,11 @@ sce_sub = runTSNE(sce_sub[rowData(sce_sub)$cluster_channel,], exprs_values = "ex
 
 ## 1. Visualize UMAP and TSNE
 #panCK and GMM_CK
-UMAP_clus <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "cluster_75_merg")+
-  scale_color_manual(values = col_clusters$cluster_75_merg)
+UMAP_clus <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "cluster_50_renamed")+
+  scale_color_manual(values = col_clusters$cluster_50_renamed)
 
-TSNE_clus <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_75_merg")+
-  scale_color_manual(values = col_clusters$cluster_75_merg)
+TSNE_clus <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_50_renamed")+
+  scale_color_manual(values = col_clusters$cluster_50_renamed)
 
 (UMAP_clus+TSNE_clus)
 
@@ -694,22 +698,22 @@ saveRDS(sce_sub,"/mnt/rcc_volume/TNBC/data_analysis/sce_sub_TNBC_249_TME_CC_Clus
 #Heatmap visualization (all cells)
 dittoHeatmap(sce_sub, 
              genes = rownames(sce_sub)[rowData(sce_sub)$cluster_channel],
-             assay = "exprs", 
+             assay = "min_max", 
              scale = "none", 
-             order.by = "cluster_75_merg", 
+             order.by = "cluster_50_renamed", 
              heatmap.colors = viridis(50), 
-             annot.by = c("cluster_75_merg"),
-            annot.colors=col_clusters$cluster_75_merg[order((names(col_clusters$cluster_75_merg)))])
+             annot.by = c("cluster_50_renamed"),
+            annot.colors=col_clusters$cluster_50_renamed[order(as.numeric(names(col_clusters$cluster_50_renamed)))])
 ```
 
 ## Stacked barplots / Correlation of cluster fractions
 
 ```{r cluster-pro, message = FALSE, warning = FALSE}
 #Fraction of PID/SID per cluster
-cluster_SID <- colData(sce) %>% as.data.frame() %>% select(cluster_75_merg,sample_id) %>% group_by(cluster_75_merg) %>% table() %>% as.data.frame
-cluster_SID <- cluster_SID %>% group_by(cluster_75_merg) %>% mutate(fra = Freq/sum(Freq))
-cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cluster_75_merg,PID) %>% group_by(cluster_75_merg) %>% table() %>% as.data.frame
-cluster_PID <- cluster_PID %>% group_by(cluster_75_merg) %>% mutate(fra = Freq/sum(Freq))
+cluster_SID <- colData(sce) %>% as.data.frame() %>% select(cluster_50_renamed,sample_id) %>% group_by(cluster_50_renamed) %>% table() %>% as.data.frame
+cluster_SID <- cluster_SID %>% group_by(cluster_50_renamed) %>% mutate(fra = Freq/sum(Freq))
+cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cluster_50_renamed,PID) %>% group_by(cluster_50_renamed) %>% table() %>% as.data.frame
+cluster_PID <- cluster_PID %>% group_by(cluster_50_renamed) %>% mutate(fra = Freq/sum(Freq))
 
 colnames(colData(sce))
 
@@ -717,7 +721,7 @@ col_PID = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(cluster_PID$PID)
 col_SID = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(cluster_SID$sample_id))) 
 
 p_clusterPID <- ggplot(cluster_PID) +
-  geom_tile(color = "black",aes(cluster_75_merg, fra, fill = PID), position = "stack")+
+  geom_tile(color = "black",aes(cluster_50_renamed, fra, fill = PID), position = "stack")+
   scale_fill_manual(values=col_PID) + 
   theme_classic(base_size = 15)+
   ylab("PID fraction per cluster")+
@@ -725,7 +729,7 @@ p_clusterPID <- ggplot(cluster_PID) +
   guides(fill = "none")
 
 p_clusterSID <- ggplot(cluster_SID) +
-  geom_tile(color = "black",aes(cluster_75_merg, fra, fill = sample_id), position = "stack")+
+  geom_tile(color = "black",aes(cluster_50_renamed, fra, fill = sample_id), position = "stack")+
   scale_fill_manual(values=col_SID) + 
   theme_classic(base_size = 15)+
   ylab("SID fraction per cluster")+
@@ -735,22 +739,22 @@ p_clusterSID <- ggplot(cluster_SID) +
 p_clusterPID
 
 #Fraction of cluster per PID/SID
-SID_cluster <- colData(sce) %>% as.data.frame() %>% select(cluster_75_merg,sample_id) %>% group_by(sample_id) %>% table() %>% as.data.frame
+SID_cluster <- colData(sce) %>% as.data.frame() %>% select(cluster_50_renamed,sample_id) %>% group_by(sample_id) %>% table() %>% as.data.frame
 SID_cluster <- SID_cluster %>% group_by(sample_id) %>% mutate(fra = Freq/sum(Freq))
-PID_cluster <- colData(sce) %>% as.data.frame() %>% select(cluster_75_merg,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_cluster <- colData(sce) %>% as.data.frame() %>% select(cluster_50_renamed,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 PID_cluster <- PID_cluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
 p_PID_cluster <- ggplot(PID_cluster) +
-  geom_tile(color = "black",aes(PID, fra, fill = cluster_75_merg), position = "stack")+
-  scale_fill_manual(values=col_clusters$cluster_75_merg) + 
+  geom_tile(color = "black",aes(PID, fra, fill = cluster_50_renamed), position = "stack")+
+  scale_fill_manual(values=col_clusters$cluster_50_renamed) + 
   theme_classic(base_size = 12)+
   ylab("Fraction")+
   xlab("PID")+
   theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
 
 p_SID_cluster <- ggplot(SID_cluster) +
-  geom_tile(color = "black",aes(sample_id, fra, fill = cluster_75_merg), position = "stack")+
-    scale_fill_manual(values=col_clusters$cluster_75_merg) + 
+  geom_tile(color = "black",aes(sample_id, fra, fill = cluster_50_renamed), position = "stack")+
+    scale_fill_manual(values=col_clusters$cluster_50_renamed) + 
   theme_classic(base_size = 15)+
   ylab("Fraction")+
   xlab("Sample_ID")+
@@ -761,7 +765,7 @@ SID_cluster_cor <- SID_cluster
 SID_cluster_cor$PID <- sce$PID[match(SID_cluster$sample_id,sce$sample_id)]
 
 SID_cluster_cor <- foreach(i = unique(colData(sce)$PID),.combine = "rbind")%do%{
-SID <- SID_cluster_cor %>% filter(PID %in% i) %>% select(-Freq,-PID) %>% pivot_wider(id_cols = cluster_75_merg,names_from = sample_id,values_from = fra) %>% column_to_rownames("cluster_75_merg")
+SID <- SID_cluster_cor %>% filter(PID %in% i) %>% select(-Freq,-PID) %>% pivot_wider(id_cols = cluster_50_renamed,names_from = sample_id,values_from = fra) %>% column_to_rownames("cluster_50_renamed")
 cor <- cor(SID,method = "spearman")
 cor[2]
 }
@@ -782,9 +786,6 @@ SID_cluster_cor_plot <- ggplot(SID_cluster_cor, aes(x = category, y = V1))+
   
 
 p_PID_cluster+SID_cluster_cor_plot
-
-
-cluster_SID %>% filter(cluster_75_merg == "13") %>% filter(!fra == 0) %>% arrange(desc(fra))
 ```
 
 ## Check correlation of markers
@@ -809,6 +810,123 @@ pairs.panels(cor_sce[,c("CD3","CD45")],
              hist.col = "royalblue1",
              digits = 2)
 ```
+## Save images / masks for all TME phenotypes
+
+```{r viz TME clus}
+## Visualize TME phenotypes on images 
+
+#Load images and masks
+images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+
+#subset images and masks for TMA249
+images <- images[str_detect(mcols(images)$sample_id,"ZTMA249")]
+masks <- masks[str_detect(mcols(masks)$sample_id,"ZTMA249")]
+
+### Visualize all TME phenotypes on images
+
+#1. T/B/Macrophages phenotypes: 11,6,9,10
+
+img_selected <- c(which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_320_CX8Y10")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_289_CX1Y7")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_36_AX4Y5")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_271_CX7Y4")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_82_AX2Y11")), which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_183_BX7Y8")))
+
+#subset sce for critical clusters
+sce_sub <- sce[,sce$cluster_50_renamed %in% c("11","6","9","10")]
+sce_sub
+
+#Prepare images
+cur_images <- images[img_selected]
+cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
+cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
+
+plotPixels(cur_images,
+           mask = masks[img_selected],
+           object = sce_sub,
+           img_id = "sample_id",
+           cell_id = "ObjectNumber",
+           missing_colour = "white",
+           colour_by = c("CD3", "CD4","CD8a","CD20","CD68"),
+           colour = list("CD3" = c("black", "yellow"),
+                         "CD8a" = c("black", "cyan"),
+                         "CD20" = c("black", "magenta"),
+                         "CD68" = c("black", "green"),
+                         "CD4" = c("black","red")
+                         ),
+           outline_by = "cluster_names",
+           thick = TRUE,
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7),
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_pixel_cluster_TBMacroCells.png"), scale = 2)
+           )
+
+#2. Endothelial cell phenotypes - 7, 12
+
+img_selected <- c(which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_320_CX8Y10")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_289_CX1Y7")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_36_AX4Y5")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_7_CX7Y4")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_70_AX2Y11")), which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_183_BX7Y8")))
+
+#subset sce for critical clusters
+sce_sub <- sce[,sce$cluster_50_renamed %in% c("7","12")]
+sce_sub
+
+#Prepare images
+cur_images <- images[img_selected]
+cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
+cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
+
+plotPixels(cur_images,
+           mask = masks[img_selected],
+           object = sce_sub,
+           img_id = "sample_id",
+           cell_id = "ObjectNumber",
+           missing_colour = "white",
+           colour_by = c("CD31_vWF", "SMA"),
+           colour = list("CD31_vWF" = c("black", "red"),
+                         "SMA" = c("black", "green")
+                         ),
+           outline_by = "cluster_names",
+           thick = TRUE,
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7),
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_pixel_cluster_EndoCells.png"), scale = 2)
+           )
+
+#3. Neutrophils/Granulocytes - 
+
+img_selected <- c(which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_294_CX6Y7")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_135_BX7Y2")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_36_AX4Y5")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_303_CX7Y8")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_302_CX6Y8")))
+
+#subset sce for critical clusters
+sce_sub <- sce[,sce$cluster_50_renamed %in% c("8")]
+sce_sub
+
+#Prepare images
+cur_images <- images[img_selected]
+cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
+cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
+
+plotPixels(cur_images,
+           mask = masks[img_selected],
+           object = sce_sub,
+           img_id = "sample_id",
+           cell_id = "ObjectNumber",
+           missing_colour = "white",
+           colour_by = c("panCK", "Ecad","CD15"),
+           colour = list("panCK" = c("black", "yellow"),
+                         "Ecad" = c("black", "green"),
+                         "CD15" = c("black","magenta")
+                         ),
+           outline_by = "cluster_names",
+           thick = TRUE,
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7),
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_pixel_cluster_NeutroGranu.png"), scale = 2)
+           )
+
+```
+
+
+
+
 
 ## Save plots as pdf
 
