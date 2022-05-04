@@ -246,7 +246,7 @@ colData(sce)$grade <- patient_meta$grade[match(colData(sce)$PID,patient_meta$PID
 
 ```{r heatmap scales, message=FALSE,warning=FALSE}
 #Read sce after clustering and GMM
-#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 
 #Heatmap body colors
 col_exprs <- colorRamp2(c(0,1,2,3,4), c("#440154FF","#3B518BFF","#20938CFF","#6ACD5AFF","#FDE725FF"))
@@ -320,7 +320,8 @@ h_min_max <- Heatmap(t(assay(cluster_mean_sce, "min_max")),
         show_row_names = T, 
         show_column_names =  T, 
         clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")+
+        clustering_method_columns = "ward.D2",
+        row_km = 10, row_km_repeats = 10000)+
 Heatmap(t(assay(cellstate_mean_sce, "min_max")),
         col = col_min_max,
         name= "min_max",
@@ -505,10 +506,18 @@ plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],im
 #Select spatial features and average over clusters 
 spatial <- colData(sce) %>% as.data.frame %>% select(area,eccentricity,cluster_50_renamed,n_neighbors)
 spatial <- spatial %>% select(-cluster_50_renamed) %>% aggregate(by = list(cluster_50_renamed = spatial$cluster_50_renamed), FUN = mean) %>% column_to_rownames("cluster_50_renamed")
-#define min_max fct
-min_max_norm <- function(x) {(x - min(x)) / (max(x) - min(x))}
-#normalize
-spatial_norm <- as.data.frame(lapply(spatial, min_max_norm))
+
+#Create Spatial Heatmap Annotation
+ha_spatial = HeatmapAnnotation(
+    area = spatial$area,
+    eccentricity = spatial$eccentricity,
+    n_neighbors = spatial$n_neighbors, 
+    col = list(area = colorRamp2(c(min(spatial$area),median(spatial$area),sort(spatial$area,decreasing = TRUE)[2]), c(brewer.pal(3,"Blues")[1],brewer.pal(3,"Blues")[2],brewer.pal(3,"Blues")[3])),
+               eccentricity = colorRamp2(c(min(spatial$eccentricity ),median(spatial$eccentricity ),max(spatial$eccentricity)), c(brewer.pal(3,"Greens")[1],brewer.pal(3,"Greens")[2],brewer.pal(3,"Greens")[3])),
+               n_neighbors = colorRamp2(c(min(spatial$n_neighbors ),median(spatial$n_neighbors ),max(spatial$n_neighbors)),c(brewer.pal(3,"Oranges")[1],brewer.pal(3,"Oranges")[2],brewer.pal(3,"Oranges")[3]))
+    ),
+    border = TRUE,
+    which = "row")
 
 
 ###3.  Define annotation dataframe with n cells, clusters and names for clusters
@@ -610,15 +619,7 @@ h <-Heatmap(t(assay(cluster_mean_sce, "min_max")),
         show_column_names =  T, 
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
-  Heatmap(spatial_norm,
-          column_title = "spatial_features",
-          col = col_min_max,
-        name= "mean min_max exprs",
-        km = 1,
-        show_row_names = T, 
-        show_column_names =  T, 
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")+
+  ha_spatial+
   rowAnnotation(cluster_50_renamed = anno_simple(unfactor(anno$cluster_50_renamed), pch = unfactor(anno$cluster_50_renamed),border=TRUE,col=col_clusters$cluster_50_renamed))+
   rowAnnotation(foo = anno_text(anno$names))+
   rowAnnotation(cluster_cat = anno_barplot(cluster_CC, width = unit(10, "mm"),gp = gpar(fill = c("#A6CEE3","#B2DF8A")), col = 1),annotation_name_rot = 90)+
@@ -635,8 +636,8 @@ h_cluster_anno <- rowAnnotation(cluster_50_renamed = anno_simple(unfactor((uniqu
 draw(h_cluster_anno)
 
 #Save sce and color mapping
-saveRDS(sce,"/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
-saveRDS(col_clusters, "/mnt/rcc_volume/TNBC/data_analysis/color_TMEpheno.rds")
+#saveRDS(sce,"/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
+#saveRDS(col_clusters, "/mnt/rcc_volume/TNBC/data_analysis/color_TMEpheno.rds")
 ```
 
 ## Dimensionality reduction 
@@ -810,6 +811,7 @@ pairs.panels(cor_sce[,c("CD3","CD45")],
              hist.col = "royalblue1",
              digits = 2)
 ```
+
 ## Save images / masks for all TME phenotypes
 
 ```{r viz TME clus}
@@ -830,7 +832,7 @@ masks <- masks[str_detect(mcols(masks)$sample_id,"ZTMA249")]
 img_selected <- c(which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_320_CX8Y10")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_289_CX1Y7")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_36_AX4Y5")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_271_CX7Y4")),which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_82_AX2Y11")), which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(mcols(images)$sample_id ,"ZTMA249_ID_183_BX7Y8")))
 
 #subset sce for critical clusters
-sce_sub <- sce[,sce$cluster_50_renamed %in% c("11","6","9","10")]
+sce_sub <- sce[,sce$cluster_50 %in% c("11","15")]
 sce_sub
 
 #Prepare images
@@ -851,12 +853,12 @@ plotPixels(cur_images,
                          "CD68" = c("black", "green"),
                          "CD4" = c("black","red")
                          ),
-           outline_by = "cluster_names",
+           outline_by = "cluster_50",
            thick = TRUE,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_pixel_cluster_TBMacroCells.png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_pixel_clusterbeforemerg_Bcells.png"), scale = 2)
            )
 
 #2. Endothelial cell phenotypes - 7, 12
@@ -942,7 +944,7 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_Silhouette_Cl
 p4
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_HeatmapCluster.pdf",width = 13,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_TME_CC_HeatmapCluster.pdf",width = 13,height = 7)
 h
 dev.off()
 
