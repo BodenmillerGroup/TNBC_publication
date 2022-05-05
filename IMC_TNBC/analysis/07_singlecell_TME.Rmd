@@ -83,9 +83,9 @@ sce
 
 ## Define markers for clustering
 ```{r tumor_markers, message = FALSE, warning = FALSE}
-cluster_channel = c("Vimentin","SMA","Fibronectin","CD68","CD3","CD20","CD11c","CD45","CD20","CD8a","CD4","CD31_vWF","CD15")
+cluster_channel = c("Vimentin","SMA","Fibronectin","CD68","CD3","CD20","CD11c","CD20","CD8a","CD4","CD31_vWF","CD15")
 
-other_epi_channel = c("panCK","Ecad","CK5","CK8_18","KRT14","cMYC","HER2","ER","PR","p53","AR","EGFR","p_mTOR","CK7","GATA3")
+other_epi_channel = c("panCK","Ecad","CK5","CK8_18","KRT14","cMYC","HER2","ER","PR","p53","AR","EGFR","p_mTOR","CK7","GATA3","CD45")
 
 cell_state_channel = c("pH3","H3K27me3","Bcl2", "c_Cas3_PARP","S6", "CD44","CAIX","Ki67")
 
@@ -114,7 +114,7 @@ sce$cluster_30 <- as.factor(clusters_3$membership)
 unique(sce$cluster_30)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k_CD45.rds")
 
 
 #k=50
@@ -132,7 +132,7 @@ sce$cluster_50 <- as.factor(clusters$membership)
 unique(sce$cluster_50)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k_CD45.rds")
 
 #k=75
 set.seed(22)
@@ -149,7 +149,7 @@ sce$cluster_75 <- as.factor(clusters_1$membership)
 unique(sce$cluster_75)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k_CD45.rds")
 ```
 
 ### Cluster stability testing and comparison
@@ -166,6 +166,8 @@ pairwiseRand(sce$cluster_50,sce$cluster_75, mode = "index")
 
 #Over different resolution parameters - Silhouette width [-1,1,max], Purity[0,1,max], Root-mean-squared difference [min]
 clusters <- colnames(colData(sce))[str_detect(colnames(colData(sce)),"cluster_[:digit:]")]
+clusters <- clusters[!clusters %in% c("cluster_50_renamed","cluster_50_merg")]
+
 df <- foreach(i = seq_along(clusters),.combine = rbind) %do% {
 num_clus <- length(unique(colData(sce)[,clusters[i]]))
 sil <- approxSilhouette(t(assay(sce, "exprs")), clusters=colData(sce)[,clusters[i]])
@@ -237,7 +239,10 @@ colData(sce)$lehmann_subtype <- sample_meta$lehmann_subtype[match(colData(sce)$I
 patient_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed_byPID.csv")
 #Add Grade by PID
 colData(sce)$grade <- patient_meta$grade[match(colData(sce)$PID,patient_meta$PID)]
-
+colData(sce)$OS_months <- patient_meta$OS_months[match(colData(sce)$PID,patient_meta$PID)]
+colData(sce)$status_OS <- patient_meta$status_OS[match(colData(sce)$PID,patient_meta$PID)]
+colData(sce)$DFS_months <- patient_meta$Diseasefree_months[match(colData(sce)$PID,patient_meta$PID)]
+colData(sce)$status_DFS <- patient_meta$status_DFS[match(colData(sce)$PID,patient_meta$PID)]
 #SaveSCEwithmetadata
 #saveRDS(sce,"/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 ```
@@ -450,16 +455,15 @@ h_exprs_z
 
 Observation: Mean "raw" or "min_max" exprs counts are most interpretable and logical - use min_max for downstream analysis
 
-## Cluster merging of similar clusters with clear phenotype
-Here: 8&15, 10&17, 3&5 (maybe 14&16)
+## Optional: Cluster merging of similar clusters with clear phenotype
 
 ```{r cluster merg}
-sce$cluster_50_merg <- ifelse(sce$cluster_50 %in% c("11","15"), "11_15", sce$cluster_50)
+sce$cluster_50_merg <- sce$cluster_50
 sce$cluster_50_merg <- ifelse(sce$cluster_50_merg %in% c("1","4"), "1_4", sce$cluster_50_merg)
 sce$cluster_50_merg <- ifelse(sce$cluster_50_merg %in% c("2","9"), "2_9", sce$cluster_50_merg)
 sce$cluster_50_merg <- as.factor(sce$cluster_50_merg)
 
-cluster_50_merg_df <- data.frame(cluster_50_merg = unique(sce$cluster_50_merg), cluster_50_merg_names = 1:13) #define new and sorted cluster names
+cluster_50_merg_df <- data.frame(cluster_50_merg = unique(sce$cluster_50_merg), cluster_50_merg_names = 1:14) #define new and sorted cluster names
 sce$cluster_50_renamed <- cluster_50_merg_df$cluster_50_merg_names[match(sce$cluster_50_merg,cluster_50_merg_df$cluster_50_merg)] 
 sce$cluster_50_renamed <- as.factor(sce$cluster_50_renamed)
 ```
@@ -468,7 +472,7 @@ sce$cluster_50_renamed <- as.factor(sce$cluster_50_renamed)
 
 ```{r heatmap sce_1, message=FALSE,warning=FALSE}
 #Read sce after clustering and GMM
-#sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 
 ### 1. Marker Heatmaps (Cluster channels, other_immune channels)
 
@@ -528,7 +532,7 @@ anno_clus <- as.character(sce$cluster_50_renamed)
 
 anno_clus[anno_clus == "1"] <- "FibroVim_SMA+"
 anno_clus[anno_clus == "2"] <- "FibroVim"
-anno_clus[anno_clus == "3"] <- "Fibro_low"
+anno_clus[anno_clus == "3"] <- "Fibro"
 anno_clus[anno_clus == "4"] <- "Undefined_T"
 anno_clus[anno_clus == "5"] <- "Fibro_CD31_low"
 anno_clus[anno_clus == "6"] <- "CD4_Tcells"
@@ -538,7 +542,8 @@ anno_clus[anno_clus == "9"] <- "Bcells"
 anno_clus[anno_clus == "10"] <- "Macrophages"
 anno_clus[anno_clus == "11"] <- "CD8_Tcells"
 anno_clus[anno_clus == "12"] <- "Endo"
-anno_clus[anno_clus == "13"] <- "FibroSMA"
+anno_clus[anno_clus == "13"] <- "BnT_cells"
+anno_clus[anno_clus == "14"] <- "FibroSMA"
 
 anno_clus <- data.frame(anno_clus = anno_clus, origin = as.character(sce$cluster_50_renamed))
 
@@ -811,6 +816,324 @@ pairs.panels(cor_sce[,c("CD3","CD45")],
              hist.col = "royalblue1",
              digits = 2)
 ```
+
+## Cox-proportonal hazards model for TME phenotypes
+
+### For OS
+
+```{r cox OS}
+library(survival)
+library(survminer)
+
+### Univariate cox proportional hazards model on multiple covariates (here proportion of phenotypes)
+
+PID_groups <- PID_cluster %>% pivot_wider(id_cols = "PID",names_from = "cluster_50_renamed",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_groups) <- paste0("TME",colnames(PID_groups))
+
+Cox_df <- PID_groups
+
+## 1. Based on continuous cluster proportions
+Cox_df$status_OS <- sce$status_OS[match(rownames(Cox_df),sce$PID)]
+Cox_df$OS_months <- sce$OS_months[match(rownames(Cox_df),sce$PID)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_OS,-OS_months) %>% colnames
+univ_formulas <- sapply(covariates, function(x) as.formula(paste('Surv(OS_months, status_OS)~', x)))
+univ_models <- lapply(univ_formulas, function(x){coxph(x, data = Cox_df)})
+
+# Extract data 
+univ_results <- lapply(univ_models,
+                       function(x){ 
+                          x <- summary(x)
+                          p.value<-signif(x$wald["pvalue"], digits=2)
+                          wald.test<-signif(x$wald["test"], digits=2)
+                          beta<-signif(x$coef[1], digits=2); #coeficient beta
+                          HR <-signif(x$coef[2], digits=2); #exp(beta)
+                          HR.confint.lower <- signif(x$conf.int[,"lower .95"], 2)
+                          HR.confint.upper <- signif(x$conf.int[,"upper .95"],2)
+                          res<-c(beta, HR,HR.confint.lower,HR.confint.upper, wald.test, p.value)
+                          names(res)<-c("beta", "HR", "CI_low","CI_high","wald_test", 
+                                        "p_value")
+                          return(res)
+                         })
+
+res <- t(as.data.frame(univ_results, check.names = FALSE))
+res <- as.data.frame(res)
+res <- res %>% rownames_to_column(var = "group")
+
+#Plot hazard ratios            
+hr_prop <- ggplot(res, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("TME phenotypes")+
+ylab("HR for con_prop")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+##2. Based on categories (mean division of cluster proportions)
+Cox_df_mean <- foreach(i = Cox_df %>% select(-status_OS,-OS_months) %>% colnames,.combine = "cbind")%do%{
+Cox_df %>% select(i) %>% mutate(mean = ifelse(Cox_df[,i] > mean(Cox_df[,i]),"B","A")) %>% pull(mean)
+}
+colnames(Cox_df_mean) <- Cox_df %>% select(-status_OS,-OS_months) %>% colnames
+rownames(Cox_df_mean) <- Cox_df %>% select(-status_OS,-OS_months) %>% rownames
+Cox_df_mean <- as.data.frame(Cox_df_mean)
+Cox_df_mean$status_OS <- sce$status_OS[match(rownames(Cox_df_mean),sce$PID)]
+Cox_df_mean$OS_months <- sce$OS_months[match(rownames(Cox_df_mean),sce$PID)]
+
+#Based on proportions
+covariates <- Cox_df_mean %>% select(-status_OS,-OS_months) %>% colnames
+univ_formulas <- sapply(covariates, function(x) as.formula(paste('Surv(OS_months, status_OS)~', x)))
+univ_models <- lapply(univ_formulas, function(x){coxph(x, data = Cox_df_mean)})
+
+# Extract data 
+univ_results <- lapply(univ_models,
+                       function(x){ 
+                          x <- summary(x)
+                          p.value<-signif(x$wald["pvalue"], digits=2)
+                          wald.test<-signif(x$wald["test"], digits=2)
+                          beta<-signif(x$coef[1], digits=2); #coeficient beta
+                          HR <-signif(x$coef[2], digits=2); #exp(beta)
+                          HR.confint.lower <- signif(x$conf.int[,"lower .95"], 2)
+                          HR.confint.upper <- signif(x$conf.int[,"upper .95"],2)
+                          res<-c(beta, HR,HR.confint.lower,HR.confint.upper, wald.test, p.value)
+                          names(res)<-c("beta", "HR", "CI_low","CI_high","wald_test", 
+                                        "p_value")
+                          return(res)
+                         })
+
+res_1 <- t(as.data.frame(univ_results, check.names = FALSE))
+res_1 <- as.data.frame(res_1)
+res_1 <- res_1 %>% rownames_to_column(var = "group")
+
+#Plot hazard ratios            
+hr_cat <- ggplot(res_1, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,10))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("TME phenotypes")+
+ylab("HR for mean_prop")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+
+##3. Based on categories (GMM division of cluster proportions)
+Cox_df_GMM <- foreach(i = Cox_df %>% select(-status_OS,-OS_months) %>% colnames,.combine = "cbind")%do%{
+GMM_Cox <- Mclust(Cox_df[,i], G = 2)
+GMM_Cox$classification
+}
+colnames(Cox_df_GMM) <- Cox_df %>% select(-status_OS,-OS_months) %>% colnames
+rownames(Cox_df_GMM) <- Cox_df %>% select(-status_OS,-OS_months) %>% rownames
+Cox_df_GMM <- as.data.frame(Cox_df_GMM)
+Cox_df_GMM$status_OS <- sce$status_OS[match(rownames(Cox_df_GMM),sce$PID)]
+Cox_df_GMM$OS_months <- sce$OS_months[match(rownames(Cox_df_GMM),sce$PID)]
+
+#Based on proportions
+covariates <- Cox_df_GMM %>% select(-status_OS,-OS_months) %>% colnames
+univ_formulas <- sapply(covariates, function(x) as.formula(paste('Surv(OS_months, status_OS)~', x)))
+univ_models <- lapply(univ_formulas, function(x){coxph(x, data = Cox_df_GMM)})
+
+# Extract data 
+univ_results <- lapply(univ_models,
+                       function(x){ 
+                          x <- summary(x)
+                          p.value<-signif(x$wald["pvalue"], digits=2)
+                          wald.test<-signif(x$wald["test"], digits=2)
+                          beta<-signif(x$coef[1], digits=2); #coeficient beta
+                          HR <-signif(x$coef[2], digits=2); #exp(beta)
+                          HR.confint.lower <- signif(x$conf.int[,"lower .95"], 2)
+                          HR.confint.upper <- signif(x$conf.int[,"upper .95"],2)
+                          res<-c(beta, HR,HR.confint.lower,HR.confint.upper, wald.test, p.value)
+                          names(res)<-c("beta", "HR", "CI_low","CI_high","wald_test", 
+                                        "p_value")
+                          return(res)
+                         })
+
+res_2 <- t(as.data.frame(univ_results, check.names = FALSE))
+res_2 <- as.data.frame(res_2)
+res_2 <- res_2 %>% rownames_to_column(var = "group")
+
+#Plot hazard ratios            
+hr_cat_GMM <- ggplot(res_2, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,10))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("TME phenotypes")+
+ylab("HR for GMM_prop")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop/
+hr_cat/
+hr_cat_GMM
+
+#currently too many covariates and too little observations: ratio should be 1:10
+```
+### For DFS
+
+```{r cox DFS}
+library(survival)
+library(survminer)
+
+### Univariate cox proportional hazards model on multiple covariates (here proportion of phenotypes)
+
+PID_groups <- PID_cluster %>% pivot_wider(id_cols = "PID",names_from = "cluster_50_renamed",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_groups) <- paste0("TME",colnames(PID_groups))
+
+Cox_df <- PID_groups
+
+## 1. Based on continuous cluster proportions
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months) %>% colnames
+univ_formulas <- sapply(covariates, function(x) as.formula(paste('Surv(DFS_months, status_DFS)~', x)))
+univ_models <- lapply(univ_formulas, function(x){coxph(x, data = Cox_df)})
+
+# Extract data 
+univ_results <- lapply(univ_models,
+                       function(x){ 
+                          x <- summary(x)
+                          p.value<-signif(x$wald["pvalue"], digits=2)
+                          wald.test<-signif(x$wald["test"], digits=2)
+                          beta<-signif(x$coef[1], digits=2); #coeficient beta
+                          HR <-signif(x$coef[2], digits=2); #exp(beta)
+                          HR.confint.lower <- signif(x$conf.int[,"lower .95"], 2)
+                          HR.confint.upper <- signif(x$conf.int[,"upper .95"],2)
+                          res<-c(beta, HR,HR.confint.lower,HR.confint.upper, wald.test, p.value)
+                          names(res)<-c("beta", "HR", "CI_low","CI_high","wald_test", 
+                                        "p_value")
+                          return(res)
+                         })
+
+res <- t(as.data.frame(univ_results, check.names = FALSE))
+res <- as.data.frame(res)
+res <- res %>% rownames_to_column(var = "group")
+
+#Plot hazard ratiDFS            
+hr_prop <- ggplot(res, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("TME phenotypes")+
+ylab("HR for con_prop")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+##2. Based on categories (mean division of cluster proportions)
+Cox_df_mean <- foreach(i = Cox_df %>% select(-status_DFS,-DFS_months) %>% colnames,.combine = "cbind")%do%{
+Cox_df %>% select(i) %>% mutate(mean = ifelse(Cox_df[,i] > mean(Cox_df[,i]),"B","A")) %>% pull(mean)
+}
+colnames(Cox_df_mean) <- Cox_df %>% select(-status_DFS,-DFS_months) %>% colnames
+rownames(Cox_df_mean) <- Cox_df %>% select(-status_DFS,-DFS_months) %>% rownames
+Cox_df_mean <- as.data.frame(Cox_df_mean)
+Cox_df_mean$status_DFS <- sce$status_DFS[match(rownames(Cox_df_mean),sce$PID)]
+Cox_df_mean$DFS_months <- sce$DFS_months[match(rownames(Cox_df_mean),sce$PID)]
+
+#Based on proportions
+covariates <- Cox_df_mean %>% select(-status_DFS,-DFS_months) %>% colnames
+univ_formulas <- sapply(covariates, function(x) as.formula(paste('Surv(DFS_months, status_DFS)~', x)))
+univ_models <- lapply(univ_formulas, function(x){coxph(x, data = Cox_df_mean)})
+
+# Extract data 
+univ_results <- lapply(univ_models,
+                       function(x){ 
+                          x <- summary(x)
+                          p.value<-signif(x$wald["pvalue"], digits=2)
+                          wald.test<-signif(x$wald["test"], digits=2)
+                          beta<-signif(x$coef[1], digits=2); #coeficient beta
+                          HR <-signif(x$coef[2], digits=2); #exp(beta)
+                          HR.confint.lower <- signif(x$conf.int[,"lower .95"], 2)
+                          HR.confint.upper <- signif(x$conf.int[,"upper .95"],2)
+                          res<-c(beta, HR,HR.confint.lower,HR.confint.upper, wald.test, p.value)
+                          names(res)<-c("beta", "HR", "CI_low","CI_high","wald_test", 
+                                        "p_value")
+                          return(res)
+                         })
+
+res_1 <- t(as.data.frame(univ_results, check.names = FALSE))
+res_1 <- as.data.frame(res_1)
+res_1 <- res_1 %>% rownames_to_column(var = "group")
+
+#Plot hazard ratiDFS            
+hr_cat <- ggplot(res_1, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,10))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("TME phenotypes")+
+ylab("HR for mean_prop")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+
+##3. Based on categories (GMM division of cluster proportions)
+Cox_df_GMM <- foreach(i = Cox_df %>% select(-status_DFS,-DFS_months) %>% colnames,.combine = "cbind")%do%{
+GMM_Cox <- Mclust(Cox_df[,i], G = 2)
+GMM_Cox$classification
+}
+colnames(Cox_df_GMM) <- Cox_df %>% select(-status_DFS,-DFS_months) %>% colnames
+rownames(Cox_df_GMM) <- Cox_df %>% select(-status_DFS,-DFS_months) %>% rownames
+Cox_df_GMM <- as.data.frame(Cox_df_GMM)
+Cox_df_GMM$status_DFS <- sce$status_DFS[match(rownames(Cox_df_GMM),sce$PID)]
+Cox_df_GMM$DFS_months <- sce$DFS_months[match(rownames(Cox_df_GMM),sce$PID)]
+
+#Based on proportions
+covariates <- Cox_df_GMM %>% select(-status_DFS,-DFS_months) %>% colnames
+univ_formulas <- sapply(covariates, function(x) as.formula(paste('Surv(DFS_months, status_DFS)~', x)))
+univ_models <- lapply(univ_formulas, function(x){coxph(x, data = Cox_df_GMM)})
+
+# Extract data 
+univ_results <- lapply(univ_models,
+                       function(x){ 
+                          x <- summary(x)
+                          p.value<-signif(x$wald["pvalue"], digits=2)
+                          wald.test<-signif(x$wald["test"], digits=2)
+                          beta<-signif(x$coef[1], digits=2); #coeficient beta
+                          HR <-signif(x$coef[2], digits=2); #exp(beta)
+                          HR.confint.lower <- signif(x$conf.int[,"lower .95"], 2)
+                          HR.confint.upper <- signif(x$conf.int[,"upper .95"],2)
+                          res<-c(beta, HR,HR.confint.lower,HR.confint.upper, wald.test, p.value)
+                          names(res)<-c("beta", "HR", "CI_low","CI_high","wald_test", 
+                                        "p_value")
+                          return(res)
+                         })
+
+res_2 <- t(as.data.frame(univ_results, check.names = FALSE))
+res_2 <- as.data.frame(res_2)
+res_2 <- res_2 %>% rownames_to_column(var = "group")
+
+#Plot hazard ratiDFS            
+hr_cat_GMM <- ggplot(res_2, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,10))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("TME phenotypes")+
+ylab("HR for GMM_prop")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop/
+hr_cat/
+hr_cat_GMM
+
+#currently too many covariates and too little observations: ratio should be 1:10
+```
+
+
+
 
 ## Save images / masks for all TME phenotypes
 
