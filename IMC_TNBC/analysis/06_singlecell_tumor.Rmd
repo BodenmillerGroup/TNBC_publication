@@ -786,12 +786,15 @@ dittoHeatmap(sce_sub,
 ## Stacked barplots / Correlation of cluster fractions
 
 ```{r cluster-pro, message = FALSE, warning = FALSE}
-#Fraction of PID/SID per cluster
+###1. Fraction of PID/SID per cluster/metacluster
 cluster_SID <- colData(sce) %>% as.data.frame() %>% select(cluster_100,sample_id) %>% group_by(cluster_100) %>% table() %>% as.data.frame
 cluster_SID <- cluster_SID %>% group_by(cluster_100) %>% mutate(fra = Freq/sum(Freq))
 
 cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cluster_100,PID) %>% group_by(cluster_100) %>% table() %>% as.data.frame
 cluster_PID <- cluster_PID %>% group_by(cluster_100) %>% mutate(fra = Freq/sum(Freq))
+
+metacluster_PID <- colData(sce) %>% as.data.frame() %>% select(metacluster,PID) %>% group_by(metacluster) %>% table() %>% as.data.frame
+metacluster_PID <- metacluster_PID %>% group_by(metacluster) %>% mutate(fra = Freq/sum(Freq))
 
 col_PID = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(cluster_PID$PID))) 
 col_SID = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(cluster_SID$sample_id))) 
@@ -804,6 +807,14 @@ p_clusterPID <- ggplot(cluster_PID) +
   theme(axis.title.x = element_blank())+
   guides(fill = "none")
 
+p_metaclusterPID <- ggplot(metacluster_PID) +
+  geom_tile(color = "black",aes(metacluster, fra, fill = PID), position = "stack")+
+  scale_fill_manual(values=col_PID) + 
+  theme_classic(base_size = 15)+
+  ylab("PID fraction per metacluster")+
+  theme(axis.title.x = element_blank())+
+  guides(fill = "none")
+
 p_clusterSID <- ggplot(cluster_SID) +
   geom_tile(color = "black",aes(cluster_100, fra, fill = sample_id), position = "stack")+
   scale_fill_manual(values=col_SID) + 
@@ -812,11 +823,13 @@ p_clusterSID <- ggplot(cluster_SID) +
   theme(axis.title.x = element_blank())+
   guides(fill = "none")
 
-p_clusterPID
+p_clusterPID+p_metaclusterPID
 
-#Fraction of cluster/metacluster per PID/SID
+### 2. Fraction of cluster/metacluster per PID/SID
 SID_cluster <- colData(sce) %>% as.data.frame() %>% select(cluster_100,sample_id) %>% group_by(sample_id) %>% table() %>% as.data.frame
 SID_cluster <- SID_cluster %>% group_by(sample_id) %>% mutate(fra = Freq/sum(Freq))
+SID_metacluster <- colData(sce) %>% as.data.frame() %>% select(metacluster,sample_id) %>% group_by(sample_id) %>% table() %>% as.data.frame
+SID_metacluster <- SID_metacluster %>% group_by(sample_id) %>% mutate(fra = Freq/sum(Freq))
 PID_cluster <- colData(sce) %>% as.data.frame() %>% select(cluster_100,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 PID_cluster <- PID_cluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 PID_metacluster <- colData(sce) %>% as.data.frame() %>% select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
@@ -873,8 +886,35 @@ SID_cluster_cor_plot <- ggplot(SID_cluster_cor, aes(x = category, y = V1))+
   ylab("Correlation of cluster fractions per PID (n=2)")+
   ggtitle(paste("Spearman rho = ",round(median(SID_cluster_cor$V1, na.rm = TRUE), digits = 2)))
   
+# Metacluster fraction correlation for each PID (2 samples per PID)
+SID_metacluster_cor <- SID_metacluster
+SID_metacluster_cor$PID <- sce$PID[match(SID_metacluster$sample_id,sce$sample_id)]
 
-p_PID_cluster+SID_cluster_cor_plot
+
+SID_metacluster_cor <- foreach(i = unique(colData(sce)$PID),.combine = "rbind")%do%{
+SID <- SID_metacluster_cor %>% filter(PID %in% i) %>% select(-Freq,-PID) %>% pivot_wider(id_cols = metacluster,names_from = sample_id,values_from = fra) %>% column_to_rownames("metacluster")
+cor <- cor(SID,method = "spearman")
+cor[2]
+}
+
+SID_metacluster_cor <- as.data.frame(SID_metacluster_cor) 
+SID_metacluster_cor$PID <- unique(colData(sce)$PID) 
+SID_metacluster_cor$category <- "PID"
+
+SID_metacluster_cor_plot <- ggplot(SID_metacluster_cor, aes(x = category, y = V1))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  scale_color_manual(values = col_PID)+
+  theme_classic(base_size = 12)+
+  theme(axis.title.x = element_blank())+
+  ylab("Correlation of metacluster fractions per PID (n=2)")+
+  ggtitle(paste("Spearman rho = ",round(median(SID_metacluster_cor$V1, na.rm = TRUE), digits = 2)))
+
+(p_PID_cluster+SID_cluster_cor_plot)/
+(p_PID_metacluster + SID_metacluster_cor_plot)
+
+
 ```
 
 ## Check correlation of markers
@@ -1294,7 +1334,7 @@ col_cluster_groups <- col_clusters$metaclusters[names(col_clusters$metaclusters)
 
 
 #Print heatmap
-h_g <- Heatmap(PID_groups, name = "Cluster fraction", 
+h_g_meta <- Heatmap(PID_groups, name = "Cluster fraction", 
         col = col_main,split = row_anno$PID_groups,
         show_column_names = T, show_row_names =  F, 
         row_title_side = c("right"),
@@ -1305,10 +1345,8 @@ h_g <- Heatmap(PID_groups, name = "Cluster fraction",
         row_title_rot = 0)%v%
   columnAnnotation(metacluster = anno_simple(unfactor(col_anno$metacluster), pch = unfactor(col_anno$metacluster),border=TRUE, col = col_cluster_groups),annotation_name_side = "left") 
   
-columnAnnotation(foo = anno_text(col_anno$names))
-
-h_g <- draw(h_g)
-draw(h_g)
+h_g_meta <- draw(h_g_meta)
+draw(h_g_meta)
 
 # #Retrieve PID groups (for agnes)
 # row_groups <- foreach(i = 1:16, .combine = rbind) %do%{
@@ -1321,6 +1359,8 @@ sce$PID_groups <- row_anno$PID_groups[match(sce$PID,row_anno$PID)]
 #Save sce
 #saveRDS(sce,"/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 ```
+
+
 #Option 2: Based on cluster fractions per PID
 
 ```{r pgroups, eval = F}
@@ -1370,7 +1410,7 @@ col_cluster_groups <- col_clusters$cluster_100[names(col_clusters$cluster_100) %
 col_clusters$cluster_100
 
 #Print heatmap
-h_g <- Heatmap(PID_groups, name = "Cluster fraction", 
+h_g_clus <- Heatmap(PID_groups, name = "Cluster fraction", 
         col = col_main,split = row_anno$PID_groups,
         show_column_names = T, show_row_names =  F, 
         row_title_side = c("right"),
@@ -1383,10 +1423,8 @@ h_g <- Heatmap(PID_groups, name = "Cluster fraction",
   columnAnnotation(metacluster = anno_simple(col_anno$metacluster, pch = col_anno$metacluster,border=TRUE, col = col_clusters$metaclusters),annotation_name_side = "left")
 
   
-columnAnnotation(foo = anno_text(col_anno$names))
-
-h_g <- draw(h_g)
-draw(h_g)
+h_g_clus <- draw(h_g_clus)
+draw(h_g_clus)
 
 # #Retrieve PID groups (for agnes)
 # row_groups <- foreach(i = 1:16, .combine = rbind) %do%{
@@ -1741,7 +1779,7 @@ print(fit_OS)
 
 plot_OS <- ggsurvplot(fit_OS,
           pval = TRUE, conf.int = FALSE,
-          risk.table = TRUE, # Add risk table
+          risk.table = FALSE, # Add risk table
           risk.table.col = "strata", # Change risk table color by groups
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
@@ -1756,7 +1794,7 @@ print(fit_DFS)
 
 plot_DFS <- ggsurvplot(fit_DFS,
           pval = TRUE, conf.int = FALSE,
-          risk.table = TRUE, # Add risk table
+          risk.table = FALSE, # Add risk table
           risk.table.col = "strata", # Change risk table color by groups
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
@@ -1773,27 +1811,27 @@ plot_DFS
 ##IMPORTANT: change to chunk output in console for this last part 
 
 ##save plots as pdf (vector graphics)
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_ClusterTesting.pdf",width = 10,height = 5)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_ClusterTesting.pdf",width = 10,height = 5)
 p1+p2+p3
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_Silhouette_Cluster100.pdf",width = 12,height = 10)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_Silhouette_Cluster100.pdf",width = 12,height = 10)
 p4
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapCluster.pdf",width = 13,height = 7)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_HeatmapCluster.pdf",width = 13,height = 7)
 h
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapCluster_Scales.pdf",width = 20,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_HeatmapCluster_Scales.pdf",width = 20,height = 8)
 h_exprs+h_min_max
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_ClusterAnno.pdf",width = 5,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_ClusterAnno.pdf",width = 5,height = 8)
 h_cluster_anno
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapCluster_subcells.pdf",width = 10,height = 8)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/06_tumor//TNBC_249_Tumor_CC_HeatmapCluster_subcells.pdf",width = 10,height = 8)
 dittoHeatmap(sce_sub, 
              genes = rownames(sce_sub)[rowData(sce_sub)$cluster_channel],
              assay = "min_max", 
@@ -1804,7 +1842,7 @@ dittoHeatmap(sce_sub,
              annot.colors=col_clusters$cluster_100[order(as.numeric(names(col_clusters$cluster_100)))])
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_ExpressionCor.pdf",width = 10,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_ExpressionCor.pdf",width = 10,height = 8)
 corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, name="RdBu"),  
          type="upper", order="hclust",hclust.method = "ward.D2", 
          addCoef.col = "black", addCoefasPercent = F,# Add coefficient of correlation
@@ -1816,47 +1854,64 @@ corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, n
 )
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_UMAPTSNECluster.pdf",width = 12,height = 6)
-UMAP_clus+TSNE_clus
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_TSNECluster_Metacluster.pdf",width = 12,height = 6)
+TSNE_clus+TSNE_metaclus
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_TSNEExpression.pdf",width = 12,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_TSNEExpression.pdf",width = 12,height = 6)
 exp_plots_TSNE
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_UMAPExpression.pdf",width = 12,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_UMAPExpression.pdf",width = 12,height = 6)
 exp_plots_UMAP
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_ClusterPIDSID.pdf",width = 12,height = 6)
-p_clusterPID+p_clusterSID
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_MetaClusterPID.pdf",width = 10,height = 10)
+p_clusterPID/p_metaclusterPID
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_PIDCluster_ClusterCor.pdf",width = 14,height = 6)
-p_PID_cluster+SID_cluster_cor_plot
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_PIDMetaCluster_ClusterCor.pdf",width = 12,height = 10)
+(p_PID_cluster+SID_cluster_cor_plot)/
+(p_PID_metacluster + SID_metacluster_cor_plot)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapPIDgroups.pdf",width = 11,height = 7)
-h_g
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_ClusterMeta_HR_OS.pdf",width = 10,height = 8)
+hr_prop/
+hr_cat/
+hr_cat_GMM
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapPIDgroups_mean.pdf",width = 11,height = 7)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_ClusterMeta_HR_DFS.pdf",width = 10,height = 8)
+hr_prop/
+hr_cat/
+hr_cat_GMM
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_Heatmap_metaClus_PIDgroups.pdf",width = 8,height = 8)
+h_g_meta
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_Heatmap_Clus_PIDgroups.pdf",width = 8,height = 8)
+h_g_clus
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_HeatmapPIDgroups_mean.pdf",width = 11,height = 7)
 h_g_rich
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapPIDgroupsCLR.pdf",width = 11,height = 7)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_HeatmapPIDgroupsCLR.pdf",width = 11,height = 7)
 h_g_1
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_HeatmapPIDgroupsCLR_mean.pdf",width = 11,height = 7)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_HeatmapPIDgroupsCLR_mean.pdf",width = 11,height = 7)
 h_g_rich_clr
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_PIDgroups_OS.pdf",width = 11,height = 7)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_PIDgroups_Clus_OS.pdf",width = 8,height = 5)
 plot_OS
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_CC_PIDgroups_DFS.pdf",width = 11,height = 7)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_PIDgroups_Clus_DFS.pdf",width = 8,height = 5)
 plot_DFS
 dev.off()
 

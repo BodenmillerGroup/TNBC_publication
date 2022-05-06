@@ -3,7 +3,7 @@ title: "05_SingleCell_InitialClustering"
 output: html_document
 date: '2022-03-30'
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -370,7 +370,7 @@ dittoHeatmap(sce_mixed, genes = rownames(sce_mixed)[rowData(sce_mixed)$use_chann
 sce$cluster_category_2 <- sce_mixed$cluster_category_2[match(colnames(sce),colnames(sce_mixed))]
 
 # Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 
 # #Cluster on mixed cluster category
 # set.seed(22)
@@ -474,7 +474,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/mixed_clusters_viz/cluster_mixed_epi_non_epi_byanalysiscat.png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/mixed_clusters_viz/cluster_mixed_epi_non_epi_byanalysiscat.png"), scale = 2)
            )
 
 
@@ -496,7 +496,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/mixed_clusters_viz/cluster_mixed_epi_non_epi_byGMMCK.png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/mixed_clusters_viz/cluster_mixed_epi_non_epi_byGMMCK.png"), scale = 2)
            )
 
 plotPixels(cur_images,
@@ -517,7 +517,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/mixed_clusters_viz/cluster_mixed_epi_non_epi_byGMMEcad.png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/mixed_clusters_viz/cluster_mixed_epi_non_epi_byGMMEcad.png"), scale = 2)
            )
 
 ```
@@ -622,8 +622,7 @@ plots_UMAP_exp <- plot_grid(plotlist = all_plots_UMAP)
 #panCK and GMM_CK
 p6 <- plotReducedDim(sce_sub, dimred = "TSNE", by_exprs_values = "exprs",colour_by = "panCK")
 
-p7 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "GMM_CK")+
-  scale_color_brewer(palette="Set1")
+p7 <- plotReducedDim(sce_sub, dimred = "TSNE", by_exprs_values = "exprs", colour_by = "Ecad")
 
 p8 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_category")+
   scale_color_manual(values = col_list_1[[2]])
@@ -719,33 +718,45 @@ saveRDS(sce_sub, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
 ##IMPORTANT: change to chunk output in console for this last part 
 
 ##save plots as pdf (vector graphics)
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_GMMpanCK.pdf",width = 10,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/TNBC_249_Tumor_GMMpanCK.pdf",width = 10,height = 8)
 GMM_plot_exp+GMM_plot_unc
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_GMMpanCKspatial.pdf",width = 12,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/TNBC_249_Tumor_GMMpanCKspatial.pdf",width = 12,height = 6)
 sp1+sp2+sp3
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_HeatmapGMMCC.pdf",width = 15,height = 10)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/TNBC_249_Tumor_HeatmapGMMCC.pdf",width = 15,height = 10)
 draw(h)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_HeatmapMixed.pdf",width = 10,height = 12)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/TNBC_249_Tumor_HeatmapMixed.pdf",width = 10,height = 12)
 dittoHeatmap(sce_mixed, genes = rownames(sce_mixed)[rowData(sce_mixed)$use_channel],
              assay = "exprs", cluster_cols = FALSE, order.by = c("cluster_category_2","GMM_CK","GMM_Ecad","cluster"), scale = "none",
              heatmap.colors = viridis(100), annot.by = c("cluster","GMM_CK","GMM_Ecad","cluster_category_2"))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_UpsetGMMCC.pdf",width = 8,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/TNBC_249_Tumor_UpsetGMMCC.pdf",width = 8,height = 6)
 upset
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_UMAPGMMCC.pdf",width = 10,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/TNBC_249_TME_UpsetGMMCC.pdf",width = 8,height = 6)
+upset_1
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/TNBC_249_Tumor_AlluvialGMMCC.pdf",width = 10,height = 5)
+alluvial_wide(data = colData(sce) %>% as.data.frame %>% select(cluster_category, analysis_cat), 
+              max_variables = 4,
+              fill_by = 'all_flows',
+              order_levels = c("Non_Epithelial","Epithelial","Mixed","tumor","non_tumor"))+
+  theme_classic(base_size = 12, base_line_size = 0.5)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/TNBC_249_Tumor_UMAPGMMCC.pdf",width = 10,height = 8)
 (p1+p2)/(p4+p5)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TNBC_249_Tumor_TSNEGMMCC.pdf",width = 10,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/TNBC_249_Tumor_TSNEGMMCC.pdf",width = 10,height = 8)
 (p6+p7)/(p8+p9)
 dev.off()
 
