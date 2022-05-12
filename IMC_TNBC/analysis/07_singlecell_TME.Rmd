@@ -1289,7 +1289,7 @@ dittoHeatmap(sce_sub,
              annot.colors=col_clusters$cluster_50[order(as.numeric(names(col_clusters$cluster_50)))])
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ExpressionCor.pdf",width = 10,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ExpressionCor.pdf",width = 10,height = 8)
 corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, name="RdBu"),  
          type="upper", order="hclust",hclust.method = "ward.D2", 
          addCoef.col = "black", addCoefasPercent = F,# Add coefficient of correlation
@@ -1327,6 +1327,12 @@ dev.off()
 
 pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_HeatmapPIDgroupsCLR.pdf",width = 11,height = 7)
 h_g_1
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_Cluster_HR_DFS.pdf",width = 8,height = 10)
+hr_prop/
+hr_cat/
+hr_cat_GMM
 dev.off()
 
 ##IMPORTANT: change back to chunk output inline
