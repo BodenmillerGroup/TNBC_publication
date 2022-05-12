@@ -68,72 +68,77 @@ Here, we will perform the first combined analysis steps for tumor and TME phenot
 set.seed(22)
 
 #tumor sce
-sce_tumor <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds") 
+sce_tumor <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds") 
 sce_tumor
 
 #TME sce
-sce_TME <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds") 
+sce_TME <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds") 
 sce_TME
 
 #sce with all cells
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 sce
 
 ##Load color mapping of tumor and TME phenotypes
-col_TMEpheno <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/color_TMEpheno.rds")
-col_tumorpheno <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/color_Tumorpheno.rds")
+col_TMEpheno <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/color_TMEpheno.rds")
+col_tumorpheno <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/color_Tumorpheno.rds")
 ```
 
 ## Combine tumor and TME phenotypes information and PID groups
 
 ```{r combine tumor TME, message=FALSE,warning=FALSE}
-#Combine cluster phenotypes from tumor and TME (add "TME" character for distinguishment)
+#Combine cluster phenotypes from tumor and TME (add "TME" character to distinguish)
 tumor_pheno <- colData(sce_tumor) %>% as.data.frame %>% mutate(cluster_combined = sce_tumor$cluster_100) %>% select(cluster_combined,cluster_names) %>% rownames_to_column(var = "cell_id")
-TME_pheno <- colData(sce_TME) %>% as.data.frame %>% mutate(cluster_combined = paste0("TME_",sce_TME$cluster_75_merg)) %>% select(cluster_combined,cluster_names) %>% rownames_to_column(var = "cell_id")
+TME_pheno <- colData(sce_TME) %>% as.data.frame %>% mutate(cluster_combined = paste0("TME_",sce_TME$cluster_50_renamed)) %>% select(cluster_combined,cluster_names) %>% rownames_to_column(var = "cell_id")
 tumor_TME_pheno <- rbind(tumor_pheno, TME_pheno)
 
 sce$cluster_combined <- tumor_TME_pheno$cluster_combined[match(rownames(colData(sce)),tumor_TME_pheno$cell_id)]
 sce$cluster_names <- tumor_TME_pheno$cluster_names[match(rownames(colData(sce)),tumor_TME_pheno$cell_id)]
-sce$cluster_origin <- ifelse(str_detect(unfactor(sce$cluster_combined),"TME"),"TME","tumor")
+sce$cluster_origin <- ifelse(str_detect(unfactor(sce$cluster_combined),"TME"),"02_TME","01_tumor")
+
+#Add metaclusters by cell! to be updated
+sce$metacluster <- sce_tumor$metacluster[match(rownames(colData(sce)),rownames(colData(sce_tumor)))]
 
 #Add PID groups 
 sce$PID_groups <- sce_tumor$PID_groups[match(sce$sample_id,sce_tumor$sample_id)]
 
-no_PID_group <- colData(sce)[is.na(sce$PID_groups),] %>% as.data.frame #Undefined PID_groups - "ZTMA249.1_ZTMA249_ID_212_BX4Y12_123" "ZTMA249.3_ZTMA249_ID_329_CX1Y12_339" - no panck+ cells detected
-unique(no_PID_group$sample_id)
-unique(no_PID_group$analysis_cat)
+no_PID_group <- colData(sce)[is.na(sce$PID_groups),] %>% as.data.frame %>% select(sample_id) %>% unique() #Undefined PID_groups - "ZTMA249.1_ZTMA249_ID_212_BX4Y12_123" "ZTMA249.3_ZTMA249_ID_329_CX1Y12_339" - no panck+ cells detected
 
 #Combine color mapping
-names(col_TMEpheno$cluster_75_merg) <- paste0("TME_",names(col_TMEpheno$cluster_75_merg))
-col_clusters <- list(c(col_TMEpheno$cluster_75_merg,col_tumorpheno$cluster_100))
-names(col_clusters) <- "cluster_combined"
+names(col_TMEpheno$cluster_50_renamed) <- paste0("TME_",names(col_TMEpheno$cluster_50_renamed))
+col_clusters <- list("cluster_combined" = c(col_TMEpheno$cluster_50_renamed,col_tumorpheno$cluster_100), "metacluster" = col_tumorpheno$metaclusters)
 
 #Add PID identifier to sce
-sample_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed.csv")
+sample_meta <- read.csv("/Volumes/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed.csv")
 colData(sce)$ID <- str_split(colData(sce)$sample_id,"_",simplify = TRUE)[,4]
 colData(sce)$PID <- sample_meta$PID[match(colData(sce)$ID,sample_meta$ID_Number)]
+
+##Save sce and colors 
+saveRDS(sce, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
+saveRDS(col_clusters, "/Volumes/rcc_volume/TNBC/data_analysis/color_phenocombined.rds")
 ```
 
 ## Overlay tumor and TME cluster colors onto combined tSNE
 
 ```{r combined tSNE}
 #Read subsampled sce from pipeline 1
-sce_sub <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
+sce_sub <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
 
 #Add cluster_combined info
 sce_sub$cluster_combined <- sce$cluster_combined[match(rownames(colData(sce_sub)),rownames(colData(sce)))]
 sce_sub$cluster_origin <- sce$cluster_origin[match(rownames(colData(sce_sub)),rownames(colData(sce)))]
+sce_sub$metacluster <- sce$metacluster[match(rownames(colData(sce_sub)),rownames(colData(sce)))]
 
 #Plot TSNE
-plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_combined",shape_by = "cluster_origin")+
-  scale_color_manual(values = col_clusters$cluster_combined)
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster",shape_by = "cluster_origin")+
+  scale_color_manual(values = col_clusters$metacluster)
 ```
 ## Load masks and images 
 
 ```{r masks images}
 #Load images and masks
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
-masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+images <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+masks <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
 
 #subset images and masks for TMA249
 images <- images[str_detect(mcols(images)$sample_id,"ZTMA249")]
@@ -147,10 +152,10 @@ mcols(images)$PID <- sce$PID[match(mcols(images)$sample_id,sce$sample_id)]
 ## Plot cell features onto image using cytomapper
 
 ```{r cytomapper, eval =F}
+### TO BE UPDATED! 
+
 #Add sample identifiers to own column for cytomapper
 sce$sample_id_short <- as.numeric(str_split(sce$sample_id,"_",simplify = TRUE)[,6])
-
-
 
 #Randomly select 10 images and add 10 manually selected ones
 set.seed(22)
@@ -188,63 +193,156 @@ plotCells(mask = masks_PID_group_5,
           save_plot = list(filename = "/mnt/rcc_volume/TNBC/data_analysis/01_figures/masks_celltypes_PIDgroup5.png", scale = 2))
 
 
-
-
 check <- colData(sce_tumor)[sce_tumor$sample_id == "ZTMA249.2_ZTMA249_ID_321_CX1Y11_174",] %>% as.data.frame
 check <- colData(sce_tumor)[sce_tumor$PID == "B16.56280",] %>% as.data.frame
-
-B16.56280
-
-
-
-
-
-### CONTINUE HERE - go back to PID-group definition
-
-
-
-#Load example images
-path = "/home/rstudio/mnt/ZTMA_21_25_26/tiffs/"
-
-#load tiss
-all_tiffs = loadImages(path, pattern = "ZTMA25.3_s0_p3_r233_a233_ac_full.tiff")
-channels = fread(paste0(path,'ZTMA25.1_s0_p3_r37_a37_ac_full.csv'),header = F)
-
-#Assign core names to metadata
-mcols(all_tiffs)$core <- getInfoFromFileList(names(all_tiffs),sep = "_",1:5)
-channel_names = c(rownames(sce),"Ir191_Iridium")[order(match(getInfoFromFileList(c(rownames(sce),"Ir191_Iridium"),sep = "_",1),channels$V1))]
-channelNames(all_tiffs) <- channel_names
-all_tiffs = cytomapper::normalize(all_tiffs)
-all_tiffs = cytomapper::normalize(all_tiffs,inputRange = c(0,0.3))
-
-setChannels(all_tiffs,"Tb159_p53") <- cytomapper::normalize(getChannels(all_tiffs, "Tb159_p53"), inputRange = c(0, 0.5))
-setChannels(all_tiffs, "Lu175_Keratin Epithelial") <- cytomapper::normalize(getChannels(all_tiffs, "Lu175_Keratin Epithelial"), inputRange = c(0, 0.5))
-setChannels(all_tiffs, "Dy163_GATA3") <- cytomapper::normalize(getChannels(all_tiffs, "Dy163_GATA3"), inputRange = c(0, 0.5))
-setChannels(all_tiffs, "Sm149_Vimentin") <- normalize(getChannels(all_tiffs, "Sm149_Vimentin"), inputRange = c(0, 0.5))
-setChannels(all_tiffs, "Er167_E-Cadherin / P-Cadherin") <- normalize(getChannels(all_tiffs, "Er167_E-Cadherin / P-Cadherin"), inputRange = c(0, 0.5))
-
-plotPixels(image = all_tiffs,colour_by = c("Tb159_p53","Lu175_Keratin Epithelial","Ir193_Iridium"),image_title = NULL,legend = NULL,save_plot = list(filename = "/home/rstudio/mnt/R_out/Image_Fig10000.tiff",scale = 1))
-
-
-#,save_plot = list(filename = "/home/ubuntu/tmp/server_homes/janaf/Data/2020/ZTMA21_25_26/R_dat/Image_Fig1.tiff",scale = 2)
-
-plotPixels(image = all_tiffs,colour_by = c("Gd155_Bcl-2"))
-plotPixels(image = all_tiffs,colour_by = c("Dy162_CD45"))
-plotPixels(image = all_tiffs,colour_by = c("Sm149_Vimentin"))
-plotPixels(image = all_tiffs,colour_by = c("Yb172_vWF"))
-
-
-
-
-
-
 ```
 
 
+# Spatial analysis
+
+## 1. Neighborhood aggregation
+
+### 1.1 For all clusters (Tumor ecosystem communities)
+
+In the next section, we will define cellular neighborhoods by clustering cells based on their neighboring cells.
+
+```{r neighborhood-1, message=FALSE, warning=FALSE}
+library(imcRtools)
+library(bluster)
+
+##Load sce and colors
+sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
+col_clusters <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/color_phenocombined.rds")
+
+# Build 10-nearest neighbor graph (max distance between neighbors 30 um)
+sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "knn", k = 10, 
+                             coords = c("Pos_X",  "Pos_Y"), max_dist = 30,
+                         BPPARAM = MulticoreParam(progressbar = TRUE))
+
+colPairNames(sce) #now includes knn_interaction_graph
+
+# Aggregate across neighbors
+sce <- aggregateNeighbors(sce, colPairName = "knn_interaction_graph", 
+                              aggregate_by = "metadata", count_by = "cluster_combined")
+
+head(sce$aggregatedNeighbors)
+
+# Perform cluster sweep for kmeans (silhouette width, wcss)
+set.seed(22)
+clust_list <- lapply(2:20, function(k){
+  cur_km <- kmeans(sce$aggregatedNeighbors, centers = k)
+  return(list(wss = sum(cur_km$withinss),
+           clusters = cur_km$cluster))
+})
+
+sil <- vapply(lapply(clust_list, `[[`, 2), 
+              function(x) mean(approxSilhouette(sce$aggregatedNeighbors, x)$width), 
+              0)
+
+ggplot(data.frame(k = 2:20, sil = sil))+
+  geom_point(aes(k, sil, col = sil))+
+  geom_line(aes(k, sil,col=sil))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  xlab("k")+
+  ylab("Mean silhouette width")+
+  scale_color_continuous(type = "viridis")
+
+ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
+  geom_point(aes(k, wss, col = wss))+
+  geom_line(aes(k, wss, col = wss))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("k")+
+  ylab("Total WCSS")+
+  scale_color_continuous(type = "viridis")
+
+# Select 11 clusters
+cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 11, nstart = 100)$cluster
+
+sce$cellular_neighborhood <- as.factor(cur_clusters)
+
+##Save sce 
+saveRDS(sce, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
+```
+
+We can now visualize a few example images and highlight the type of cells within each neighborhoood.
+
+```{r neighborhood-2, fig.width=15, fig.height=12}
+set.seed(22)
+cur_sam <- sample(unique(sce$sample_id), 6)
+
+plotSpatial(sce[,sce$sample_id %in% cur_sam], 
+            img_id = "sample_id",
+            coords = c("Pos_X", "Pos_Y"),
+            node_color_by = "cellular_neighborhood",
+            draw_edges = TRUE,
+            colPairName = "knn_interaction_graph", 
+            nodes_first = FALSE,
+            directed = FALSE)+
+  scale_color_brewer(palette = "Set3")+
+  theme_classic()
+
+plotSpatial(sce[,sce$sample_id %in% cur_sam], 
+            img_id = "sample_id",
+            coords = c("Pos_X", "Pos_Y"),
+            node_color_by = "cluster_combined",
+            node_shape_by = "cluster_origin",
+            draw_edges = TRUE,
+            directed = FALSE,
+            colPairName = "knn_interaction_graph", 
+            nodes_first = FALSE) +
+  scale_color_manual(values = col_clusters$cluster_combined)+
+  theme_classic()
+```
+
+```{r}
+# Visualize cell type proportions of cellular neighborhoods
+cn_prop <- table(cellular_neighborhood = sce$cellular_neighborhood,cluster_combined = sce$cluster_combined) %>% as.data.frame %>% group_by(cellular_neighborhood) %>% mutate(fra = Freq/sum(Freq))
+
+#Heatmap body
+cn_prop_wide <- cn_prop %>% pivot_wider(id_cols = cellular_neighborhood, names_from = cluster_combined, values_from = fra) %>% column_to_rownames(var = "cellular_neighborhood")
+
+#Heatmap color
+col_main = viridis(100)
+
+#Row annotation - number of cells/PID
+cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,PID) %>% group_by(cellular_neighborhood) %>% table() %>% as.data.frame
+n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(cellular_neighborhood) %>% count(name = "n_PID") %>% column_to_rownames("cellular_neighborhood")
+
+ncells <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood) %>% group_by(cellular_neighborhood) %>% count() 
+
+#Column annotation 
+col_anno <- colData(sce) %>% as.data.frame() %>% select(cluster_combined,metacluster) %>% unique()
+rownames(col_anno) <- col_anno$cluster_combined
+
+col_ha <- HeatmapAnnotation(metacluster = col_anno$cluster_combined,
+                  #col = col_clusters$cluster_combined,
+                  border = TRUE,
+                  na_col = "black", 
+                  annotation_name_side = "left")
+
+#Plot heatmap
+Heatmap(cn_prop_wide,
+        col = col_main,
+        bottom_annotation = col_ha)
+
+
+  rowAnnotation(n_PID = anno_barplot(n_PID, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)+
+  rowAnnotation(n_cells = anno_barplot(ncells$n, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)
 
 
 
+# cur_dat <- prop.table(table(sce$cellular_neighborhood, sce$cluster_combined), margin = 1)
+# cur_dat <- t( ( t(cur_dat) - colMins(cur_dat) ) / ( colMaxs(cur_dat) - colMins(cur_dat) ) )
+# pheatmap(cur_dat, color = viridis(100))
+```
 
+### 1.2 For tumor clusters (Tumor neighborhoods)
+TO BE UPDATED
+
+### 1.3 For TME clusters (TME neighborhoods)
+TO BE UPDATED
 
 
 

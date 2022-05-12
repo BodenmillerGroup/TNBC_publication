@@ -483,7 +483,7 @@ Rich heatmap of clusters with additional information (other channels, spatial, g
 
 ```{r heatmap sce_1, message=FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+sce <- readRDS("/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 
 ### 1. Marker Heatmaps (Cluster channels, other_immune channels)
 
@@ -505,7 +505,7 @@ other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_100,
 
 ### 2. Spatial Heatmap
 #Add number of neighbors to sce object (saved in ColPair)
-n_neighbors <- colPair(sce) %>% as.data.frame() %>% group_by(from) %>% count() %>% arrange(desc(n))
+n_neighbors <- colPair(sce) %>% as.data.frame %>% group_by(from) %>% dplyr::count() %>% arrange(desc(n))
 
 sce$n_neighbors <- n_neighbors$n[match(seq_along(colnames(sce)),n_neighbors$from)]
 sce$n_neighbors <- sce$n_neighbors %>% replace_na(0)
@@ -1357,9 +1357,48 @@ draw(h_g_meta)
 #Add to sce
 sce$PID_groups <- row_anno$PID_groups[match(sce$PID,row_anno$PID)]
 #Save sce
-#saveRDS(sce,"/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
+saveRDS(sce,"/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
 ```
 
+## CLR on cluster proportions across samples/PID (PID_groups)
+
+```{r clr dr}
+#save sce in different object due to renaming of colData entries
+sce_clr
+
+##1. Metacluster proportions 
+sce_clr$sample_id <- factor(sce_clr$PID)
+sce_clr$condition <- factor(sce_clr$PID_groups) #should be sample_id specific (here by PID)
+sce_clr$cluster_id <- factor(sce_clr$metacluster)
+  
+#add metaclusters/clusters to metadata of sce_clr object
+metadata(sce_clr)$cluster_codes <- data.frame(metacluster = factor(sce_clr$metacluster))
+
+clrMeta <- clrDR(sce_clr, dr = "PCA", by = "sample_id", k = "metacluster") #returns ggplot object
+
+clrMeta <- clrMeta+
+  scale_fill_brewer(palette = "Set1", name = "PID_groups")+
+  scale_color_manual(values = col_clusters$metaclusters, name = "metacluster")+
+  theme_classic()+
+  ggtitle("Metacluster CLR")
+
+##2. Cluster proportions
+sce_clr$sample_id <- factor(sce_clr$PID)
+sce_clr$condition <- factor(sce_clr$PID_groups) #should be sample_id specific (here by PID)
+sce_clr$cluster_id <- factor(sce_clr$cluster_100)
+
+metadata(sce_clr)$cluster_codes <- data.frame(cluster_100 = sce_clr$cluster_100)
+
+clrClus <- clrDR(sce_clr, dr = "PCA", by = "sample_id", k = "cluster_100") #returns ggplot object
+
+clrClus <- clrClus+
+  scale_fill_brewer(palette = "Set1", name = "PID_groups")+
+  scale_color_manual(values = col_clusters$cluster_100, name = "cluster_100")+
+  theme_classic()+
+  ggtitle("Cluster CLR")
+
+clrMeta+clrClus
+```
 
 #Option 2: Based on cluster fractions per PID
 
