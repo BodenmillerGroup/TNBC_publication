@@ -1,0 +1,388 @@
+---
+title: "09_combined_spatial"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Here, we will attend to perform analysis akin to what has been proposed as **Tissue schematics (TS)** by Bhate et al., Cell Systems, 2022.
+
+### 1. Cellular neighborhoods 
+
+First, we will find cellular neighborhoods based on all cell type clusters (metaclusters) - "Tumor ecosystem communities"
+
+To this end, we will define cellular neighborhoods by clustering cells based on cell type composition of their k-nearest neighbors. (k=20, euclidian distance between X/Y)
+
+
+```{r neighborhood-1, message=FALSE, warning=FALSE}
+library(imcRtools)
+library(bluster)
+
+##Load sce and colors
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
+col_clusters <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/color_phenocombined.rds")
+sce
+
+# Build 10-nearest neighbor graph (max distance between neighbors 30 um)
+sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "knn", k = 10, 
+                             coords = c("Pos_X",  "Pos_Y"), max_dist = 30,
+                         BPPARAM = MulticoreParam(progressbar = TRUE))
+
+colPairNames(sce) #now includes knn_interaction_graph
+
+# Aggregate across neighbors
+sce <- aggregateNeighbors(sce, colPairName = "knn_interaction_graph", 
+                              aggregate_by = "metadata", count_by = "metacluster_TME")
+
+head(sce$aggregatedNeighbors)
+
+# Perform cluster sweep for kmeans (silhouette width, wcss)
+set.seed(22)
+clust_list <- lapply(2:20, function(k){
+  cur_km <- kmeans(sce$aggregatedNeighbors, centers = k)
+  return(list(wss = sum(cur_km$withinss),
+           clusters = cur_km$cluster))
+})
+
+sil <- vapply(lapply(clust_list, `[[`, 2), 
+              function(x) mean(approxSilhouette(sce$aggregatedNeighbors, x)$width), 
+              0)
+
+ggplot(data.frame(k = 2:20, sil = sil))+
+  geom_point(aes(k, sil, col = sil))+
+  geom_line(aes(k, sil,col=sil))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  xlab("k")+
+  ylab("Mean silhouette width")+
+  scale_color_continuous(type = "viridis")
+
+ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
+  geom_point(aes(k, wss, col = wss))+
+  geom_line(aes(k, wss, col = wss))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("k")+
+  ylab("Total WCSS")+
+  scale_color_continuous(type = "viridis")
+
+# Select 11 clusters
+cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 11, nstart = 100)$cluster
+
+sce$cellular_neighborhood <- as.factor(cur_clusters)
+
+##Save sce 
+#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
+```
+
+We can now visualize a few example images and highlight the type of cells within each neighborhoood.
+
+```{r neighborhood-2, fig.width=15, fig.height=12}
+set.seed(22)
+cur_sam <- sample(unique(sce$sample_id), 6)
+
+plotSpatial(sce[,sce$sample_id %in% cur_sam], 
+            img_id = "sample_id",
+            coords = c("Pos_X", "Pos_Y"),
+            node_color_by = "cellular_neighborhood",
+            draw_edges = TRUE,
+            colPairName = "knn_interaction_graph", 
+            nodes_first = FALSE,
+            directed = FALSE)+
+  scale_color_brewer(palette = "Set3")+
+  theme_classic()
+
+colPairNames(sce)
+
+plotSpatial(sce[,sce$sample_id %in% cur_sam], 
+            img_id = "sample_id",
+            coords = c("Pos_X", "Pos_Y"),
+            node_color_by = "cluster_combined",
+            node_shape_by = "cluster_origin",
+            draw_edges = TRUE,
+            directed = FALSE,
+            colPairName = "knn_interaction_graph", 
+            nodes_first = FALSE) +
+  scale_color_manual(values = col_clusters$cluster_combined)+
+  theme_classic()
+```
+
+```{r}
+# Visualize cell type proportions of cellular neighborhoods
+cn_prop <- table(cellular_neighborhood = sce$cellular_neighborhood,metacluster_TME = sce$metacluster_TME) %>% as.data.frame %>% group_by(cellular_neighborhood) %>% mutate(fra = Freq/sum(Freq))
+
+## 1. Heatmap body
+cn_prop_wide <- cn_prop %>% pivot_wider(id_cols = cellular_neighborhood, names_from = metacluster_TME, values_from = fra) %>% column_to_rownames(var = "cellular_neighborhood")
+
+#Option: min_max normalization per neighborhood
+cn_prop_wide <- as.matrix(cn_prop_wide)
+cn_prop_wide_min_max <- (cn_prop_wide - rowMins(cn_prop_wide))/(rowMaxs(cn_prop_wide)-rowMins(cn_prop_wide))
+
+#Heatmap body color
+col_main = viridis(100)
+
+## 2. Row annotation - number of cells/PID
+cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,PID) %>% group_by(cellular_neighborhood) %>% table() %>% as.data.frame
+n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(cellular_neighborhood) %>% count(name = "n_PID") %>% column_to_rownames("cellular_neighborhood")
+ncells <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood) %>% group_by(cellular_neighborhood) %>% count() 
+
+row_anno <- cbind(n_PID,ncells)
+
+#check and correct order
+row_anno <- row_anno[match(rownames(cn_prop_wide),row_anno$cellular_neighborhood),]
+
+## 3. Column annotation 
+col_anno <- colData(sce) %>% as.data.frame() %>% select(metacluster_TME,metacluster) %>% unique()
+col_anno$metacluster_TME <- as.character(col_anno$metacluster_TME)
+col_anno$metacluster <- as.character(col_anno$metacluster)
+
+#check and correct order
+col_anno <- col_anno[match(colnames(cn_prop_wide),col_anno$metacluster_TME),]
+
+
+col_ha <- HeatmapAnnotation(metacluster_TME = col_anno$metacluster_TME,
+                            metacluster = col_anno$metacluster,
+                  #col = col_clusters, 
+                  border = TRUE, 
+                  na_col = "black",
+                  annotation_name_side = "left")
+
+## 4. Plot heatmap
+h <- Heatmap(cn_prop_wide_min_max,
+             name = "min_max cluster proportion",
+        col = col_main, 
+        bottom_annotation = col_ha)+
+  rowAnnotation(neighborhood = anno_simple(unfactor(row_anno$cellular_neighborhood),pch = unfactor(row_anno$cellular_neighborhood), border = TRUE))+
+  rowAnnotation(n_PID = anno_barplot(n_PID, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)+
+  rowAnnotation(n_cells = anno_barplot(ncells$n, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)
+
+draw(h)
+```
+
+
+### 2. Spatial contexts
+
+First, we will find spatial contexts based on cellular neighborhoods - "Microenvironments of CN"
+
+To this end, we will define spatial contexts for each cell by the frequency of cellular neighborhood assigments in the cell neighborhood (k=50). We will then use a minimal combination of CN assignments for each window (>90% of cells are assigned to a given CN combination). 
+
+
+```{r neighborhood-1, message=FALSE, warning=FALSE}
+library(imcRtools)
+library(bluster)
+library(doMC)
+
+#Subset sce object to 1 image for trial code
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
+cur_sam = c("ZTMA249.2_ZTMA249_ID_317_CX5Y10_159")
+sce <- sce[,sce$sample_id %in% cur_sam]
+sce
+
+## 1. Build 50-nearest neighbor graph (max dist?)
+sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "knn", k = 50, 
+                             coords = c("Pos_X",  "Pos_Y"), 
+                         name = "knn_spatialcontext_graph",
+                         BPPARAM = MulticoreParam(progressbar = TRUE))
+
+colPairNames(sce) #now includes knn_spatialcontext_graph
+
+# Aggregate across neighbors
+sce <- aggregateNeighbors(sce, colPairName = "knn_spatialcontext_graph", 
+                              aggregate_by = "metadata", count_by = "cellular_neighborhood")
+
+## 2. Find spatial contexts using minimal combination approach
+# Prepare dataframe from aggregatedNeighbors
+sce_sub <- sce$aggregatedNeighbors
+sce_sub_t <- sce_sub %>% as.data.frame %>% t() %>% as.data.frame
+rownames(sce_sub_t) <- colnames(sce_sub) #rows: cellular neighborhoods, columns: single cells, data = fraction of cellular neighborhoods in cell windows (knn graph)
+
+# Define combination approach threshold
+threshold = 0.9
+
+registerDoMC(cores=detectCores()-2) #perform analysis on multiple cores with %dopar% from foreach
+
+SC <- foreach(i = colnames(sce_sub_t), .combine = "rbind")%dopar%{ 
+#Create cumulative sum
+test <- sce_sub_t %>% select(1) %>% arrange
+test <- test %>% arrange(desc(test[,1])) %>% cumsum
+
+#Filter rows that reach cumulative sum threshold (user-defined) - then sort numbers
+test <- test %>% slice(1:(length(which(test <=threshold))+1)) %>% rownames() %>% as.numeric() %>% sort()
+
+#Create spatial community identifier
+paste(test, collapse = "_")
+}
+
+SC <- as.data.frame(SC)
+
+#add to sce 
+sce$spatial_context <- SC$V1 
+
+#TO DO:
+#find filter criteria for abundant spatial contexts (TODO)
+#also filter TMA cores that have too few cells for spatial context assignment
+#max_dist for spatial graph? 
+
+##Save sce 
+#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
+```
+
+
+# Visualize spatial contexts on example images 
+
+```{r neighborhood-2}
+# set.seed(22)
+# cur_sam <- sample(unique(sce$sample_id), 5)
+
+#by cell types (clusters)
+p1 <- plotSpatial(sce, 
+            img_id = "sample_id",
+            coords = c("Pos_X", "Pos_Y"),
+            node_color_by = "cluster_combined",
+            draw_edges = FALSE,
+            colPairName = "knn_interaction_graph", 
+            nodes_first = FALSE,
+            node_size_fix = 2,
+            node_shape_by = "analysis_cat",
+            directed = FALSE)+
+  theme_classic()
+
+#by cellular neighborhoods
+p2 <- plotSpatial(sce, 
+            img_id = "sample_id",
+            coords = c("Pos_X", "Pos_Y"),
+            node_color_by = "cellular_neighborhood",
+            draw_edges = FALSE,
+            colPairName = "knn_interaction_graph", 
+            nodes_first = FALSE,
+            node_size_fix = 2,
+            node_shape_by = "analysis_cat",
+            directed = FALSE)+
+  theme_classic()
+
+#by spatial contexts
+p3 <- plotSpatial(sce, 
+            img_id = "sample_id",
+            coords = c("Pos_X", "Pos_Y"),
+            node_color_by = "spatial_context",
+            draw_edges = FALSE,
+            colPairName = "knn_spatialcontext_graph", 
+            nodes_first = FALSE,
+            node_size_fix = 2,
+            node_shape_by = "analysis_cat",
+            directed = FALSE)+
+  theme_classic()
+
+p1/p2/p3
+```
+
+```{r viz spatial contexts}
+## 1. Total number of cells in spatial context
+SC_count <- colData(sce) %>% as.data.frame %>% select(spatial_context) %>% group_by(spatial_context) %>% count() %>% arrange(desc(n))
+
+## 2. Fraction of sample_id per spatial
+SC_SID <- colData(sce) %>% as.data.frame() %>% select(spatial_context,sample_id) %>% group_by(spatial_context) %>% table() %>% as.data.frame
+SC_SID <- SC_SID %>% group_by(spatial_context) %>% mutate(fra = Freq/sum(Freq))
+
+ggplot(SC_SID) +
+  geom_tile(color = "black",aes(spatial_context, fra, fill = sample_id), position = "stack")+
+  theme_classic(base_size = 15)+
+  ylab("SID fraction")+
+  theme(axis.title.x = element_blank())+
+  guides(fill = "none")
+
+## 3. Fraction of spatial context per PID
+SID_SC <- colData(sce) %>% as.data.frame() %>% select(spatial_context,sample_id) %>% group_by(sample_id) %>% table() %>% as.data.frame
+SID_SC <- SID_SC %>% group_by(sample_id) %>% mutate(fra = Freq/sum(Freq))
+
+ggplot(SID_SC) +
+  geom_tile(color = "black",aes(sample_id, fra, fill = spatial_context), position = "stack")+
+  theme_classic(base_size = 15)+
+  ylab("SC Fraction")+
+  xlab("Sample_ID")+
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+
+#TO DO: Find filter criteria for abundant spatial contexts - Make workflow more efficient/faster (talk to Nils)
+```
+
+```{r cn comb map}
+#Plot CN combination map from each sample_id 
+
+## 1. Create edgelist
+list <- str_split(SC_SID$spatial_context, "_")
+list_length <- sapply(list, length)
+
+registerDoMC(cores=detectCores()-2) #perform analysis on multiple cores with %dopar% from foreach
+
+edges <- foreach(i = seq_along(list), .combine = "rbind")%dopar%{
+
+list_options <- list[length(list[[i]])+1 == list_length]
+
+if(length(list_options) != 0){
+  
+list_select <- list_options[sapply(list_options, function(x){length(intersect(x,list[[i]])) == length(list[[i]])})]
+
+if(length(list_select) != 0){ 
+data.frame("from" = sapply(list[i], paste, collapse = "_"),
+                     "to" = sapply(list_select, paste, collapse = "_")
+)
+} else {
+    NULL
+  } 
+} else {
+  NULL
+  }
+}
+
+#add layer information 
+SC_SID$layer <- as.character(list_length)
+
+## 2. Create graph from edgelist using igraph and ggnetwork
+g1 <- graph_from_data_frame(edges, directed = FALSE, vertices = SC_SID)
+
+#specify vertical layout using sugiyama
+LO <- layout.sugiyama(g1, V(g1)$layer)
+
+#convert to ggnetwork object
+n <- ggnetwork(g1, layout = LO$layout)
+
+#plot
+p4 <- ggplot(n, aes(x = x, y = y, xend = xend, yend = yend)) +
+  geom_edges(color = "black")+
+  geom_nodes(aes(color = name,size = Freq))+
+  geom_nodelabel_repel(aes(color = name, label = name))+
+  theme_blank()+
+  ggtitle("")+
+  guides(color = FALSE)
+
+p4
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_spatial/spatialcontext_CNMap_example.pdf",width = 16,height = 14)
+(p1+p2)/(p3+p4)
+dev.off()
+
+```
+```{r test interaction function}
+
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
