@@ -369,12 +369,97 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_spatial/spatialcontext_CNM
 dev.off()
 
 ```
-```{r test interaction function}
+```{r interaction testing}
+library(imcRtools)
+library(circlize)
+
+#Load sce
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
+
+#subset sce to 50 images for time reasons 
+set.seed(22)
+cur_sam <- sample(unique(sce$sample_id),30)
+sce <- sce[,sce$sample_id %in% cur_sam]
+
+# test interaction - see histocat for details (counting method = classic)
+out <- testInteractions(sce,
+                        group_by = "sample_id",
+                        label = "cluster_combined",
+                        method = "classic",
+                        colPairName = "knn_interaction_graph", 
+                        BPPARAM = MulticoreParam())
+
+out <- as.data.frame(out)
+
+## Create heatmaps from interaction testing
+col_fun = colorRamp2(c(0.0, 0.1, 0.3,0.5, 0.7), c("#440154FF", "#3C4F8BFF","#238C8DFF", "#4DC36BFF", "#E4E419FF"))
+
+# 1. Significant interaction
+sig_int <- out %>% filter(sig == TRUE & interaction == TRUE) %>% select(from_label, to_label, group_by) %>% group_by(from_label, to_label) %>% count()
+sig_int_h <- sig_int %>% mutate(fraction_sig = n/length(unique(out$group_by))) %>% arrange(desc(fraction_sig)) %>% pivot_wider(id_cols = from_label, names_from = to_label, values_from = fraction_sig) %>% column_to_rownames("from_label")
+sig_int_h[is.na(sig_int_h)] <- 0
+
+h_int <- Heatmap(sig_int_h,
+        name = "% images with sign. interaction",
+        col = col_fun, 
+        row_title = "cluster (from)",
+        row_names_side = "left",
+        row_title_side = "left",
+        row_dend_side = "right",
+        column_title = "neighboring cluster (to)",
+        column_title_side = "bottom")
+h_int
+
+# 2. Significant avoidance
+sig_avo <- out %>% filter(sig == TRUE & interaction == FALSE) %>% select(from_label, to_label, group_by) %>% group_by(from_label, to_label) %>% count()
+sig_avo_h <- sig_avo %>% mutate(fraction_sig = n/length(unique(out$group_by))) %>% arrange(desc(fraction_sig)) %>% pivot_wider(id_cols = from_label, names_from = to_label, values_from = fraction_sig) %>% column_to_rownames("from_label")
+sig_avo_h[is.na(sig_avo_h)] <- 0
+
+h_avo <- Heatmap(sig_avo_h,
+        name = "% images with sign. avoidance",
+        col = col_fun, 
+        row_title = "cluster (from)",
+        row_names_side = "left",
+        row_title_side = "left",
+        row_dend_side = "right",
+        column_title = "neighboring cluster (to)",
+        column_title_side = "bottom")
+h_avo
 
 
+# 3. Combined interaction/avoidance
+sig_comb <- out %>% filter(!is.na(interaction)) %>% select(group_by,from_label, to_label, interaction, sigval) %>% group_by(from_label, to_label) %>% summarise(sum = sum(sigval)) #create sum of sigval (final summary of whether more interaction or avoidance occurs)
 
+sig_comb_h <- sig_comb %>% mutate(fraction_sig = sum/length(unique(out$group_by))) %>% pivot_wider(id_cols = from_label, names_from = to_label, values_from = fraction_sig) %>% column_to_rownames("from_label")
 
+sig_comb_h[is.na(sig_comb_h)] <- 0 #replace na with 0
 
+range(sig_comb_h) #check range, can be used for color mapping
+
+h_comb <- Heatmap(sig_comb_h,
+        name = "% images with sign. interaction",
+        row_title = "cluster (from)",
+        row_names_side = "left",
+        row_title_side = "left",
+        row_dend_side = "right",
+        column_title = "neighboring cluster (to)",
+        column_title_side = "bottom")
+
+h_comb
+
+#ordered
+h_comb_ord <- Heatmap(sig_comb_h,
+        name = "% images with sign. interaction", 
+        row_title = "cluster (from)",
+        row_order = rownames(sig_comb_h),
+        column_order = rownames(sig_comb_h),
+        row_names_side = "left",
+        row_title_side = "left",
+        row_dend_side = "right",
+        column_title = "neighboring cluster (to)",
+        column_title_side = "bottom")
+
+h_comb_ord
 ```
 
 
