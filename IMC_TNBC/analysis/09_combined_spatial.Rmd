@@ -168,7 +168,7 @@ draw(h)
 
 ### 2. Spatial contexts
 
-First, we will find spatial contexts based on cellular neighborhoods - "Microenvironments of CN"
+First, we will find spatial contexts based on cellular neighborhoods - "Micro-environments of CN"
 
 To this end, we will define spatial contexts for each cell by the frequency of cellular neighborhood assigments in the cell neighborhood (k=50). We will then use a minimal combination of CN assignments for each window (>90% of cells are assigned to a given CN combination). 
 
@@ -186,6 +186,7 @@ sce
 
 ## 1. Build 50-nearest neighbor graph (max dist?)
 sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "knn", k = 50, 
+                         #max_dist = 30,
                              coords = c("Pos_X",  "Pos_Y"), 
                          name = "knn_spatialcontext_graph",
                          BPPARAM = MulticoreParam(progressbar = TRUE))
@@ -197,32 +198,17 @@ sce <- aggregateNeighbors(sce, colPairName = "knn_spatialcontext_graph",
                               aggregate_by = "metadata", count_by = "cellular_neighborhood")
 
 ## 2. Find spatial contexts using minimal combination approach
-# Prepare dataframe from aggregatedNeighbors
-sce_sub <- sce$aggregatedNeighbors
-sce_sub_t <- sce_sub %>% as.data.frame %>% t() %>% as.data.frame
-rownames(sce_sub_t) <- colnames(sce_sub) #rows: cellular neighborhoods, columns: single cells, data = fraction of cellular neighborhoods in cell windows (knn graph)
 
-# Define combination approach threshold
-threshold = 0.9
+#Use self-build function
+source("../code/helper_functions.R")
+sce$aggregatedNeighbors
 
-registerDoMC(cores=detectCores()-2) #perform analysis on multiple cores with %dopar% from foreach
+sce <- detectSpatialContext(sce, 
+                            threshold = 0.9, 
+                            entry = "aggregatedNeighbors",
+                            name = "spatial_context"
+)
 
-SC <- foreach(i = colnames(sce_sub_t), .combine = "rbind")%dopar%{ 
-#Create cumulative sum
-test <- sce_sub_t %>% select(1) %>% arrange
-test <- test %>% arrange(desc(test[,1])) %>% cumsum
-
-#Filter rows that reach cumulative sum threshold (user-defined) - then sort numbers
-test <- test %>% slice(1:(length(which(test <=threshold))+1)) %>% rownames() %>% as.numeric() %>% sort()
-
-#Create spatial community identifier
-paste(test, collapse = "_")
-}
-
-SC <- as.data.frame(SC)
-
-#add to sce 
-sce$spatial_context <- SC$V1 
 
 #TO DO:
 #find filter criteria for abundant spatial contexts (TODO)
@@ -334,12 +320,79 @@ data.frame("from" = sapply(list[i], paste, collapse = "_"),
                      "to" = sapply(list_select, paste, collapse = "_")
 )
 } else {
-    NULL
+    next
   } 
 } else {
-  NULL
+  next
   }
 }
+
+
+## 1. Create edgelist
+list <- str_split(SC_SID$spatial_context, "_")
+
+list[1] == list_length
+
+lapply(list, function(x){
+
+length(x)    
+#x[length(x)+1 == list_length]
+
+#list_options <- x[length(x)+1 == list_length]
+
+})
+
+
+
+?lapply
+
+if(length(list_options) != 0){
+  
+list_select <- list_options[sapply(list_options, function(x){length(intersect(x,list[[i]])) == length(list[[i]])})]
+
+if(length(list_select) != 0){ 
+data.frame("from" = sapply(list[i], paste, collapse = "_"),
+                     "to" = sapply(list_select, paste, collapse = "_")
+)
+} else {
+    next
+  } 
+} else {
+  next
+  }
+})
+ 
+ 
+  
+  
+  
+  
+
+
+
+edges <- foreach(i = seq_along(list), .combine = "rbind")%dopar%{
+
+list_options <- list[length(list[[i]])+1 == list_length]
+
+if(length(list_options) != 0){
+  
+list_select <- list_options[sapply(list_options, function(x){length(intersect(x,list[[i]])) == length(list[[i]])})]
+
+if(length(list_select) != 0){ 
+data.frame("from" = sapply(list[i], paste, collapse = "_"),
+                     "to" = sapply(list_select, paste, collapse = "_")
+)
+} else {
+    next
+  } 
+} else {
+  next
+  }
+}
+
+
+#TO DO: use lapply
+
 
 #add layer information 
 SC_SID$layer <- as.character(list_length)
@@ -364,11 +417,13 @@ p4 <- ggplot(n, aes(x = x, y = y, xend = xend, yend = yend)) +
 
 p4
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_spatial/spatialcontext_CNMap_example.pdf",width = 16,height = 14)
+#pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_spatial/spatialcontext_CNMap_example.pdf",width = 16,height = 14)
 (p1+p2)/(p3+p4)
-dev.off()
+#dev.off()
 
 ```
+### 3. Interaction testing
+
 ```{r interaction testing}
 library(imcRtools)
 library(circlize)
@@ -436,32 +491,213 @@ sig_comb_h[is.na(sig_comb_h)] <- 0 #replace na with 0
 
 range(sig_comb_h) #check range, can be used for color mapping
 
-h_comb <- Heatmap(sig_comb_h,
+#column anno
+col_ha <- HeatmapAnnotation(
+  clusters_combined = anno_simple(colnames(sig_comb_h),border=TRUE,col=col_clusters$cluster_combined),
+  clusters_combined = anno_text(colnames(sig_comb_h)),
+  which = "column",
+  show_annotation_name = FALSE
+)
+
+#Plot heatmap
+rowAnnotation(clusters_combined = anno_text(rownames(sig_comb_h), just = "left"))+
+rowAnnotation(clusters_combined = anno_simple(rownames(sig_comb_h),border=TRUE,col=col_clusters$cluster_combined),show_annotation_name = FALSE)+
+Heatmap(sig_comb_h,
         name = "% images with sign. interaction",
         row_title = "cluster (from)",
         row_names_side = "left",
-        row_title_side = "left",
+        row_title_side = "right",
         row_dend_side = "right",
         column_title = "neighboring cluster (to)",
-        column_title_side = "bottom")
+        column_title_side = "top", 
+        bottom_annotation = col_ha
+        )
+  
 
-h_comb
-
-#ordered
-h_comb_ord <- Heatmap(sig_comb_h,
+#Option: ordered
+rowAnnotation(clusters_combined = anno_text(rownames(sig_comb_h), just = "left"))+
+rowAnnotation(clusters_combined = anno_simple(rownames(sig_comb_h),border=TRUE,col=col_clusters$cluster_combined),show_annotation_name = FALSE)+
+  Heatmap(sig_comb_h,
         name = "% images with sign. interaction", 
         row_title = "cluster (from)",
         row_order = rownames(sig_comb_h),
         column_order = rownames(sig_comb_h),
         row_names_side = "left",
-        row_title_side = "left",
-        row_dend_side = "right",
+        row_title_side = "right",
+        #row_dend_side = "right",
         column_title = "neighboring cluster (to)",
-        column_title_side = "bottom")
+        column_title_side = "top",
+        bottom_annotation = col_ha)
 
 h_comb_ord
 ```
 
+### 4. Patch detection
+Try patch/milieu detection method for TnB cell patches.
+
+```{r patch}
+#Load sce
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
+
+#subset sce to 30 images with most TnB cells
+cur_sam <- colData(sce) %>% as.data.frame %>% select(sample_id, cluster_combined) %>% filter(cluster_combined == "TME_13") %>% group_by(cluster_combined) %>% count(sample_id) %>% arrange(desc(n)) %>% slice(1:30) %>% pull(sample_id)
+sce <- sce[,sce$sample_id %in% cur_sam]
+sce
+
+colPairNames(sce)
+
+##1. Patch detection
+sce <- patchDetection(sce,
+               patch_cells = sce$cluster_combined == "TME_13",
+               colPairName = "knn_interaction_graph",
+               min_patch_size = 20,
+               name = "patch_TME13",
+               expand_by = 0, 
+               img_id = "sample_id")
+
+##2. Milieu detection ("expanded" patch)
+sce <- patchDetection(sce,
+               patch_cells = sce$cluster_combined == "TME_13",
+               colPairName = "knn_interaction_graph",
+               min_patch_size = 20,
+               name = "milieu_TME13",
+               expand_by = 30, 
+               img_id = "sample_id")
+
+#Visualize
+plotSpatial(sce[,sce$sample_id %in% cur_sam[1:3]], img_id = "sample_id", node_color_by = "cluster_combined")+
+  scale_color_manual(values = col_clusters$cluster_combined) #Cell Types
+plotSpatial(sce[,sce$sample_id %in% cur_sam[1:3]], img_id = "sample_id", node_color_by = "patch_TME13") #Patch
+plotSpatial(sce[,sce$sample_id %in% cur_sam[1:3]], img_id = "sample_id", node_color_by = "milieu_TME13") #Milieu
+
+unique(sce$patch_TME13)
+unique(sce$milieu_TME13)
+```
+
+```{r milieu enrich}
+## Milieu enrichment analysis
+
+#Number of milieus per image
+milieu_image <- colData(sce) %>% as.data.frame %>% select(sample_id, milieu_TME13) %>% group_by(sample_id) %>% unique() %>% count()
+
+##TO DO: write another for loop for each cluster in neighborhood - optional write loop for each different milieu (here only TME_13) - see Nils code
+
+milieu_test <- colData(sce) %>% as.data.frame %>% select(sample_id, cluster_combined, milieu_TME13) %>% filter(cluster_combined != "TME_13") %>% group_by(sample_id) %>% 
+  summarise(inside = sum(cluster_combined == "TME_1" & !is.na(milieu_TME13)),
+            outside = sum(cluster_combined == "TME_1" & is.na(milieu_TME13)),
+            other_inside = sum(cluster_combined != "TME_1" & !is.na(milieu_TME13)),
+            other_outside = sum(cluster_combined != "TME_1" & is.na(milieu_TME13)))
+
+milieu_final <- foreach(i = seq_along(rownames(milieu_test)), .combine = "rbind")%do%{
+cur_mat <- matrix(as.numeric(as.vector(milieu_test[i,2:5])),ncol = 2, nrow = 2, byrow = FALSE)
+rownames(cur_mat) <- c("cluster", "other_cluster")
+colnames(cur_mat) <- c("inside", "outside")
+
+cur_test <- fisher.test(cur_mat)
+
+milieu_final <- data.frame(
+  sample = as.character(as.vector(milieu_test[i,1])),
+  milieu = "TME_13",
+  p = cur_test$p.value,
+  odds = cur_test$estimate,
+  row.names = NULL
+)
+
+milieu_final 
+}
+
+
+## Code from Science Immunology paper
+
+cur_res_list <- list()
+cur_df <- colData(sce)
+# Set thresholds
+perc_cells <- 0
+
+# We remove ccl8, ccl4 and ccl22 due to few images with milieus
+for (i in c("ccl18_pure", "cxcl8_pure", "cxcl10_pure",
+            "cxcl12_pure", "cxcl13_pure", "ccl2_pure",
+            "cxcl9_pure", "ccl19_pure")) {
+    
+    cur_perc <- cur_df %>% 
+        as.data.frame() %>% 
+        group_by(ImageNumber) %>%
+        dplyr::summarize(perc_cells = sum(!!sym(i) != 0)/n())
+    
+    cur_chemo <- toupper(sub("_pure", "", i))
+    for (j in unique(cur_df$celltype)) {
+        cur_res <- cur_df %>% 
+            as.data.frame() %>%
+            filter(ImageNumber %in% cur_perc$ImageNumber[cur_perc$perc_cells > perc_cells]) %>%
+            filter(!(!!sym(cur_chemo) == 1 & celltype == j)) %>%
+            group_by(ImageNumber) %>%
+            dplyr::summarize(celltype_inside = sum(celltype == j & !!sym(i) != 0),
+                      other_inside = sum(celltype != j & !!sym(i) != 0),
+                      celltype_outside = sum(celltype == j & !!sym(i) == 0),
+                      other_outside = sum(celltype != j & !!sym(i) == 0))
+        
+        if (nrow(cur_res) == 0) {
+            next
+        }
+        
+        cur_tests <- as.data.frame(t(apply(as.matrix(cur_res), 1, function(x){
+            cur_mat <- matrix(x[2:5], ncol = 2, nrow = 2, byrow = FALSE)
+            rownames(cur_mat) <- c("celltype", "other")
+            colnames(cur_mat) <- c("inside", "outside")
+            
+            cur_test <- fisher.test(cur_mat)
+            
+            c(cur_test$p.value, cur_test$estimate)
+        })))
+        
+        colnames(cur_tests)[1] <- "p.value"
+        cur_tests$adj.p <- p.adjust(cur_tests$p.value, method = "BH")
+        
+        cur_tests$community <- i 
+        cur_tests$celltype <- j
+        cur_tests$ImageNumber <- cur_res$ImageNumber
+        
+        cur_res_list[[paste0(i, "_", j)]] <- cur_tests
+    }
+}
+
+out <- do.call("rbind", cur_res_list)
+out$adj.p.all <- p.adjust(out$p.value, method = "BH")
+final <- out %>% mutate(sigval = ifelse(`odds ratio` > 1 & adj.p.all < 0.1, 1, 
+                                        ifelse(`odds ratio` < 1 & adj.p.all < 0.1, -1, 0))) %>%
+    group_by(community, celltype) %>%
+    dplyr::summarize(mean = mean(sigval))
+
+# Number of tested images
+out %>% 
+  group_by(community, celltype) %>% 
+  dplyr::summarize(count = n()) %>% 
+  as.data.frame()
+
+
+
+## My old code: 
+
+#Add fisher exact test values
+fisher_table_GOI <- GOI_mutations_metVSprim_1  %>% 
+  dplyr::select(n_mut_met,n_mut_prim) %>% 
+  mutate(n_notmut_met = (length(unique(cnv_snv_comb_filtered_met$PID_old))-n_mut_met)) %>%
+  mutate(n_notmut_prim = (length(unique(cnv_snv_comb_filtered_prim$PID_old))-n_mut_prim))
+
+GOI_mutations_metVSprim_1$fisher_test <- 0
+
+for (i in 1:nrow(fisher_table_GOI)) {
+  m <- matrix(unlist(fisher_table_GOI[i,]),nrow=2)
+  fisher_result <- fisher.test(m)
+  GOI_mutations_metVSprim_1$fisher_test[i] <- fisher_result$p.value
+}
+
+##Questions: How are patch ID/milieu IDs defined?
+
+cluster_SID <- colData(sce) %>% as.data.frame() %>% select(cluster_100,sample_id) %>% group_by(cluster_100) %>% table() %>% as.data.frame
+
+
+```
 
 
 
