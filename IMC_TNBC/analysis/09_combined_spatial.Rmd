@@ -180,7 +180,9 @@ library(doMC)
 
 #Subset sce object to 1 image for trial code
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
-cur_sam = c("ZTMA249.2_ZTMA249_ID_317_CX5Y10_159")
+#cur_sam = c("ZTMA249.2_ZTMA249_ID_317_CX5Y10_159",)
+set.seed(22)
+cur_sam <- sample(unique(sce$sample_id),100)
 sce <- sce[,sce$sample_id %in% cur_sam]
 sce
 
@@ -201,7 +203,6 @@ sce <- aggregateNeighbors(sce, colPairName = "knn_spatialcontext_graph",
 
 #Use self-build function
 source("../code/helper_functions.R")
-sce$aggregatedNeighbors
 
 sce <- detectSpatialContext(sce, 
                             threshold = 0.9, 
@@ -209,6 +210,8 @@ sce <- detectSpatialContext(sce,
                             name = "spatial_context"
 )
 
+unique(sce$spatial_context)
+summary(is.na(sce$spatial_context))
 
 #TO DO:
 #find filter criteria for abundant spatial contexts (TODO)
@@ -292,7 +295,8 @@ ggplot(SID_SC) +
   theme_classic(base_size = 15)+
   ylab("SC Fraction")+
   xlab("Sample_ID")+
-  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())+
+  guides(fill = FALSE)
 
 
 #TO DO: Find filter criteria for abundant spatial contexts - Make workflow more efficient/faster (talk to Nils)
@@ -301,125 +305,165 @@ ggplot(SID_SC) +
 ```{r cn comb map}
 #Plot CN combination map from each sample_id 
 
-## 1. Create edgelist
-list <- str_split(SC_SID$spatial_context, "_")
-list_length <- sapply(list, length)
+## Use self-build function
+source("../code/helper_functions.R")
 
-registerDoMC(cores=detectCores()-2) #perform analysis on multiple cores with %dopar% from foreach
+edges <- buildEdgeList(sce, combined = TRUE)
 
-edges <- foreach(i = seq_along(list), .combine = "rbind")%dopar%{
+## 1. Create edgelist (code for above function)
+data <- colData(sce) %>% as.data.frame() %>% select(spatial_context,sample_id) %>% group_by(spatial_context) %>% table() %>% as.data.frame
 
-list_options <- list[length(list[[i]])+1 == list_length]
+data_wide <- data %>% pivot_wider(values_from = Freq, names_from = spatial_context) %>% column_to_rownames("sample_id")
 
-if(length(list_options) != 0){
+registerDoMC(cores=detectCores()-2) #perform foreach loop on multiple cores with %dopar%
+
+combined <- FALSE #decide in which way to generate edgelist
+
+edges <- if(combined == TRUE){
+
+  #Option 1: For all samples combined  
+  list <- str_split(unique(data$spatial_context), "_")
+  list_length <- sapply(list, length)
   
-list_select <- list_options[sapply(list_options, function(x){length(intersect(x,list[[i]])) == length(list[[i]])})]
-
-if(length(list_select) != 0){ 
-data.frame("from" = sapply(list[i], paste, collapse = "_"),
-                     "to" = sapply(list_select, paste, collapse = "_")
-)
-} else {
-    next
+  edges <- foreach(i = seq_along(list), .combine = "rbind")%dopar%{
+  
+  list_options <- list[length(list[[i]])+1 == list_length]
+  
+  if(length(list_options) != 0){
+    
+  list_select <- list_options[sapply(list_options, function(x){length(intersect(x,list[[i]])) == length(list[[i]])})]
+  
+  if(length(list_select) != 0){ 
+  data.frame("from" = sapply(list[i], paste, collapse = "_"),
+                       "to" = sapply(list_select, paste, collapse = "_")
+  )
+  } else {
+      NULL
+    } 
+  } else {
+    NULL
+    }
   } 
-} else {
-  next
+  
+}else{
+  #Option 2: For each sample_id separately
+  
+  cur_dat <- apply(data_wide, 1, function(x){
+  
+  cur <- x
+  
+  names(cur) <- colnames(data_wide)
+  
+  dat <- names(cur[cur != 0])
+  
+  return(dat)
+  })
+  
+  #Create list with edge_list for each sample_id
+  cur_dat_final <- lapply(cur_dat, function(x){
+    list <- str_split(x, "_")
+    list_length <- sapply(list, length)
+    
+  edges <- foreach(i = seq_along(list), .combine = "rbind")%dopar%{
+  
+  list_options <- list[length(list[[i]])+1 == list_length]
+  
+  if(length(list_options) != 0){
+    
+  list_select <- list_options[sapply(list_options, function(x){length(intersect(x,list[[i]])) == length(list[[i]])})]
+  
+  if(length(list_select) != 0){ 
+  data.frame("from" = sapply(list[i], paste, collapse = "_"),
+                       "to" = sapply(list_select, paste, collapse = "_")
+  )
+  } else {
+      NULL
+    } 
+  } else {
+    NULL
+    }
   }
+  return(edges)
+  }) 
+  
 }
 
-
-## 1. Create edgelist
-list <- str_split(SC_SID$spatial_context, "_")
-
-list[1] == list_length
-
-lapply(list, function(x){
-
-length(x)    
-#x[length(x)+1 == list_length]
-
-#list_options <- x[length(x)+1 == list_length]
-
-})
+cur_dat_final <- do.call(rbind,cur_dat_final)
+cur_dat_final$sample_id <- paste0(str_split(rownames(cur_dat_final),"\\.", simplify = TRUE)[,1],".",str_split(rownames(cur_dat_final),"\\.", simplify = TRUE)[,2])
+rownames(cur_dat_final) <- NULL
+```
 
 
-
-?lapply
-
-if(length(list_options) != 0){
-  
-list_select <- list_options[sapply(list_options, function(x){length(intersect(x,list[[i]])) == length(list[[i]])})]
-
-if(length(list_select) != 0){ 
-data.frame("from" = sapply(list[i], paste, collapse = "_"),
-                     "to" = sapply(list_select, paste, collapse = "_")
-)
-} else {
-    next
-  } 
-} else {
-  next
-  }
-})
- 
- 
-  
-  
-  
-  
-
-
-
-edges <- foreach(i = seq_along(list), .combine = "rbind")%dopar%{
-
-list_options <- list[length(list[[i]])+1 == list_length]
-
-if(length(list_options) != 0){
-  
-list_select <- list_options[sapply(list_options, function(x){length(intersect(x,list[[i]])) == length(list[[i]])})]
-
-if(length(list_select) != 0){ 
-data.frame("from" = sapply(list[i], paste, collapse = "_"),
-                     "to" = sapply(list_select, paste, collapse = "_")
-)
-} else {
-    next
-  } 
-} else {
-  next
-  }
-}
-
-
-#TO DO: use lapply
-
-
-#add layer information 
-SC_SID$layer <- as.character(list_length)
+```{r plotspatialcontextgraph}
 
 ## 2. Create graph from edgelist using igraph and ggnetwork
-g1 <- graph_from_data_frame(edges, directed = FALSE, vertices = SC_SID)
+
+#add annotation dataframe
+data <- colData(sce) %>% as.data.frame() %>% select(spatial_context,sample_id) %>% group_by(spatial_context) %>% table() %>% as.data.frame
+
+anno <- data.frame(spatial_context = unique(SC_SID$spatial_context),
+           length = list_length,
+           sum = SC_SID %>% group_by(spatial_context) %>% summarise(sum = sum(Freq)) %>% pull(sum),
+           n_samples = SC_SID %>% group_by(spatial_context) %>% filter(Freq != 0) %>% count() %>% pull(n)
+           )
+
+#spatial context abundance filter criteria
+anno <- anno %>% filter(sum > 25 & n_samples > 2)
+sc_fil <- unfactor(anno$spatial_context)
+
+edges <- edges %>% filter(from %in% sc_fil & to %in% sc_fil)
+
+
+
+
+#add annotation dataframe
+data <- colData(sce) %>% as.data.frame() %>% select(spatial_context,sample_id) %>% group_by(spatial_context) %>% table() %>% as.data.frame
+
+anno <- data.frame(spatial_context = unique(data$spatial_context), 
+                   length = str_count(unique(data$spatial_context), "[0-9]"),
+                   sum = data %>% group_by(spatial_context) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
+                   n_samples = data %>% group_by(spatial_context) %>% filter(Freq != 0) %>% count() %>% pull(n)
+)
+
+anno <- unique(c(edges$from,edges$to))
+
+g <- graph_from_data_frame(edges, directed = FALSE,vertices = anno)
 
 #specify vertical layout using sugiyama
-LO <- layout.sugiyama(g1, V(g1)$layer)
+LO <- layout.sugiyama(g, V(g)$length)
 
-#convert to ggnetwork object
-n <- ggnetwork(g1, layout = LO$layout)
+#Plot using ggraph
+library(ggraph)
 
-#plot
-p4 <- ggplot(n, aes(x = x, y = y, xend = xend, yend = yend)) +
-  geom_edges(color = "black")+
-  geom_nodes(aes(color = name,size = Freq))+
-  geom_nodelabel_repel(aes(color = name, label = name))+
-  theme_blank()+
-  ggtitle("")+
-  guides(color = FALSE)
+ggraph(g, layout = LO$layout)+
+  geom_edge_link()+
+  geom_node_point(aes(color = name, size = sum))+
+  guides(color=FALSE)+
+  geom_node_label(aes(color = name,label = name), repel = TRUE)+
+  theme_blank()
 
-p4
 
-#pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_spatial/spatialcontext_CNMap_example.pdf",width = 16,height = 14)
-(p1+p2)/(p3+p4)
-#dev.off()
+### for function call 
+
+#add annotation dataframe
+data <- colData(sce) %>% as.data.frame() %>% select(spatial_context,sample_id) %>% group_by(spatial_context) %>% table() %>% as.data.frame
+
+anno <- data.frame(spatial_context = unique(data$spatial_context), 
+                   length = str_count(unique(data$spatial_context), "[0-9]"),
+                   sum = data %>% group_by(spatial_context) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
+                   n_samples = data %>% group_by(spatial_context) %>% filter(Freq != 0) %>% count() %>% pull(n)
+)
+
+anno <- unique(c(edges$from,edges$to))
+
+ggraph(g, layout = LO$layout)+
+  geom_edge_link()+
+  geom_node_point(aes(color = name, size = sum))+
+  guides(color=FALSE)+
+  geom_node_label(aes(color = name,label = name), repel = TRUE)+
+  theme_blank()
+
+
 
 ```
 ### 3. Interaction testing
