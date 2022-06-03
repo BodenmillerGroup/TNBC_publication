@@ -182,7 +182,7 @@ library(doMC)
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
 #cur_sam = c("ZTMA249.2_ZTMA249_ID_317_CX5Y10_159",)
 set.seed(22)
-cur_sam <- sample(unique(sce$sample_id),100)
+cur_sam <- sample(unique(sce$sample_id),20)
 sce <- sce[,sce$sample_id %in% cur_sam]
 sce
 
@@ -305,92 +305,13 @@ ggplot(SID_SC) +
 ```{r cn comb map}
 #Plot CN combination map from each sample_id 
 
+##1. Create edgelist for spatial contexts based on either all samples or for each sample separately
 ## Use self-build function
+
 source("../code/helper_functions.R")
 
-edges <- buildEdgeList(sce, combined = TRUE)
+edges <- buildEdgeList(sce, combined = FALSE)
 
-## 1. Create edgelist (code for above function)
-data <- colData(sce) %>% as.data.frame() %>% select(spatial_context,sample_id) %>% group_by(spatial_context) %>% table() %>% as.data.frame
-
-data_wide <- data %>% pivot_wider(values_from = Freq, names_from = spatial_context) %>% column_to_rownames("sample_id")
-
-registerDoMC(cores=detectCores()-2) #perform foreach loop on multiple cores with %dopar%
-
-combined <- FALSE #decide in which way to generate edgelist
-
-edges <- if(combined == TRUE){
-
-  #Option 1: For all samples combined  
-  list <- str_split(unique(data$spatial_context), "_")
-  list_length <- sapply(list, length)
-  
-  edges <- foreach(i = seq_along(list), .combine = "rbind")%dopar%{
-  
-  list_options <- list[length(list[[i]])+1 == list_length]
-  
-  if(length(list_options) != 0){
-    
-  list_select <- list_options[sapply(list_options, function(x){length(intersect(x,list[[i]])) == length(list[[i]])})]
-  
-  if(length(list_select) != 0){ 
-  data.frame("from" = sapply(list[i], paste, collapse = "_"),
-                       "to" = sapply(list_select, paste, collapse = "_")
-  )
-  } else {
-      NULL
-    } 
-  } else {
-    NULL
-    }
-  } 
-  
-}else{
-  #Option 2: For each sample_id separately
-  
-  cur_dat <- apply(data_wide, 1, function(x){
-  
-  cur <- x
-  
-  names(cur) <- colnames(data_wide)
-  
-  dat <- names(cur[cur != 0])
-  
-  return(dat)
-  })
-  
-  #Create list with edge_list for each sample_id
-  cur_dat_final <- lapply(cur_dat, function(x){
-    list <- str_split(x, "_")
-    list_length <- sapply(list, length)
-    
-  edges <- foreach(i = seq_along(list), .combine = "rbind")%dopar%{
-  
-  list_options <- list[length(list[[i]])+1 == list_length]
-  
-  if(length(list_options) != 0){
-    
-  list_select <- list_options[sapply(list_options, function(x){length(intersect(x,list[[i]])) == length(list[[i]])})]
-  
-  if(length(list_select) != 0){ 
-  data.frame("from" = sapply(list[i], paste, collapse = "_"),
-                       "to" = sapply(list_select, paste, collapse = "_")
-  )
-  } else {
-      NULL
-    } 
-  } else {
-    NULL
-    }
-  }
-  return(edges)
-  }) 
-  
-}
-
-cur_dat_final <- do.call(rbind,cur_dat_final)
-cur_dat_final$sample_id <- paste0(str_split(rownames(cur_dat_final),"\\.", simplify = TRUE)[,1],".",str_split(rownames(cur_dat_final),"\\.", simplify = TRUE)[,2])
-rownames(cur_dat_final) <- NULL
 ```
 
 
@@ -398,70 +319,92 @@ rownames(cur_dat_final) <- NULL
 
 ## 2. Create graph from edgelist using igraph and ggnetwork
 
-#add annotation dataframe
-data <- colData(sce) %>% as.data.frame() %>% select(spatial_context,sample_id) %>% group_by(spatial_context) %>% table() %>% as.data.frame
+source("../code/helper_functions.R")
 
-anno <- data.frame(spatial_context = unique(SC_SID$spatial_context),
-           length = list_length,
-           sum = SC_SID %>% group_by(spatial_context) %>% summarise(sum = sum(Freq)) %>% pull(sum),
-           n_samples = SC_SID %>% group_by(spatial_context) %>% filter(Freq != 0) %>% count() %>% pull(n)
-           )
+plotSpatialContextGraph(edges = edges, 
+                        object = sce, 
+                        img_id = "sample_id",
+                        entry = "spatial_context",
+                        combined = FALSE)
 
-#spatial context abundance filter criteria
+
+
+#spatial context abundance filter criteria - where to add?? 
 anno <- anno %>% filter(sum > 25 & n_samples > 2)
 sc_fil <- unfactor(anno$spatial_context)
 
 edges <- edges %>% filter(from %in% sc_fil & to %in% sc_fil)
 
 
+### For combined SC graph 
 
+plotSpatialContextGraph <- function(edges, 
+                                    object,
+                                    combined,
+                                    entry = "spatial_context",
+                                    img_id = "sample_id",
+                                    node_size_by = c("Freq","n_samples")){
+#data
+data <- colData(object)[,colnames(colData(sce)) %in% c(entry,img_id)] %>% table() %>% as.data.frame
 
-#add annotation dataframe
-data <- colData(sce) %>% as.data.frame() %>% select(spatial_context,sample_id) %>% group_by(spatial_context) %>% table() %>% as.data.frame
+#node colors
+col <- list(name = colorRampPalette(brewer.pal(9, "Set1"))(length(sort(unique(unfactor(data[,entry]))))))
+col_node <- col[[1]]
+names(col_node) = sort(unique(unfactor(data[,entry])))
+col_node <- list(col_node)
+names(col_node) <- "name"
 
-anno <- data.frame(spatial_context = unique(data$spatial_context), 
-                   length = str_count(unique(data$spatial_context), "[0-9]"),
-                   sum = data %>% group_by(spatial_context) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
-                   n_samples = data %>% group_by(spatial_context) %>% filter(Freq != 0) %>% count() %>% pull(n)
-)
+if(combined == TRUE){ #For combined samples
+  anno <- data.frame(spatial_context = unique(data[,entry]), 
+                     length = listLen(str_split(unique(data[,entry]),"_")),
+                     Freq = data %>% group_by_at(entry) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
+                     n_samples = data %>% group_by_at(entry) %>% filter(Freq != 0) %>% count() %>% pull(n)
+  )
+  
+  g <- graph_from_data_frame(edges, directed = TRUE,vertices = anno)
+  
+  #Plot using ggraph
+  ggraph(g, layout = "sugiyama")+
+    geom_edge_link()+
+    geom_node_point(aes_(color = V(g)$name, size = as.name(node_size_by)))+
+    guides(color="none")+
+    geom_node_label(aes(color = name,label = name), repel = TRUE)+
+    theme_blank()+
+    scale_color_manual(values = col_node$name)
 
-anno <- unique(c(edges$from,edges$to))
-
-g <- graph_from_data_frame(edges, directed = FALSE,vertices = anno)
-
-#specify vertical layout using sugiyama
-LO <- layout.sugiyama(g, V(g)$length)
-
-#Plot using ggraph
-library(ggraph)
-
-ggraph(g, layout = LO$layout)+
-  geom_edge_link()+
-  geom_node_point(aes(color = name, size = sum))+
-  guides(color=FALSE)+
-  geom_node_label(aes(color = name,label = name), repel = TRUE)+
-  theme_blank()
-
-
-### for function call 
-
-#add annotation dataframe
-data <- colData(sce) %>% as.data.frame() %>% select(spatial_context,sample_id) %>% group_by(spatial_context) %>% table() %>% as.data.frame
-
-anno <- data.frame(spatial_context = unique(data$spatial_context), 
-                   length = str_count(unique(data$spatial_context), "[0-9]"),
-                   sum = data %>% group_by(spatial_context) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
-                   n_samples = data %>% group_by(spatial_context) %>% filter(Freq != 0) %>% count() %>% pull(n)
-)
-
-anno <- unique(c(edges$from,edges$to))
-
-ggraph(g, layout = LO$layout)+
-  geom_edge_link()+
-  geom_node_point(aes(color = name, size = sum))+
-  guides(color=FALSE)+
-  geom_node_label(aes(color = name,label = name), repel = TRUE)+
-  theme_blank()
+}else{ ### For multiple SC graphs
+  
+  anno <- split(data %>% select(-as.name(img_id)), f = data[,img_id])
+  
+  anno <- lapply(anno, function(x){
+    cur_anno <- x %>% filter(Freq !=0)
+    cur_anno$length <- listLen(str_split(cur_anno[,entry],"_"))
+    return(cur_anno)
+  })
+  
+  #edges
+  edges_list <- split(edges %>% select(-as.name(img_id)), f = edges[,img_id])
+  
+  #generate graph
+  g <- mapply(function(x,y){
+     g <- graph_from_data_frame(x, directed = TRUE, vertices = y)
+    #specify vertical layout using sugiyama
+    return(g)}, edges_list, anno)
+  
+  #generate plots
+  all_plots <- lapply(g, function(x){
+    p <- ggraph(x, layout = "sugiyama")+
+    geom_edge_link()+
+    geom_node_point(aes(color = name, size = Freq))+
+    guides(color="none")+
+    geom_node_label(aes(color = name,label = name), repel = TRUE)+
+    scale_color_manual(values = col_node$name)+
+    ggtitle(names(g))+
+    theme_blank()
+    return(p)}
+    )
+  
+}
 
 
 

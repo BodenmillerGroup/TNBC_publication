@@ -32,10 +32,10 @@ detectSpatialContext <- function(object,
 buildEdgeList <- function(object, 
                           entry = "spatial_context",
                           img_id = "sample_id",
-                          combined = TRUE
+                          combined = NULL
                           ){
 #defaults
-combined <- ifelse(isTRUE(combined), TRUE, FALSE) #decide in which way to generate edgelist
+#combined <- ifelse(isTRUE(combined), TRUE, FALSE) #decide in which way to generate edgelist
 
 registerDoMC(cores=detectCores()-2) #perform foreach loop on multiple cores with %dopar%
 
@@ -119,45 +119,73 @@ edges <- if(combined == TRUE){
 
 }
 
-# 3. plotSpatialContextGraph
-
-plotSpatialContextGraph <- function(object, #edge-lists
-                                    anno = NULL, #annotation dataframe - if annotation dataframe should be constructed by the function? 
-                                    combined = TRUE, #whether or not separate graphs per sample_id should be constructed
-                                    #node attributes
-                                    node_color_by = NULL, 
-                                    node_shape_by = NULL, 
-                                    node_size_by = NULL, 
-                                    node_color_fix = NULL,
-                                    node_shape_fix = NULL,
-                                    node_size_fix = NULL,
-                                    #node label attributes 
-                                    node_label = TRUE,
-                                    node_label_color_by = NULL,
-                                    node_label_size_by = NULL,
-                                    node_label_color_fix = NULL,
-                                    node_label_size_fix = NULL,
-                                    node_label_repel = TRUE, 
-                                    #graph layout
-                                    layout = sugiyama, #not sure
-                                    #general plot
-                                    color_guide = FALSE, #not sure - should be TRUE when node_label = FALSE
-                                    theme = blank, #not sure
-                                    ){}
-
-g <- graph_from_data_frame(edges, directed = FALSE,vertices = anno)
-
-layout.
-#specify vertical layout using sugiyama
-LO <- layout.sugiyama(g, V(g)$length)
-
-#Plot using ggraph
-library(ggraph)
-
-ggraph(g, layout = LO$layout)+
-  geom_edge_link()+
-  geom_node_point(aes(color = name, size = sum))+
-  guides(color=FALSE)+
-  geom_node_label(aes(color = name,label = name, size = length), repel = TRUE)+
-  theme_blank()
-
+#3. plotSpatialContextGraph
+plotSpatialContextGraph <- function(edges, 
+                                    object,
+                                    combined,
+                                    entry = "spatial_context",
+                                    img_id = "sample_id",
+                                    node_size_by = c("Freq","n_samples")){
+  #data
+  data <- colData(object)[,colnames(colData(sce)) %in% c(entry,img_id)] %>% table() %>% as.data.frame
+  
+  #node colors
+  col <- list(name = colorRampPalette(brewer.pal(9, "Set1"))(length(sort(unique(unfactor(data[,entry]))))))
+  col_node <- col[[1]]
+  names(col_node) = sort(unique(unfactor(data[,entry])))
+  col_node <- list(col_node)
+  names(col_node) <- "name"
+  
+  if(combined == TRUE){ #For combined samples
+    anno <- data.frame(spatial_context = unique(data[,entry]), 
+                       length = listLen(str_split(unique(data[,entry]),"_")),
+                       Freq = data %>% group_by_at(entry) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
+                       n_samples = data %>% group_by_at(entry) %>% filter(Freq != 0) %>% count() %>% pull(n)
+    )
+    
+    g <- graph_from_data_frame(edges, directed = TRUE,vertices = anno)
+    
+    #Plot using ggraph
+    ggraph(g, layout = "sugiyama")+
+      geom_edge_link()+
+      geom_node_point(aes_(color = V(g)$name, size = as.name(node_size_by)))+
+      guides(color="none")+
+      geom_node_label(aes(color = name,label = name), repel = TRUE)+
+      theme_blank()+
+      scale_color_manual(values = col_node$name)
+    
+  }else{ ### For multiple SC graphs
+    
+    anno <- split(data %>% select(-as.name(img_id)), f = data[,img_id])
+    
+    anno <- lapply(anno, function(x){
+      cur_anno <- x %>% filter(Freq !=0)
+      cur_anno$length <- listLen(str_split(cur_anno[,entry],"_"))
+      return(cur_anno)
+    })
+    
+    #edges
+    edges_list <- split(edges %>% select(-as.name(img_id)), f = edges[,img_id])
+    
+    #generate graph
+    g <- mapply(function(x,y){
+      g <- graph_from_data_frame(x, directed = TRUE, vertices = y)
+      #specify vertical layout using sugiyama
+      return(g)}, edges_list, anno)
+    
+    #generate plots
+    all_plots <- lapply(g, function(x){
+      p <- ggraph(x, layout = "sugiyama")+
+        geom_edge_link()+
+        geom_node_point(aes(color = name, size = Freq))+
+        guides(color="none")+
+        geom_node_label(aes(color = name,label = name), repel = TRUE)+
+        scale_color_manual(values = col_node$name)+
+        ggtitle(names(g))+
+        theme_blank()
+      return(p)}
+    )
+    
+    plot_grid(plotlist = all_plots) 
+    
+  }}
