@@ -182,7 +182,7 @@ library(doMC)
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
 #cur_sam = c("ZTMA249.2_ZTMA249_ID_317_CX5Y10_159",)
 set.seed(22)
-cur_sam <- sample(unique(sce$sample_id),20)
+cur_sam <- sample(unique(sce$sample_id),10)
 sce <- sce[,sce$sample_id %in% cur_sam]
 sce
 
@@ -203,15 +203,13 @@ sce <- aggregateNeighbors(sce, colPairName = "knn_spatialcontext_graph",
 
 #Use self-build function
 source("../code/helper_functions.R")
+source("../code/validity_checks.R")
 
 sce <- detectSpatialContext(sce, 
                             threshold = 0.9, 
                             entry = "aggregatedNeighbors",
                             name = "spatial_context"
 )
-
-unique(sce$spatial_context)
-summary(is.na(sce$spatial_context))
 
 #TO DO:
 #find filter criteria for abundant spatial contexts (TODO)
@@ -309,8 +307,13 @@ ggplot(SID_SC) +
 ## Use self-build function
 
 source("../code/helper_functions.R")
+source("../code/hidden_functions.R")
+source("../code/validity_checks.R")
 
-edges <- buildEdgeList(sce, combined = FALSE)
+edges <- buildEdgeList(sce, 
+                         entry = "spatial_context",
+                         img_id = "sample_id",
+                         combined = FALSE)
 
 ```
 
@@ -320,19 +323,21 @@ edges <- buildEdgeList(sce, combined = FALSE)
 ## 2. Create graph from edgelist using igraph and ggnetwork
 
 source("../code/helper_functions.R")
+source("../code/hidden_functions.R")
+source("../code/validity_checks.R")
 
-plotSpatialContextGraph(edges = edges, 
+plotSpatialContext (edges = edges, 
                         object = sce, 
                         img_id = "sample_id",
                         entry = "spatial_context",
                         combined = FALSE)
 
 
+data
 
 #spatial context abundance filter criteria - where to add?? 
 anno <- anno %>% filter(sum > 25 & n_samples > 2)
 sc_fil <- unfactor(anno$spatial_context)
-
 edges <- edges %>% filter(from %in% sc_fil & to %in% sc_fil)
 
 
@@ -340,10 +345,23 @@ edges <- edges %>% filter(from %in% sc_fil & to %in% sc_fil)
 
 plotSpatialContextGraph <- function(edges, 
                                     object,
-                                    combined,
                                     entry = "spatial_context",
                                     img_id = "sample_id",
-                                    node_size_by = c("Freq","n_samples")){
+                                    combined = NULL, 
+                                    #build graph
+                                    directed = TRUE,
+                                    #nodes
+                          node_color_by = c("name","freq","n_samples"),
+                          node_size_by = c("freq","n_samples"),
+                          node_color_fix = NULL,
+                          node_size_fix = NULL,
+                          #node labels
+                          node_label_repel = TRUE,
+                          node_label_color_by = c("name","freq","n_samples"),
+                          node_label_color_fix = NULL,  
+                          #plot graph - edges
+                          draw_edges = TRUE,
+                          edge_color_fix = NULL){
 #data
 data <- colData(object)[,colnames(colData(sce)) %in% c(entry,img_id)] %>% table() %>% as.data.frame
 
@@ -357,21 +375,21 @@ names(col_node) <- "name"
 if(combined == TRUE){ #For combined samples
   anno <- data.frame(spatial_context = unique(data[,entry]), 
                      length = listLen(str_split(unique(data[,entry]),"_")),
-                     Freq = data %>% group_by_at(entry) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
+                     freq = data %>% group_by_at(entry) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
                      n_samples = data %>% group_by_at(entry) %>% filter(Freq != 0) %>% count() %>% pull(n)
   )
   
-  g <- graph_from_data_frame(edges, directed = TRUE,vertices = anno)
-  
-  #Plot using ggraph
-  ggraph(g, layout = "sugiyama")+
-    geom_edge_link()+
-    geom_node_point(aes_(color = V(g)$name, size = as.name(node_size_by)))+
-    guides(color="none")+
-    geom_node_label(aes(color = name,label = name), repel = TRUE)+
-    theme_blank()+
-    scale_color_manual(values = col_node$name)
+  g <- graph_from_data_frame(edges, directed = directed,vertices = anno)
 
+#Plot using ggraph
+.generatePlot(g)
+  
+# ggraph(g, layout = "sugiyama")+
+#     cur_geom_edge+
+#     cur_geom_node+
+#     guides(color = "none")+
+#     theme_blank()
+  
 }else{ ### For multiple SC graphs
   
   anno <- split(data %>% select(-as.name(img_id)), f = data[,img_id])
@@ -393,14 +411,15 @@ if(combined == TRUE){ #For combined samples
   
   #generate plots
   all_plots <- lapply(g, function(x){
-    p <- ggraph(x, layout = "sugiyama")+
-    geom_edge_link()+
-    geom_node_point(aes(color = name, size = Freq))+
-    guides(color="none")+
-    geom_node_label(aes(color = name,label = name), repel = TRUE)+
-    scale_color_manual(values = col_node$name)+
-    ggtitle(names(g))+
-    theme_blank()
+    p <- .generatePlot(g)
+    # p <- ggraph(x, layout = "sugiyama")+
+    # geom_edge_link()+
+    # geom_node_point(aes(color = name, size = Freq))+
+    # guides(color="none")+
+    # geom_node_label(aes(color = name,label = name), repel = TRUE)+
+    # scale_color_manual(values = col_node$name)+
+    # ggtitle(names(g))+
+    # theme_blank()
     return(p)}
     )
   

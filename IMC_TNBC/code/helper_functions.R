@@ -1,13 +1,15 @@
 # 1. Spatial context detection functions
 
-# 1.1 downstream of spatialgraph and aggregate neighbors
+# 1.1 detectSpatialContext - downstream of buildSpatialGraph and aggregateNeighbors
 detectSpatialContext <- function(object, 
                                  entry = NULL, 
                                  threshold = 0.9,
                                  name = NULL){
+
+  entry <- ifelse(is.null(entry), "aggregatedNeighbors", entry) #default
+  name <- ifelse(is.null(name), "spatial_context", name) #default
   
-  entry <- ifelse(is.null(entry), "aggregatedNeighbors", entry)
-  name <- ifelse(is.null(name), "spatial_context", name)
+  .valid.detectSpatialContext.input(object, entry, threshold, name) #validity check
   
   cur_dat <- colData(sce)[,entry]
   
@@ -22,104 +24,49 @@ detectSpatialContext <- function(object,
   return(object)
 }
 
-# 1.2 Including spatialgraph and aggregate neighbors
-
-# not sure whether this is relevant? 
-
-
-# 2. buildSpatialContextGraph 
-
+# 1.2 buildSpatialContextGraph 
 buildEdgeList <- function(object, 
                           entry = "spatial_context",
                           img_id = "sample_id",
-                          combined = NULL
-                          ){
-#defaults
-#combined <- ifelse(isTRUE(combined), TRUE, FALSE) #decide in which way to generate edgelist
-
-registerDoMC(cores=detectCores()-2) #perform foreach loop on multiple cores with %dopar%
-
-#data  
-data <- colData(object)[,colnames(colData(sce)) %in% c(entry,img_id)] %>% table() %>% as.data.frame
-
-data_wide <- data %>% pivot_wider(values_from = Freq, names_from = entry) %>% column_to_rownames(img_id)
-
-edges <- if(combined == TRUE){
+                          combined = NULL){
   
-  #Option 1: For all samples combined  
-  list <- str_split(unique(data$spatial_context), "_")
-  list_length <- sapply(list, length)
+  combined <- ifelse(is.null(combined), TRUE, combined) #default
   
-  edges <- foreach(i = seq_along(list), .combine = "rbind")%dopar%{
-    
-    list_options <- list[length(list[[i]])+1 == list_length]
-    
-    if(length(list_options) != 0){
-      
-      list_select <- list_options[sapply(list_options, function(x){length(intersect(x,list[[i]])) == length(list[[i]])})]
-      
-      if(length(list_select) != 0){ 
-        data.frame("from" = sapply(list[i], paste, collapse = "_"),
-                   "to" = sapply(list_select, paste, collapse = "_")
-        )
-      } else {
-        NULL
-      } 
-    } else {
-      NULL
-    }
-  } 
+  .valid.buildEdgeList.input(object, entry, img_id, combined) #validity check
   
-}else{
-  #Option 2: For each sample_id separately
+  #data  
+  data <- colData(object)[,colnames(colData(sce)) %in% c(entry,img_id)] %>% table() %>% as.data.frame
+  data_wide <- data %>% pivot_wider(values_from = Freq, names_from = entry) %>% column_to_rownames(img_id)
   
-  cur_dat <- apply(data_wide, 1, function(x){
-    
-    cur <- x
-    
-    names(cur) <- colnames(data_wide)
-    
-    dat <- names(cur[cur != 0])
-    
-    return(dat)
-  })
-  
-  #Create list with edge_list for each sample_id
-  cur_dat_final <- lapply(cur_dat, function(x){
-    list <- str_split(x, "_")
+  edges <- if(combined == TRUE){ #Option 1: For all images combined  
+    list <- str_split(unique(data$spatial_context), "_")
     list_length <- sapply(list, length)
-    
-    edges <- foreach(i = seq_along(list), .combine = "rbind")%dopar%{
-      
-      list_options <- list[length(list[[i]])+1 == list_length]
-      
-      if(length(list_options) != 0){
-        
-        list_select <- list_options[sapply(list_options, function(x){length(intersect(x,list[[i]])) == length(list[[i]])})]
-        
-        if(length(list_select) != 0){ 
-          data.frame("from" = sapply(list[i], paste, collapse = "_"),
-                     "to" = sapply(list_select, paste, collapse = "_")
-          )
-        } else {
-          NULL
-        } 
-      } else {
-        NULL
-      }
-    }
-    
+    edges <- .createEdgeList(list, list_length) #hidden function
     return(edges)
-  }) 
-  cur_dat_final <- do.call(rbind,cur_dat_final)
-  cur_dat_final$sample_id <- paste0(str_split(rownames(cur_dat_final),"\\.", simplify = TRUE)[,1],".",str_split(rownames(cur_dat_final),"\\.", simplify = TRUE)[,2])
-  rownames(cur_dat_final) <- NULL
-  return(cur_dat_final)
+    
+  }else{ #Option 2: For each img_id separately
+    cur_dat <- apply(data_wide, 1, function(x){
+      cur <- x
+      names(cur) <- colnames(data_wide)
+      dat <- names(cur[cur != 0])
+      return(dat)
+    })
+    
+    edges <- lapply(cur_dat, function(z){ 
+      list <- str_split(z, "_")
+      list_length <- sapply(list, length)
+      edges <- .createEdgeList(list, list_length) #hidden function
+      return(edges)
+    })
+    
+    edges <- do.call(rbind,edges)
+    edges$sample_id <- paste0(str_split(rownames(edges),"\\.", simplify = TRUE)[,1],".",str_split(rownames(edges),"\\.", simplify = TRUE)[,2])
+    rownames(edges) <- NULL
+    return(edges)
+  }
 }
 
-}
-
-#3. plotSpatialContextGraph
+#1.3 plotSpatialContextGraph
 plotSpatialContextGraph <- function(edges, 
                                     object,
                                     combined,
