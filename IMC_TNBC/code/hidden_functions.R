@@ -29,59 +29,65 @@ return(edges)
 # plotSpatialContext - Helpers 
 
 .generatePlot <- function(graph,
-                          #nodes
-                          node_color_by = c("name","freq","n_samples"),
-                          node_size_by = c("freq","n_samples"),
-                          node_color_fix = NULL,
-                          node_size_fix = NULL,
-                          #node labels
-                          node_label_repel = TRUE,
-                          node_label_color_by = c("name","freq","n_samples"),
-                          node_label_color_fix = NULL,  
-                          #plot graph - edges
-                          draw_edges = TRUE,
-                          edge_color_fix = NULL){
+                          node_color_by,
+                          node_size_by,
+                          node_color_fix,
+                          node_size_fix,
+                          node_label_repel,
+                          node_label_color_by, 
+                          node_label_color_fix,  
+                          draw_edges,
+                          edge_color_fix){
   
   node_color_by <- if(is.null(node_color_by)) NULL else node_color_by
   node_size_by <- if(is.null(node_size_by)) NULL else node_size_by
   node_label_color_by <- if(is.null(node_label_color_by)) NULL else node_label_color_by
-  edge_color_fix <- if(is.null(edge_color_fix)) "black" else edge_color_fix
   
-  if (!is.null(node_color_fix)){node_color_by <- as.character(node_color_fix)
-  } else { node_color_by <- node_color_by }
-  if (!is.null(node_size_fix)){ node_size_by <- as.character(node_size_fix)
-  } else { node_size_by <- node_size_by }
-  if (!is.null(node_label_color_fix)){node_label_color_by <- as.character(node_label_color_fix)
-  } else { node_label_color_by <- node_label_color_by }
+  edge_color_fix <- if(is.null(edge_color_fix)) "black" else edge_color_fix #defaults
+  node_color_fix <- if(is.null(node_color_fix)) "cornflowerblue" else node_color_fix #defaults
+  node_size_fix <- if(is.null(node_size_fix)) "3" else node_size_fix #defaults
   
-  #edge geom  
-  if(draw_edges){
-    cur_geom_edge <- geom_edge_link(color = edge_color_fix)
-  }else{
-    cur_geom_edge <- NULL}
+  ## edge geom  
+  if(draw_edges){cur_geom_edge <- geom_edge_link(color = edge_color_fix)
+  }else{cur_geom_edge <- NULL}
   
-  #node geom
-  cur_geom_node <- geom_node_point(aes_(color = vertex_attr(g, node_color_by),
-                                        size = vertex_attr(g, node_size_by)))
+  ## node geom
+  if(!is.null(node_color_by)){color = as.character(vertex_attr(g, node_color_by)) #node color
+  }else{color = as.character(node_color_fix)}
+  if(!is.null(node_size_by)){size = vertex_attr(g, node_size_by) #node size
+  }else{size = as.character(node_size_fix)}
   
-  #node_label geom
-  if(node_label_repel){
-    cur_geom_node_label <- geom_node_label(aes_(color = vertex_attr(g,node_label_color_by), label = vertex_attr(g, "name")), repel = TRUE)
-  }else{
-    cur_geom_node_label <- NULL
-  }
+  cur_geom_node <- geom_node_point(aes_(color = color,
+                                        size = size))
   
   p <- ggraph(graph, layout = "sugiyama")+
     cur_geom_edge+
     cur_geom_node+
-    cur_geom_node_label+
-    guides(color = "none")
-  p
+    guides(color = "none")+
+    theme_blank()
+  
+  #node geom post-processing
+  if (is.null(node_color_by)) {
+    names(node_color_fix) <- as.character(node_color_fix)
+    p <- p + scale_color_manual(values = node_color_fix)
+  }
+  if (is.null(node_size_by)) {
+    p <- p + scale_size_manual(values = as.numeric(node_size_fix), 
+                               guide = "none")}
+  
+  ## node geom label
+  if(!is.null(node_label_color_by)){color_label = vertex_attr(g, node_label_color_by) #node geom label
+  }else{color_label = as.character(node_label_color_fix)}
+  
+  if(node_label_repel){
+    if(!is.null(node_label_color_by)){
+      cur_geom_node_label <- geom_node_label(aes_(color = color_label, label = vertex_attr(g, "name")), repel = TRUE)
+      p <- p + cur_geom_node_label
+    }else{
+      cur_geom_node_label <- geom_node_label(aes_(label = vertex_attr(g, "name")), color = color_label, repel = TRUE)
+      p <- p + cur_geom_node_label 
+    }
+  }  
+  return(p)
 }
-
-.postProcessPlot <- function(){} #see Nils - use for fix colors or sizes
-
-
-
-
 

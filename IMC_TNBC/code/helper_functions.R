@@ -67,44 +67,46 @@ buildEdgeList <- function(object,
 }
 
 #1.3 plotSpatialContextGraph
-plotSpatialContextGraph <- function(edges, 
+plotSpatialContext <- function(edges, 
                                     object,
-                                    combined,
                                     entry = "spatial_context",
                                     img_id = "sample_id",
-                                    node_size_by = c("Freq","n_samples")){
+                                    combined = NULL, 
+                                    #build graph
+                                    directed = TRUE,
+                                    #nodes
+                                    node_color_by = NULL, #c("name","freq","n_samples"),
+                                    node_size_by = NULL, #c("freq","n_samples"),
+                                    node_color_fix = NULL,
+                                    node_size_fix = NULL,
+                                    #node labels
+                                    node_label_repel = TRUE,
+                                    node_label_color_by = NULL, #c("name","freq","n_samples"),
+                                    node_label_color_fix = NULL,  
+                                    #plot graph - edges
+                                    draw_edges = TRUE,
+                                    edge_color_fix = NULL){
+  
+  .valid.plotSpatialContext.input(edges, object, entry, img_id, combined, directed, node_color_by, node_size_by, node_color_fix, node_size_fix, node_label_repel, node_label_color_by, node_label_color_fix, draw_edges, edge_color_fix)
+  
   #data
   data <- colData(object)[,colnames(colData(sce)) %in% c(entry,img_id)] %>% table() %>% as.data.frame
   
-  #node colors
-  col <- list(name = colorRampPalette(brewer.pal(9, "Set1"))(length(sort(unique(unfactor(data[,entry]))))))
-  col_node <- col[[1]]
-  names(col_node) = sort(unique(unfactor(data[,entry])))
-  col_node <- list(col_node)
-  names(col_node) <- "name"
-  
-  if(combined == TRUE){ #For combined samples
+  if(combined == TRUE){ # For combined samples
     anno <- data.frame(spatial_context = unique(data[,entry]), 
                        length = listLen(str_split(unique(data[,entry]),"_")),
-                       Freq = data %>% group_by_at(entry) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
+                       freq = data %>% group_by_at(entry) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
                        n_samples = data %>% group_by_at(entry) %>% filter(Freq != 0) %>% count() %>% pull(n)
     )
     
-    g <- graph_from_data_frame(edges, directed = TRUE,vertices = anno)
+    g <- graph_from_data_frame(edges, directed = directed,vertices = anno)
     
     #Plot using ggraph
-    ggraph(g, layout = "sugiyama")+
-      geom_edge_link()+
-      geom_node_point(aes_(color = V(g)$name, size = as.name(node_size_by)))+
-      guides(color="none")+
-      geom_node_label(aes(color = name,label = name), repel = TRUE)+
-      theme_blank()+
-      scale_color_manual(values = col_node$name)
+    .generatePlot(graph = g, node_color_by, node_size_by, node_color_fix, node_size_fix, node_label_repel, node_label_color_by, node_label_color_fix, draw_edges, edge_color_fix) #hidden function
     
-  }else{ ### For multiple SC graphs
-    
+  }else{ # For multiple SC graphs
     anno <- split(data %>% select(-as.name(img_id)), f = data[,img_id])
-    
+
     anno <- lapply(anno, function(x){
       cur_anno <- x %>% filter(Freq !=0)
       cur_anno$length <- listLen(str_split(cur_anno[,entry],"_"))
@@ -122,17 +124,10 @@ plotSpatialContextGraph <- function(edges,
     
     #generate plots
     all_plots <- lapply(g, function(x){
-      p <- ggraph(x, layout = "sugiyama")+
-        geom_edge_link()+
-        geom_node_point(aes(color = name, size = Freq))+
-        guides(color="none")+
-        geom_node_label(aes(color = name,label = name), repel = TRUE)+
-        scale_color_manual(values = col_node$name)+
-        ggtitle(names(g))+
-        theme_blank()
-      return(p)}
-    )
-    
+      p <- .generatePlot(graph = x, node_color_by, node_size_by, node_color_fix, node_size_fix, node_label_repel, node_label_color_by, node_label_color_fix, draw_edges, edge_color_fix) #hidden function
+      return(p)
+      })
+      
     plot_grid(plotlist = all_plots) 
-    
-  }}
+  }
+}

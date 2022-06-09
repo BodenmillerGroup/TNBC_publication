@@ -182,7 +182,7 @@ library(doMC)
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
 #cur_sam = c("ZTMA249.2_ZTMA249_ID_317_CX5Y10_159",)
 set.seed(22)
-cur_sam <- sample(unique(sce$sample_id),10)
+cur_sam <- sample(unique(sce$sample_id),5)
 sce <- sce[,sce$sample_id %in% cur_sam]
 sce
 
@@ -313,7 +313,7 @@ source("../code/validity_checks.R")
 edges <- buildEdgeList(sce, 
                          entry = "spatial_context",
                          img_id = "sample_id",
-                         combined = FALSE)
+                         combined = TRUE)
 
 ```
 
@@ -326,106 +326,28 @@ source("../code/helper_functions.R")
 source("../code/hidden_functions.R")
 source("../code/validity_checks.R")
 
-plotSpatialContext (edges = edges, 
-                        object = sce, 
-                        img_id = "sample_id",
-                        entry = "spatial_context",
-                        combined = FALSE)
-
-
-data
-
-#spatial context abundance filter criteria - where to add?? 
+#spatial context abundance filter criteria - important - to be added in function? 
 anno <- anno %>% filter(sum > 25 & n_samples > 2)
 sc_fil <- unfactor(anno$spatial_context)
 edges <- edges %>% filter(from %in% sc_fil & to %in% sc_fil)
 
 
-### For combined SC graph 
-
-plotSpatialContextGraph <- function(edges, 
-                                    object,
-                                    entry = "spatial_context",
-                                    img_id = "sample_id",
-                                    combined = NULL, 
-                                    #build graph
-                                    directed = TRUE,
-                                    #nodes
-                          node_color_by = c("name","freq","n_samples"),
-                          node_size_by = c("freq","n_samples"),
-                          node_color_fix = NULL,
-                          node_size_fix = NULL,
-                          #node labels
-                          node_label_repel = TRUE,
-                          node_label_color_by = c("name","freq","n_samples"),
-                          node_label_color_fix = NULL,  
-                          #plot graph - edges
-                          draw_edges = TRUE,
-                          edge_color_fix = NULL){
-#data
-data <- colData(object)[,colnames(colData(sce)) %in% c(entry,img_id)] %>% table() %>% as.data.frame
-
-#node colors
-col <- list(name = colorRampPalette(brewer.pal(9, "Set1"))(length(sort(unique(unfactor(data[,entry]))))))
-col_node <- col[[1]]
-names(col_node) = sort(unique(unfactor(data[,entry])))
-col_node <- list(col_node)
-names(col_node) <- "name"
-
-if(combined == TRUE){ #For combined samples
-  anno <- data.frame(spatial_context = unique(data[,entry]), 
-                     length = listLen(str_split(unique(data[,entry]),"_")),
-                     freq = data %>% group_by_at(entry) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
-                     n_samples = data %>% group_by_at(entry) %>% filter(Freq != 0) %>% count() %>% pull(n)
-  )
-  
-  g <- graph_from_data_frame(edges, directed = directed,vertices = anno)
-
-#Plot using ggraph
-.generatePlot(g)
-  
-# ggraph(g, layout = "sugiyama")+
-#     cur_geom_edge+
-#     cur_geom_node+
-#     guides(color = "none")+
-#     theme_blank()
-  
-}else{ ### For multiple SC graphs
-  
-  anno <- split(data %>% select(-as.name(img_id)), f = data[,img_id])
-  
-  anno <- lapply(anno, function(x){
-    cur_anno <- x %>% filter(Freq !=0)
-    cur_anno$length <- listLen(str_split(cur_anno[,entry],"_"))
-    return(cur_anno)
-  })
-  
-  #edges
-  edges_list <- split(edges %>% select(-as.name(img_id)), f = edges[,img_id])
-  
-  #generate graph
-  g <- mapply(function(x,y){
-     g <- graph_from_data_frame(x, directed = TRUE, vertices = y)
-    #specify vertical layout using sugiyama
-    return(g)}, edges_list, anno)
-  
-  #generate plots
-  all_plots <- lapply(g, function(x){
-    p <- .generatePlot(g)
-    # p <- ggraph(x, layout = "sugiyama")+
-    # geom_edge_link()+
-    # geom_node_point(aes(color = name, size = Freq))+
-    # guides(color="none")+
-    # geom_node_label(aes(color = name,label = name), repel = TRUE)+
-    # scale_color_manual(values = col_node$name)+
-    # ggtitle(names(g))+
-    # theme_blank()
-    return(p)}
-    )
-  
-}
+plotSpatialContext(edges = edges, 
+                   object = sce, 
+                   combined = TRUE, 
+                   entry = "spatial_context",
+                   img_id = "sample_id",
+                   directed = TRUE,
+                   #node_color_by = "name",
+                   #node_size_by = "freq",
+                   node_label_repel = FALSE,
+                   #node_label_color_by = "name",
+                   #node_label_color_fix = "cornflowerblue"
+                   )
 
 
+debug(plotSpatialContext)
+undebug(plotSpatialContext)
 
 ```
 ### 3. Interaction testing
