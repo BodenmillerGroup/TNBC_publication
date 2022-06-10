@@ -76,10 +76,10 @@ if (!is.logical(combined)) {
 
 if(combined == TRUE){
   if(!ncol(edges) == 2){
-    stop("When combined is set to TRUE, ncol('edges') has to be 2.")
+    stop("When 'combined' is set to TRUE, ncol('edges') has to be 2.")
   }}else{
     if(!ncol(edges) == 3){
-      stop("When combined is set to FALSE, ncol('edges') has to be 3.")
+      stop("When 'combined' is set to FALSE, ncol('edges') has to be 3.")
     }}
 
 if (!is.logical(directed)) {
@@ -87,18 +87,18 @@ if (!is.logical(directed)) {
 }
 
 if (!is.null(node_color_by) &&
-    (!node_color_by %in% c("name","freq","n_samples"))){
-  stop("'node_color_by' has to be one off 'name','freq','n_samples'.")
+    (!node_color_by %in% c("name","Freq","n_samples"))){
+  stop("'node_color_by' has to be one off 'name','Freq','n_samples'.")
 }
 
 if (!is.null(node_size_by) &&
-    (!node_size_by %in% c("freq","n_samples"))){
-  stop("'node_size_by' has to be 'freq' or 'n_samples'.")
+    (!node_size_by %in% c("Freq","n_samples"))){
+  stop("'node_size_by' has to be 'Freq' or 'n_samples'.")
 }
 
 if (!is.null(node_label_color_by) && 
-    (!node_label_color_by %in% c("name","freq","n_samples"))){
-  stop("'node_label_color_by' has to be one off 'name','freq','n_samples'.")
+    (!node_label_color_by %in% c("name","Freq","n_samples"))){
+  stop("'node_label_color_by' has to be one off 'name','Freq','n_samples'.")
 }
 
 if (!is.logical(node_label_repel)) {
@@ -144,5 +144,9 @@ if(!is.null(node_size_by) &&
 stop("'node_size_by' and 'node_size_fix' can not be defined at the same time.")
   }      
 
+if(combined == FALSE && 
+   (node_size_by == "n_samples")){
+  stop("When 'combined' is set to FALSE, 'node_size_by' can not be defined as 'n_samples'")
+}
 }
 

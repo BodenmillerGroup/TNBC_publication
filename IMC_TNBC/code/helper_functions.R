@@ -95,14 +95,16 @@ plotSpatialContext <- function(edges,
   if(combined == TRUE){ # For combined samples
     anno <- data.frame(spatial_context = unique(data[,entry]), 
                        length = listLen(str_split(unique(data[,entry]),"_")),
-                       freq = data %>% group_by_at(entry) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
-                       n_samples = data %>% group_by_at(entry) %>% filter(Freq != 0) %>% count() %>% pull(n)
+                       Freq = data %>% group_by_at(entry) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
+                       n_samples = data %>% group_by_at(entry) %>% filter(Freq != 0) %>% count() %>% pull(n) %>% as.character()
     )
     
     g <- graph_from_data_frame(edges, directed = directed,vertices = anno)
     
     #Plot using ggraph
-    .generatePlot(graph = g, node_color_by, node_size_by, node_color_fix, node_size_fix, node_label_repel, node_label_color_by, node_label_color_fix, draw_edges, edge_color_fix) #hidden function
+    p <- .generatePlot(graph = g, node_color_by, node_size_by, node_color_fix, node_size_fix, node_label_repel, node_label_color_by, node_label_color_fix, draw_edges, edge_color_fix) #hidden function
+    
+    return(p)
     
   }else{ # For multiple SC graphs
     anno <- split(data %>% select(-as.name(img_id)), f = data[,img_id])

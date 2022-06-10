@@ -176,7 +176,6 @@ To this end, we will define spatial contexts for each cell by the frequency of c
 ```{r neighborhood-1, message=FALSE, warning=FALSE}
 library(imcRtools)
 library(bluster)
-library(doMC)
 
 #Subset sce object to 1 image for trial code
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
@@ -313,7 +312,7 @@ source("../code/validity_checks.R")
 edges <- buildEdgeList(sce, 
                          entry = "spatial_context",
                          img_id = "sample_id",
-                         combined = TRUE)
+                         combined = FALSE)
 
 ```
 
@@ -334,20 +333,18 @@ edges <- edges %>% filter(from %in% sc_fil & to %in% sc_fil)
 
 plotSpatialContext(edges = edges, 
                    object = sce, 
-                   combined = TRUE, 
+                   combined = FALSE, 
                    entry = "spatial_context",
                    img_id = "sample_id",
                    directed = TRUE,
-                   #node_color_by = "name",
-                   #node_size_by = "freq",
-                   node_label_repel = FALSE,
-                   #node_label_color_by = "name",
-                   #node_label_color_fix = "cornflowerblue"
+                   node_color_by = "name",
+                   node_size_by = "n_samples",
+                   node_label_repel = TRUE,
+                   node_label_color_by = "name",
                    )
 
-
-debug(plotSpatialContext)
-undebug(plotSpatialContext)
+#debug(plotSpatialContext)
+#undebug(plotSpatialContext)
 
 ```
 ### 3. Interaction testing
