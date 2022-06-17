@@ -11,6 +11,55 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(scuttle)
+library(scater)
+library(scran)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(circlize)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(parallel)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(Rphenograph)
+library(igraph)
+library(RColorBrewer)
+library(foreach)
+library(clValid)
+library(bluster)
+library(psych)
+library(corrplot)
+library(psych)
+
+#Batch correction
+library(batchelor)
+```
+
 Here, we will attend to perform analysis akin to what has been proposed as **Tissue schematics (TS)** by Bhate et al., Cell Systems, 2022.
 
 ### 1. Cellular neighborhoods 
@@ -181,13 +230,12 @@ library(bluster)
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
 #cur_sam = c("ZTMA249.2_ZTMA249_ID_317_CX5Y10_159",)
 set.seed(22)
-cur_sam <- sample(unique(sce$sample_id),5)
+cur_sam <- sample(unique(sce$sample_id),10)
 sce <- sce[,sce$sample_id %in% cur_sam]
 sce
 
 ## 1. Build 50-nearest neighbor graph (max dist?)
-sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "knn", k = 50, 
-                         #max_dist = 30,
+sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "knn", k = 50, max_dist = 30,
                              coords = c("Pos_X",  "Pos_Y"), 
                          name = "knn_spatialcontext_graph",
                          BPPARAM = MulticoreParam(progressbar = TRUE))
@@ -200,15 +248,15 @@ sce <- aggregateNeighbors(sce, colPairName = "knn_spatialcontext_graph",
 
 ## 2. Find spatial contexts using minimal combination approach
 
-#Use self-build function
-source("../code/helper_functions.R")
-source("../code/validity_checks.R")
-
 sce <- detectSpatialContext(sce, 
                             threshold = 0.9, 
                             entry = "aggregatedNeighbors",
                             name = "spatial_context"
 )
+
+##3. Create edgelist 
+
+
 
 #TO DO:
 #find filter criteria for abundant spatial contexts (TODO)
@@ -305,15 +353,13 @@ ggplot(SID_SC) +
 ##1. Create edgelist for spatial contexts based on either all samples or for each sample separately
 ## Use self-build function
 
-source("../code/helper_functions.R")
-source("../code/hidden_functions.R")
-source("../code/validity_checks.R")
-
-edges <- buildEdgeList(sce, 
+edges <- buildSpatialContextEdgeList(sce, 
                          entry = "spatial_context",
                          img_id = "sample_id",
-                         combined = FALSE)
+                         combined = TRUE)
 
+#debug(buildSpatialContextEdgeList)
+#undebug(buildSpatialContextEdgeList)
 ```
 
 
@@ -333,14 +379,14 @@ edges <- edges %>% filter(from %in% sc_fil & to %in% sc_fil)
 
 plotSpatialContext(edges = edges, 
                    object = sce, 
-                   combined = FALSE, 
+                   combined = TRUE, 
                    entry = "spatial_context",
                    img_id = "sample_id",
                    directed = TRUE,
                    node_color_by = "name",
                    node_size_by = "n_samples",
                    node_label_repel = TRUE,
-                   node_label_color_by = "name",
+                   node_label_color_by = "name"
                    )
 
 #debug(plotSpatialContext)

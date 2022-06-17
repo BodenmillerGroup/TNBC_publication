@@ -38,7 +38,6 @@
   }
 }
 
-#1.3 plotSpatialContextGraph
 .valid.plotSpatialContext.input <- function(edges, 
                                             object,
                                             entry,
