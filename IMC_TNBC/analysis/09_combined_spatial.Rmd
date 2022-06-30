@@ -226,42 +226,67 @@ To this end, we will define spatial contexts for each cell by the frequency of c
 library(imcRtools)
 library(bluster)
 
-#Subset sce object to 1 image for trial code
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
-#cur_sam = c("ZTMA249.2_ZTMA249_ID_317_CX5Y10_159",)
+
+#Subset sce
 set.seed(22)
-cur_sam <- sample(unique(sce$sample_id),10)
+cur_sam <- sample(unique(sce$sample_id),50)
 sce <- sce[,sce$sample_id %in% cur_sam]
 sce
 
 ## 1. Build 50-nearest neighbor graph (max dist?)
-sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "knn", k = 50, max_dist = 30,
-                             coords = c("Pos_X",  "Pos_Y"), 
+sce <- buildSpatialGraph(sce, 
+                         img_id = "sample_id", 
+                         type = "knn", 
+                         k = 50, 
+                         max_dist = 30,
+                         coords = c("Pos_X",  "Pos_Y"), 
                          name = "knn_spatialcontext_graph",
                          BPPARAM = MulticoreParam(progressbar = TRUE))
 
-colPairNames(sce) #now includes knn_spatialcontext_graph
+## 2. Aggregate across neighbors
+sce <- aggregateNeighbors(sce, 
+                          colPairName = "knn_spatialcontext_graph", 
+                          aggregate_by = "metadata", 
+                          count_by = "cellular_neighborhood")
 
-# Aggregate across neighbors
-sce <- aggregateNeighbors(sce, colPairName = "knn_spatialcontext_graph", 
-                              aggregate_by = "metadata", count_by = "cellular_neighborhood")
-
-## 2. Find spatial contexts using minimal combination approach
-
+## 3. Find spatial contexts using minimal combination approach
 sce <- detectSpatialContext(sce, 
                             threshold = 0.9, 
                             entry = "aggregatedNeighbors",
-                            name = "spatial_context"
-)
+                            name = "spatial_context")
 
-##3. Create edgelist 
+#Filter abundant spatial context
+data <- colData(sce) %>% as.data.frame %>% select(spatial_context, sample_id) %>% table() %>% as.data.frame
+anno <- data.frame(spatial_context = data %>% group_by(spatial_context) %>% summarise(sum = sum(Freq)) %>% pull(spatial_context), 
+                   Freq = data %>% group_by(spatial_context) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
+                   n_samples = data %>% group_by(spatial_context) %>% filter(Freq != 0) %>% count() %>% pull(n))
 
+sc_select <- anno %>% filter(Freq > 200 & n_samples > 5) %>% pull(spatial_context) %>% unfactor()       
 
+cur_sce <- sce[,sce$spatial_context %in% sc_select]
 
-#TO DO:
-#find filter criteria for abundant spatial contexts (TODO)
-#also filter TMA cores that have too few cells for spatial context assignment
-#max_dist for spatial graph? 
+## 4. Build edgelist for plotting
+edges <- buildSpatialContextEdgeList(cur_sce, 
+                            entry = "spatial_context", 
+                            img_id = "sample_id", 
+                            combined = TRUE)
+
+## 5. Plot spatial context graphs
+plotSpatialContext(edges = edges,
+                   object = cur_sce, 
+                   entry = "spatial_context",
+                   img_id = "sample_id",
+                   combined = TRUE,
+                   directed = TRUE,
+                   node_color_by = "name",
+                   node_size_by = "Freq",
+                   node_label_color_by = "name"
+                   )
+
+#debug(buildSpatialContextEdgeList)
+#undebug(buildSpatialContextEdgeList)
+
 
 ##Save sce 
 #saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
@@ -271,11 +296,11 @@ sce <- detectSpatialContext(sce,
 # Visualize spatial contexts on example images 
 
 ```{r neighborhood-2}
-# set.seed(22)
-# cur_sam <- sample(unique(sce$sample_id), 5)
+cur_sce <- sce[, sce$sample_id == "ZTMA249.1_ZTMA249_ID_305_CX1Y9_68"]
+cur_sce
 
 #by cell types (clusters)
-p1 <- plotSpatial(sce, 
+p1 <- plotSpatial(cur_sce, 
             img_id = "sample_id",
             coords = c("Pos_X", "Pos_Y"),
             node_color_by = "cluster_combined",
@@ -287,8 +312,10 @@ p1 <- plotSpatial(sce,
             directed = FALSE)+
   theme_classic()
 
+p1
+
 #by cellular neighborhoods
-p2 <- plotSpatial(sce, 
+p2 <- plotSpatial(cur_sce, 
             img_id = "sample_id",
             coords = c("Pos_X", "Pos_Y"),
             node_color_by = "cellular_neighborhood",
@@ -301,7 +328,7 @@ p2 <- plotSpatial(sce,
   theme_classic()
 
 #by spatial contexts
-p3 <- plotSpatial(sce, 
+p3 <- plotSpatial(cur_sce, 
             img_id = "sample_id",
             coords = c("Pos_X", "Pos_Y"),
             node_color_by = "spatial_context",
