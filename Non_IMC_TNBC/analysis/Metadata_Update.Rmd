@@ -23,22 +23,39 @@ library(knitr)
 ### TMA174
 
 #General metadata
-Meta_174 <- as.data.frame(read_excel("/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA174_TNBC_LM.xlsx",col_names = T, na="NA",col_types = "text")) %>% mutate(tumor_size_cm = as.numeric(tumor_size_cm)) %>% mutate_if(is.numeric,round,digits=2) %>% filter(!is.na(PID))
+Meta_174 <- as.data.frame(read_excel("/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA174_TNBC_LM_new.xlsx",col_names = T, na="NA",col_types = "text")) 
+
+#change columns to numeric
+Meta_174 <- Meta_174 %>% mutate(tumor_size_cm = as.numeric(tumor_size_cm)) %>% mutate_if(is.numeric,round,digits=2) %>% filter(!is.na(PID))
 
 #Load filenames for IMC data and check overlap with metadata
-file_path = "/Volumes/rcc_volume/TNBC/img/"
+TNBC_raw <- list.files("/Volumes/rcc_volume/TNBC/raw/")
 
-TNBC_files <- list.files(file_path)
-TNBC_files_174 <- TNBC_files[str_detect(TNBC_files,pattern = "ZTMA174")]
+TNBC_files_174 <- TNBC_raw[str_detect(TNBC_raw,pattern = "_ZTMA174_")]
 
-#Filter PID for which metadata or samples are missing
+## 1. Filter PID for which metadata is missing (should be HER2 cases)
 PID_174 <- str_split(TNBC_files_174,"_",simplify = TRUE)[,3] %>% unique()
-PID_174_missing <- PID_174[!PID_174 %in% Meta_174$PID] #Patients for which we have samples but no metadata (n=22)
 
-write_csv(as.data.frame(PID_174_missing),"/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA174.2_Bnummermissing.csv")
+PID_174_missing <- PID_174[!PID_174 %in% Meta_174$PID] #Patients for which we have samples but no metadata (should be HER2 positive; n=22)
+
+#write_csv(as.data.frame(PID_174_missing),"/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA174_BnummerHER2.csv")
+
+#move HER2 cases to `exclude` folder
+PID_174_missing_files <- TNBC_files_174[str_split(TNBC_files_174,"_",simplify = TRUE)[,3] %in% PID_174_missing]
+
+file.copy(from = paste0("/Volumes/rcc_volume/TNBC/raw/",PID_174_missing_files),
+          to = "/Volumes/rcc_volume/TNBC/excluded/")
+
+file.remove(from = paste0("/Volumes/rcc_volume/TNBC/raw/",PID_174_missing_files))
 
 
-PID_174_missing_2 <- Meta_174[!Meta_174$PID %in% PID_174,] %>% pull(PID) #Patients for which we have metadata but no samples (n=4)
+## 2. Filter PID for which metadata is there but not samples (should be HER2 cases)
+PID_174_missing_2 <- Meta_174[!Meta_174$PID %in% PID_174,] %>% pull(PID) #Patients for which we have metadata but no samples (n=2)
+
+PID_174_missing_2
+
+#Remove from file
+Meta_174 <- Meta_174 %>% filter(!PID %in% PID_174_missing_2)
 
 ##double-check that entries are distinct (which is TRUE)
 dup <- Meta_174 %>% 
@@ -65,10 +82,20 @@ Meta_174 <- Meta_174 %>% mutate(age_bin = ifelse(age <= 40, "27-40",
                                                  ifelse(70<age & age<=85, "71-85",
                                                         ifelse(85<age & age<=90, "85-88",NA))))))
 
+#Simplified grade and TNM staging
+Meta_174$grade <- str_extract(Meta_174$grade,"[0-3]")
+Meta_174$pT_simple <- str_extract(Meta_174$pT,"[0-4]")
+Meta_174$pN_simple <- str_extract(Meta_174$pN,"[0-4]")
+Meta_174$pM_simple <- str_extract(Meta_174$pM,"[0-1]")
+
 #Survival data availability
 Meta_174 <- Meta_174 %>% mutate(OS_data = ifelse(!is.na(Meta_174$status_OS),TRUE,FALSE)) %>% mutate(DFS_data = ifelse(!is.na(Meta_174$status_recurrence),TRUE,FALSE))
 ```
 
+```{r save processed meta174}
+## Save processed metadata
+write_excel_csv(Meta_174,"~/Desktop/TNBC/Metadaten/ZTMA174_TNBC_LM_processed.csv")
+```
 
 ### Print heatmap based overview
 based on the [ComplexHeatmap](https://bioconductor.org/packages/release/bioc/html/ComplexHeatmap.html) package and the implemented `HeatmapAnnotation` function  
@@ -80,37 +107,37 @@ library(ggsci)
 library(RColorBrewer)
 
 #Filter for columns to visualize
-Meta_viz <- Meta_174 %>% filter(!is.na(Meta_174$n_samples)) %>% select(PID,n_samples,age_bin,tumor_type,tumor_size_cm,grade,pT,pN,metastasis,OS_data, DFS_data,ER,PR,Her2)
+Meta_viz <- Meta_174 %>% select(PID,n_samples,age_bin,tumor_size_cm,grade,pT_simple,pN_simple,pM_simple,ER,PR,Her2,OS_data, DFS_data)
 
 #Convert empty columns and NAs for easier handling with ComplexHeatmap package
 Meta_viz[is.na(Meta_viz)] <- "Unknown"
 
-Meta_viz <- Meta_viz %>% arrange(tumor_type,age_bin)
+Meta_viz <- Meta_viz %>% arrange(desc(pT_simple),desc(pN_simple))
 
-#Color scheme
-#colnames(Meta_viz)
-col <- list(PID = colorRampPalette(brewer.pal(9, "Set1"))(length(unique(Meta_viz$PID))),
-           n_samples = colorRampPalette(brewer.pal(9, "Pastel1"))(length(unique(Meta_viz$n_samples))),
-           age_bin = colorRampPalette(brewer.pal(9, "Greens"))(length(unique(Meta_viz$age_bin))),
-           grade = colorRampPalette(brewer.pal(2, "Reds"))(length(unique(Meta_viz$grade))),
-           pT = colorRampPalette(brewer.pal(9, "Blues"))(length(unique(Meta_viz$pT))),
-           pN = colorRampPalette(brewer.pal(9, "Blues"))(length(unique(Meta_viz$pN))),
-           metastasis = c(colorRampPalette(brewer.pal(9, "Blues"))(length(unique(Meta_viz$metastasis))-1),"black"),
-           ER = "#377EB8",
-           PR = c("#377EB8","#E41A1C"),
-           Her2 = "#E41A1C",
-           OS_data = c("black","grey"),
-           DFS_data = c("black","grey"),
-           tumor_type = colorRampPalette(brewer.pal(9, "Paired"))(length(unique(Meta_viz$tumor_type)))
+## Set Color scheme (also for downstream analysis)
+color_vectors <- list(
+PID = setNames(colorRampPalette(brewer.pal(11, "BrBG"))(length(unique(Meta_viz$PID))), 
+                sort(unique(Meta_viz$PID))),
+n_samples = setNames(colorRampPalette(brewer.pal(2, "Greens"))(length(unique(Meta_viz$n_samples))), 
+                sort(unique(Meta_viz$n_samples))),
+age_bin = setNames(colorRampPalette(brewer.pal(9, "Greens"))(length(unique(Meta_viz$age_bin))), 
+                sort(unique(Meta_viz$age_bin))),
+grade = setNames(colorRampPalette(brewer.pal(3, "Oranges"))(length(unique(Meta_viz$grade))), 
+                sort(unique(Meta_viz$grade))),
+pT_simple = setNames(colorRampPalette(brewer.pal(9, "Blues"))(length(unique(Meta_viz$pT_simple))), 
+                sort(unique(Meta_viz$pT_simple))),
+pN_simple = setNames(c(colorRampPalette(brewer.pal(9, "Purples"))(length(unique(Meta_viz$pN_simple))-1),"black"), 
+                sort(unique(Meta_viz$pN_simple))),
+pM_simple = setNames(c(colorRampPalette(brewer.pal(9, "RdPu"))(length(unique(Meta_viz$pM_simple))-1),"black"), 
+                sort(unique(Meta_viz$pM_simple))),
+ER = setNames("#A6CEE3",sort(unique(Meta_viz$ER))),
+PR = setNames(c("#A6CEE3", "#1F78B4"),sort(unique(Meta_viz$PR))),
+Her2 = setNames("#A6CEE3",sort(unique(Meta_viz$Her2))),
+OS_data = setNames(c("black","grey"),sort(unique(Meta_viz$OS_data))),
+DFS_data = setNames(c("black","grey"),sort(unique(Meta_viz$DFS_data)))
 )
 
-col_list_1 <- foreach(i=1:13) %do% {
-  color= col[[i]]
-  names(color)= sort(unique(Meta_viz[,names(col)[i]]))
-  color
-}
-names(col_list_1) <- c(names(col))
-
+brewer.pal(2,"Paired")
 #Save color list object for downstream usage
 #saveRDS(col_list_1,file="/Users/lasmey/Desktop/RCC/Metadaten/color.rds")
 
@@ -118,31 +145,27 @@ names(col_list_1) <- c(names(col))
 sample_anno <- HeatmapAnnotation(PID = Meta_viz$PID,
                                  n_samples = Meta_viz$n_samples,
                                  age_bin = Meta_viz$age_bin,
-                                 tumor_type = Meta_viz$tumor_type,
-                                tumor_size_cm = Meta_viz$tumor_size_cm,
-                                grade = Meta_viz$grade,
-                                pT = Meta_viz$pT,
-                                pN = Meta_viz$pN,
-                                metastasis = Meta_viz$metastasis,
-                                OS_data = Meta_viz$OS_data,
-                                DFS_data = Meta_viz$DFS_data,
+                                 tumor_size_cm = Meta_viz$tumor_size_cm,
+                                 grade = Meta_viz$grade,
+                                 pT_simple = Meta_viz$pT_simple,
+                                pN_simple = Meta_viz$pN_simple,
+                                pM_simple = Meta_viz$pM_simple,
                                 ER = Meta_viz$ER,
                                 PR = Meta_viz$PR,
                                 Her2 = Meta_viz$Her2,
-                                col = col_list_1,
+                                OS_data = Meta_viz$OS_data,
+                                DFS_data = Meta_viz$DFS_data,
+                                col = color_vectors,
                                 border = T,
                                 na_col = "black",
                                 gap = unit(5, "points"),
                                 show_annotation_name = T,
-                                show_legend = c(PID = FALSE),
-                                name = "ZTMA174"
-                                #annotation_label = c("PID (n=367)","Gender","Subtype","pT","pN")
+                                show_legend = c(PID = FALSE)
 )%v%NULL
 
 #Display plot
 draw(sample_anno)
 ```
-
 
 # 2. ZTMA249
 
@@ -156,15 +179,19 @@ library(knitr)
 ### TMA249
 
 #General metadata
-Meta_249 <- as.data.frame(read_excel("/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA249_TNBC_LM.xlsx",col_names = T, na="NA")) 
+Meta_249 <- as.data.frame(read_excel("/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA249_TNBC_LM_new.xlsx",col_names = T, na="NA")) 
 
 ##Load filenames for IMC data and check overlap with metadata
-TNBC_files_249 <- TNBC_files[str_detect(TNBC_files,pattern = "ZTMA249")]
+TNBC_raw <- list.files("/Volumes/rcc_volume/TNBC/raw/")
+TNBC_files_249 <- TNBC_raw[str_detect(TNBC_raw,pattern = "_ZTMA249_")]
 
 #link spot_numbers with ID in filesnames
 ID_numbers <- sort(as.numeric(str_split(TNBC_files_249,"_",simplify = TRUE)[,4]))
+
 #detect breaks
 diff(ID_numbers)
+
+### Continue here tomorrow !
 
 #Filter PID for which metadata or samples are missing
 ID_meta <- Meta_249$ID_Number %>% unique()
