@@ -224,13 +224,14 @@ To this end, we will define spatial contexts for each cell by the frequency of c
 
 ```{r neighborhood-1, message=FALSE, warning=FALSE}
 library(imcRtools)
-library(bluster)
 
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
+int_metadata(sce) <- list(version = "1.16.0")
 
+sce
 #Subset sce
-set.seed(22)
-cur_sam <- sample(unique(sce$sample_id),50)
+set.seed(1995)
+cur_sam <- sample(unique(sce$sample_id),10)
 sce <- sce[,sce$sample_id %in% cur_sam]
 sce
 
@@ -239,10 +240,11 @@ sce <- buildSpatialGraph(sce,
                          img_id = "sample_id", 
                          type = "knn", 
                          k = 50, 
-                         max_dist = 30,
+                         #max_dist = 30,
                          coords = c("Pos_X",  "Pos_Y"), 
                          name = "knn_spatialcontext_graph",
-                         BPPARAM = MulticoreParam(progressbar = TRUE))
+                         BPPARAM = MulticoreParam())
+
 
 ## 2. Aggregate across neighbors
 sce <- aggregateNeighbors(sce, 
@@ -251,42 +253,41 @@ sce <- aggregateNeighbors(sce,
                           count_by = "cellular_neighborhood")
 
 ## 3. Find spatial contexts using minimal combination approach
+
+system.time(
 sce <- detectSpatialContext(sce, 
                             threshold = 0.9, 
                             entry = "aggregatedNeighbors",
                             name = "spatial_context")
+)
 
-#Filter abundant spatial context
-data <- colData(sce) %>% as.data.frame %>% select(spatial_context, sample_id) %>% table() %>% as.data.frame
-anno <- data.frame(spatial_context = data %>% group_by(spatial_context) %>% summarise(sum = sum(Freq)) %>% pull(spatial_context), 
-                   Freq = data %>% group_by(spatial_context) %>% summarise(sum = sum(Freq)) %>% pull(sum), 
-                   n_samples = data %>% group_by(spatial_context) %>% filter(Freq != 0) %>% count() %>% pull(n))
+library(data.table)
+system.time(
+sce <- detectSpatialContext_DT(sce, 
+                            threshold = 0.9, 
+                            entry = "aggregatedNeighbors",
+                            name = "spatial_context")
+)
 
-sc_select <- anno %>% filter(Freq > 200 & n_samples > 5) %>% pull(spatial_context) %>% unfactor()       
-
-cur_sce <- sce[,sce$spatial_context %in% sc_select]
-
-## 4. Build edgelist for plotting
-edges <- buildSpatialContextEdgeList(cur_sce, 
-                            entry = "spatial_context", 
-                            img_id = "sample_id", 
-                            combined = TRUE)
+## 4. Filter spatial contexts
+sce <- filterSpatialContext(object = sce, 
+                     entry = "spatial_context", 
+                     sample_id = "sample_id",
+                     n_cells_threshold = 100,
+                     n_samples_threshold = 20,
+                     name = "spatial_context_filtered")
 
 ## 5. Plot spatial context graphs
-plotSpatialContext(edges = edges,
-                   object = cur_sce, 
-                   entry = "spatial_context",
-                   img_id = "sample_id",
-                   combined = TRUE,
-                   directed = TRUE,
+plotSpatialContext(object = sce, 
+                   entry = "spatial_context_filtered",
+                   sample_id = "sample_id",
                    node_color_by = "name",
-                   node_size_by = "Freq",
-                   node_label_color_by = "name"
+                   node_size_by = "n_samples",
+                   node_label_repel = TRUE,
+                   node_label_color_by = "name",
+                   draw_edges = TRUE,
+                   return_data = FALSE
                    )
-
-#debug(buildSpatialContextEdgeList)
-#undebug(buildSpatialContextEdgeList)
-
 
 ##Save sce 
 #saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
