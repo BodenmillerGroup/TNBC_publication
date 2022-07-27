@@ -3,7 +3,7 @@ title: "05_SingleCell_InitialClustering"
 output: html_document
 date: '2022-03-30'
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -14,7 +14,6 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r lib, message=FALSE,warning=FALSE}
 #Data containers
-library(SpatialExperiment)
 library(SingleCellExperiment)
 
 #Data processing
@@ -59,27 +58,11 @@ library(batchelor)
 
 Here, we will perform the first single cell analysis steps, including distinguishing tumor and stromal cells and dimensionality reduction.
 
-## Read in data and filter for ZTMA249
-First, we will read in the `SingleCellExperiment` object containing the cleaned, spillover- and (batch-corrected) single-cell data. 
-**Important:** For now, We will filter the object for ZTMA249 samples, since we are sure that those are TNBC. 
+## Read in data 
+First, we will read in the `SingleCellExperiment` object containing the cleaned, spillover- and quality-controlled single-cell data. 
 
 ```{r read-data-batch-correction, message=FALSE}
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_QC.rds")
-
-#Filter sce for ZTMA249 (n=654357)
-summary(str_detect(colData(sce)$sample_id,"ZTMA249"))
-sce <- sce[,str_detect(colData(sce)$sample_id,"ZTMA249")]
-```
-
-## Add metadata for ZTMA249 
-
-```{r metadata, message =FALSE}
-#Add PID to sce object
-sample_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed.csv")
-sce$ID <- str_split(sce$sample_id,"_",simplify = TRUE)[,4]
-
-#Add PID and lehmann_subtype
-sce$PID <- sample_meta$PID[match(sce$ID,sample_meta$ID_Number)]
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/03_sce_TNBC_QC.rds")
 ```
 
 ## Perform "overclustering"
@@ -93,11 +76,14 @@ snn.sce <- buildSNNGraph(sce[rowData(sce)$use_channel==TRUE,], k=30,
                          type = "jaccard",
                          assay.type = "exprs",
                          BNPARAM=AnnoyParam(),
-                         BPPARAM = MulticoreParam(workers = (detectCores()-2), progressbar = TRUE)
+                         BPPARAM = MulticoreParam()
                          )
 
 clusters <- igraph::cluster_louvain(snn.sce) #Memory issues with this function!
 sce$cluster <- as.factor(clusters$membership)
+
+#Save sce after clustering 
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 ```
 
 ## Use GMM for panCK
@@ -105,11 +91,7 @@ sce$cluster <- as.factor(clusters$membership)
 We will use a two component gaussian mixture model to distinguish between tumor (panCK+) and stromal (panCK-) cells. 
 
 ```{r GMM_CK, message=FALSE,warning=FALSE}
-set.seed(22)
-
 ## Gaussian mixture model to distinguish tumor/stroma based on panCK expression
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
-
 GMM_CK <- Mclust(assay(sce, "exprs")["panCK",], G = 2)
 
 GMM_df <- data.frame(class_CK = ifelse(GMM_CK$classification == 2 & GMM_CK$uncertainty == 0, "panCK+", "panCK-"), 
@@ -148,11 +130,13 @@ GMM_plot_unc <- ggplot(GMM_df_1, aes(x = Ecad_exprs, y = uncertainty, color = cl
   theme(axis.title.x = element_blank())+
   scale_color_brewer(palette = "Set1")
 
+GMM_plot_unc
+
 #Add GMM CK class to SCE
 sce$GMM_Ecad <- GMM_df_1$class_Ecad
 
 #Save sce after clustering and GMM
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 ```
 
 ## Check correlation of panCK and Ecad as epithelial cell markers

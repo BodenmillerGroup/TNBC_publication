@@ -185,7 +185,7 @@ isotope_list <- CATALYST::isotope_list
 isotope_list$Ar <- 80
 
 #Load Janas spillover matrix for the same panel (aquired at similiar time-points and the same panel)
-sm_jana <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/spillover_matrix_Jana.csv",row.names = 1)
+sm_jana <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/spillover_matrix_Jana.csv",row.names = 1)
 metadata(sce_spill_2)$sm_jana <- sm_jana
 
 #Plot both spillover matrices
@@ -213,10 +213,10 @@ Next, we will write out the spillover matrix as .csv file for possible later use
 
 ```{r write_sm_csv}
 sm
-write.csv(sm, "/mnt/rcc_volume/TNBC/data_analysis/spillover_matrix_LM_mod.csv")
+write.csv(sm, "/mnt/rcc_volume/TNBC/data_analysis/03_data/spillover_matrix_LM_mod.csv")
 
 sm_jana
-write.csv(sm, "/mnt/rcc_volume/TNBC/data_analysis/spillover_matrix_Jana_mod.csv")
+write.csv(sm, "/mnt/rcc_volume/TNBC/data_analysis/03_data/spillover_matrix_Jana_mod.csv")
 ```
 
 
@@ -227,7 +227,7 @@ Firstly, we will use the `CATALYST` package to perform spillover compensation on
 Load `SpatialExperiment` object generated in previous script.
 
 ```{r single-cell-compensation}
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/01_sce_TNBC.rds")
 
 rowData(sce)$channel_name <- paste0(rowData(sce)$channel, "Di")
 
@@ -304,7 +304,7 @@ assay(sce, "compcounts") <- assay(sce, "compexprs") <- NULL
 ## Image compensation
 
 Secondly, we will use the [cytomapper](https://github.com/BodenmillerGroup/cytomapper) package to perform spillover compensation on the
-****multi-channel images**** using the `compImage`function.
+**multi-channel images** using the `compImage`function.
 Load `CytoImageList` object generated in previous script.
 
 ```{r read-in-image, message=FALSE}
@@ -342,6 +342,6 @@ For further downstream analysis, the compensated `SpatialExperiment` and
 `CytoImageList` objects are saved:
 
 ```{r save, message = F}
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_spillcor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/02_sce_TNBC_spillcor.rds")
 saveRDS(images_comp, "/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
 ```
