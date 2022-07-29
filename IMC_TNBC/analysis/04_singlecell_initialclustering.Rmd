@@ -1,5 +1,5 @@
 ---
-title: "05_SingleCell_InitialClustering"
+title: "04_SingleCell_InitialClustering"
 output: html_document
 date: '2022-03-30'
 editor_options: 
@@ -20,6 +20,7 @@ library(SingleCellExperiment)
 library(scuttle)
 library(scater)
 library(scran)
+library(bluster)
 library(imcRtools)
 
 #Data visualization
@@ -28,6 +29,7 @@ library(dittoSeq)
 library(pheatmap)
 library(cowplot)
 library(ComplexHeatmap)
+library(circlize)
 
 #Utilities
 library(tidyverse)
@@ -71,16 +73,27 @@ Next, we will run a granular Rphenograph (Jaccard-based weights, Louvain cluster
 
 ```{r overcluster, message=FALSE}
 set.seed(22)
-snn.sce <- buildSNNGraph(sce[rowData(sce)$use_channel==TRUE,], k=30, 
-                         d = NA, 
-                         type = "jaccard",
-                         assay.type = "exprs",
-                         BNPARAM=AnnoyParam(),
-                         BPPARAM = MulticoreParam()
-                         )
+# snn.sce <- buildSNNGraph(sce[rowData(sce)$use_channel==TRUE,], k=30, 
+#                          d = NA, 
+#                          type = "jaccard",
+#                          assay.type = "exprs",
+#                          BNPARAM=AnnoyParam(),
+#                          BPPARAM = MulticoreParam()
+#                          )
+# 
+# clusters <- igraph::cluster_louvain(snn.sce) #Memory issues with this function!
+# sce$cluster <- as.factor(clusters$membership)
 
-clusters <- igraph::cluster_louvain(snn.sce) #Memory issues with this function!
-sce$cluster <- as.factor(clusters$membership)
+clust <- clusterCells(sce[rowData(sce)$use_channel==TRUE,],
+                        assay.type = "exprs",
+                        full = TRUE,
+                        BLUSPARAM = NNGraphParam(k=30,
+                                                 cluster.fun ="louvain",
+                                                 type="jaccard",
+                                                 BPPARAM= MulticoreParam(workers = 20),
+                                                 BNPARAM = AnnoyParam()))
+
+sce$cluster <- clust$clusters
 
 #Save sce after clustering 
 saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
@@ -136,7 +149,7 @@ GMM_plot_unc
 sce$GMM_Ecad <- GMM_df_1$class_Ecad
 
 #Save sce after clustering and GMM
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 ```
 
 ## Check correlation of panCK and Ecad as epithelial cell markers
@@ -191,7 +204,7 @@ Heatmap of clusters with GMM and ASTIR information
 
 ```{r heatmap, message=FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
 
 ### 1. Marker Heatmap 
 
@@ -246,10 +259,10 @@ nr_tum <- colData(sce) %>% as.data.frame %>% select(cluster, GMM_CK) %>% table()
 fr_tum <- as.data.frame(nr_tum) %>% pivot_wider(names_from = GMM_CK, values_from = Freq) %>% column_to_rownames("cluster")
 fr_tum <- fr_tum %>% transmute(fr_tum = `panCK+`/rowSums(fr_tum)) %>% as.data.frame()
 
-#Astir
-nr_tum_2 <- colData(sce) %>% as.data.frame %>% select(cluster, astir_type) %>% table()
-fr_tum_2 <- as.data.frame(nr_tum_2) %>% pivot_wider(names_from = astir_type, values_from = Freq) %>% column_to_rownames("cluster")
-fr_tum_2 <- fr_tum_2 %>% transmute(fr_tum = `Epithelial`/rowSums(fr_tum_2)) %>% as.data.frame()
+# #Astir
+# nr_tum_2 <- colData(sce) %>% as.data.frame %>% select(cluster, astir_type) %>% table()
+# fr_tum_2 <- as.data.frame(nr_tum_2) %>% pivot_wider(names_from = astir_type, values_from = Freq) %>% column_to_rownames("cluster")
+# fr_tum_2 <- fr_tum_2 %>% transmute(fr_tum = `Epithelial`/rowSums(fr_tum_2)) %>% as.data.frame()
 
 #GMM - Ecad
 nr_tum_3 <- colData(sce) %>% as.data.frame %>% select(cluster, GMM_Ecad) %>% table()
@@ -285,7 +298,7 @@ h <- Heatmap(t(assay(mean_sce, "min_max")),
         clustering_method_columns = "ward.D2")+
   ha_spatial+
   rowAnnotation(panCK_GMM = anno_barplot(fr_tum, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),annotation_name_rot = 90)+
-  rowAnnotation(panCK_Astir = anno_barplot(fr_tum_2, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),annotation_name_rot = 90)+
+  #rowAnnotation(panCK_Astir = anno_barplot(fr_tum_2, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),annotation_name_rot = 90)+
   rowAnnotation(Ecad_GMM = anno_barplot(fr_tum_3, width = unit(10, "mm"),gp = gpar(fill = "#33A02C", col = 1)),annotation_name_rot = 90)+
   rowAnnotation(Number_Cells = anno_barplot(nr_tum, width = unit(10, "mm"),gp = gpar(fill = c("#E41A1C","#377EB8"), col = 1)),annotation_name_rot = 90)+
   rowAnnotation(cluster = anno_tumor$cluster,
@@ -296,7 +309,7 @@ h <- Heatmap(t(assay(mean_sce, "min_max")),
 draw(h)
 
 ### Add cluster_categories to sce
-sce$cluster_category <- anno_tumor$cluster_category[match(sce$cluster,anno_tumor$cluster)]
+#sce$cluster_category <- anno_tumor$cluster_category[match(sce$cluster,anno_tumor$cluster)]
 
 #Save sce
 #saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
