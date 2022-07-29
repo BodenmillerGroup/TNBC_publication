@@ -336,6 +336,7 @@ For convenience, we will re-set the `channelNames` to their biological targtes:
 ```{r re-set-channels}
 channelNames(images_comp) <- rownames(sce)
 ```
+
 ## Save objects
 
 For further downstream analysis, the compensated `SpatialExperiment` and

@@ -114,12 +114,7 @@ First, we will exclude patients from ZTMA174 that are HER2-positive cases or hav
 library(scuttle)
 library(mclust)
 
-sce$HER2_case <- sce$HER2
-sce$HER2 <- NULL
-
-## Aim: Double-check HER2 expression on tumor cells for TMA174 
-
-cur_sce <- sce[,sce$TMANr %in% c("TMA174","TMA174_249",NA)]
+cur_sce <- sce
 
 # GMM for panCK (tumor cells)
 GMM_CK <- Mclust(assay(cur_sce, "exprs")["panCK",], G = 2)
@@ -134,36 +129,6 @@ image_mean <- aggregateAcrossCells(cur_sce,
                                    use.assay.type = "counts")
 
 dat <- dittoBoxPlot(image_mean, var = "HER2", group.by = "HER2_case", assay = "counts", data.out = TRUE)
-dat_df <- dat$data
-
-ggplot(dat_df, aes(x = grouping, y = var.data))+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = grouping), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  guides(color = "none")+
-  scale_color_brewer(palette = "Set1")+
-  xlab("HER2 cases")+
-  ylab("HER2 ion counts (panCK+ cells)")+
-  theme_classic()
-  
-## For all TMAs 
-cur_sce_2 <- sce
-
-# GMM for panCK (tumor cells)
-GMM_CK <- Mclust(assay(cur_sce_2, "exprs")["panCK",], G = 2)
-
-cur_sce_2$GMM_CK <- GMM_CK$classification
-
-cur_sce_2 <- cur_sce_2[,cur_sce_2$GMM_CK == "2"]
-
-image_mean <- aggregateAcrossCells(cur_sce_2, 
-                                   ids = cur_sce_2$PID, 
-                                   statistics="mean",
-                                   use.assay.type = "exprs")
-
-image_mean[,is.na(image_mean$TMANr)]$TMANr <- "TMA174_HER2"
-image_mean$TMANr <- factor(image_mean$TMANr, levels = c("TMA174_HER2","TMA174","TMA174_249","TMA249"))
-
-dat <- dittoBoxPlot(image_mean, var = "HER2", group.by = "TMANr", assay = "exprs", data.out = TRUE)
 dat_df <- dat$data
 
 p2 <- ggplot(dat_df, aes(x = grouping, y = var.data))+
@@ -181,17 +146,11 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/HER2exprs_TMAs.pdf",width = 8
 p2
 dev.off()
 
-BNummer_HER2 <- colData(image_mean) %>% 
-  as.data.frame %>% 
-  select(PID,HER2_case,TMANr) %>% arrange(desc(HER2_case),TMANr) 
-
-write.csv(BNummer_HER2, "/mnt/rcc_volume/TNBC/data_analysis/03_data/BNummer_HER2_cases.csv")
-
 ## remove HER2 positive cases
-## kick out 4 cases with high HER2 expression
+## kick out 1 case with suspiciously high HER2 expression
 
 sce <- sce[,sce$HER2_case == FALSE]
-sce <- sce[,!sce$PID %in% c("B08.42923","B08.32458", "B08.25184","B08.39793")]
+sce <- sce[,!sce$PID %in% c("B08.32458")]
 sce
 ```
 
@@ -417,7 +376,7 @@ colData(sce) %>%
 #Cell area range
 summary(sce$area)
 
-#Only keep cells with an area above 5 (n=2899 cells)
+#Only keep cells with an area above 5 (n=2987 cells)
 sum(sce$area <= 5)
 sce <- sce[,sce$area > 5]
 sce

@@ -65,6 +65,7 @@ First, we will read in the `SingleCellExperiment` object containing the cleaned,
 
 ```{r read-data-batch-correction, message=FALSE}
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/03_sce_TNBC_QC.rds")
+sce
 ```
 
 ## Perform "overclustering"
@@ -73,16 +74,6 @@ Next, we will run a granular Rphenograph (Jaccard-based weights, Louvain cluster
 
 ```{r overcluster, message=FALSE}
 set.seed(22)
-# snn.sce <- buildSNNGraph(sce[rowData(sce)$use_channel==TRUE,], k=30, 
-#                          d = NA, 
-#                          type = "jaccard",
-#                          assay.type = "exprs",
-#                          BNPARAM=AnnoyParam(),
-#                          BPPARAM = MulticoreParam()
-#                          )
-# 
-# clusters <- igraph::cluster_louvain(snn.sce) #Memory issues with this function!
-# sce$cluster <- as.factor(clusters$membership)
 
 clust <- clusterCells(sce[rowData(sce)$use_channel==TRUE,],
                         assay.type = "exprs",
@@ -155,7 +146,7 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 ## Check correlation of panCK and Ecad as epithelial cell markers
 
 ```{r marker correlations, message = FALSE}
-#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 
 GOI <- c("panCK","Ecad")
 cor_sce <- as.data.frame(t(assay(sce,"exprs")[rowData(sce)$clean_target %in% GOI,]))
@@ -192,7 +183,7 @@ astir_sum <- astir_type %>% group_by(cell_type) %>% count()
 sce$astir_type <- astir_type$cell_type
 
 #Mark channels used for cell type assignment 
-astir_channel = c("panCK","CD3","CD20","CD68")
+astir_channel = c("panCK","Ecad","CD3","CD8a","CD4","CD20","CD68","SMA","CD11c")
 
 rowData(sce)$use_astir <- rowData(sce) %>% as.data.frame() %>% mutate(use_astir = ifelse(rownames(sce) %in% astir_channel,TRUE,FALSE)) %>% pull(use_astir)
 ```
@@ -204,90 +195,115 @@ Heatmap of clusters with GMM and ASTIR information
 
 ```{r heatmap, message=FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 
-### 1. Marker Heatmap 
+### 1. Heatmap body ###
 
-#Min-Max [0,1] normalization of arcsinh-transformed counts
+# Min-Max [0,1] normalization of arcsinh-transformed counts
 assay(sce, "min_max") <- assay(sce, "exprs") - rowMins(assay(sce, "exprs"))
 assay(sce, "min_max") <- assay(sce, "min_max") / (rowMaxs(assay(sce, "exprs")) - rowMins(assay(sce, "exprs")))
 
-#Aggregrate across cells with the mean (median is also possible)
+# Aggregrate across cells with the mean
 mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster,
                                  statistics = "mean",
                                  use.assay.type = "min_max",
                                  subset.row = rowData(sce)$use_channel)
 
-### 2. Spatial Heatmap
+# Heatmap body color 
+col_main = viridis(100)
+
+
+### 2. Heatmap annotation ###
+
+### 2.1 Spatial features
+
 #Add number of neighbors to sce object (saved in ColPair)
 n_neighbors <- colPair(sce) %>% as.data.frame() %>% group_by(from) %>% count() %>% arrange(desc(n))
-
 sce$n_neighbors <- n_neighbors$n[match(seq_along(colnames(sce)),n_neighbors$from)]
 sce$n_neighbors <- sce$n_neighbors %>% replace_na(0)
-
-#Double-check 
-sp1 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = FALSE, assay_type = "exprs",node_color_by = "panCK")+
-  scale_color_continuous(type = "viridis")+
-  theme_classic()
-sp2 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = FALSE, node_color_by = "GMM_CK")+
-  scale_color_brewer(palette = "Set1")+
-  theme_classic()
-sp3 <- plotSpatial(sce[,colData(sce)$sample_id == "ZTMA249.1_ZTMA249_ID_1_AX1Y1_93"],img_id = "sample_id",colPairName = "neighborhood",draw_edges = FALSE, node_color_by = "n_neighbors",node_size_fix = 2)+
-  scale_color_continuous(type = "viridis")+
-  theme_classic()
-sp1+sp2+sp3
 
 #Select spatial features and average over clusters 
 spatial <- colData(sce) %>% as.data.frame %>% select(area,eccentricity,cluster,n_neighbors)
 spatial <- spatial %>% select(-cluster) %>% aggregate(by = list(cluster = spatial$cluster), FUN = mean) %>% column_to_rownames("cluster")
+
+#Define color schemes for spatial features and add to metadata
+area_col <- colorRamp2(c(min(spatial$area),median(spatial$area),max(spatial$area)), c(brewer.pal(3,"Blues")[1],brewer.pal(3,"Blues")[2],brewer.pal(3,"Blues")[3]))
+metadata(sce)$colors$area <- area_col
+
+eccentricity_col <- colorRamp2(c(min(spatial$eccentricity),median(spatial$eccentricity),max(spatial$eccentricity)), c(brewer.pal(3,"Purples")[1],brewer.pal(3,"Purples")[2],brewer.pal(3,"Purples")[3]))
+metadata(sce)$colors$eccentricity <- eccentricity_col
+
+n_neighbors_col <- colorRamp2(c(min(spatial$n_neighbors),median(spatial$n_neighbors),max(spatial$n_neighbors)), c(brewer.pal(3,"RdPu")[1],brewer.pal(3,"RdPu")[2],brewer.pal(3,"RdPu")[3]))
+metadata(sce)$colors$n_neighbors <- n_neighbors_col
 
 #Create Spatial Heatmap Annotation
 ha_spatial = HeatmapAnnotation(
     area = spatial$area,
     eccentricity = spatial$eccentricity,
     n_neighbors = spatial$n_neighbors, 
-    col = list(area = colorRamp2(c(min(spatial$area),median(spatial$area),max(spatial$area)), c(brewer.pal(3,"Blues")[1],brewer.pal(3,"Blues")[2],brewer.pal(3,"Blues")[3])),
-               eccentricity = colorRamp2(c(min(spatial$eccentricity ),median(spatial$eccentricity ),max(spatial$eccentricity)), c(brewer.pal(3,"Greens")[1],brewer.pal(3,"Greens")[2],brewer.pal(3,"Greens")[3])),
-               n_neighbors = colorRamp2(c(min(spatial$n_neighbors ),median(spatial$n_neighbors ),max(spatial$n_neighbors)),c(brewer.pal(3,"Oranges")[1],brewer.pal(3,"Oranges")[2],brewer.pal(3,"Oranges")[3]))
-    ),
+    col = list(area = metadata(sce)$colors$area,
+               eccentricity = metadata(sce)$colors$eccentricity,
+               n_neighbors = metadata(sce)$colors$n_neighbors),
     border = TRUE,
     which = "row")
 
-### 3. Row annotation plots with number and fraction of tumor cells
+### 2.2 Metadata features
+
+#Number of cells per cluster 
+n_cells <- colData(mean_sce) %>% as.data.frame %>% select(cluster, ncells)
+
 #GMM - panCK
 nr_tum <- colData(sce) %>% as.data.frame %>% select(cluster, GMM_CK) %>% table()
 fr_tum <- as.data.frame(nr_tum) %>% pivot_wider(names_from = GMM_CK, values_from = Freq) %>% column_to_rownames("cluster")
 fr_tum <- fr_tum %>% transmute(fr_tum = `panCK+`/rowSums(fr_tum)) %>% as.data.frame()
 
 # #Astir
-# nr_tum_2 <- colData(sce) %>% as.data.frame %>% select(cluster, astir_type) %>% table()
-# fr_tum_2 <- as.data.frame(nr_tum_2) %>% pivot_wider(names_from = astir_type, values_from = Freq) %>% column_to_rownames("cluster")
-# fr_tum_2 <- fr_tum_2 %>% transmute(fr_tum = `Epithelial`/rowSums(fr_tum_2)) %>% as.data.frame()
+nr_tum_2 <- colData(sce) %>% as.data.frame %>% select(cluster, astir_type) %>% table()
+fr_tum_2 <- as.data.frame(nr_tum_2) %>% pivot_wider(names_from = astir_type, values_from = Freq) %>% column_to_rownames("cluster")
+fr_tum_2 <- fr_tum_2 %>% transmute(fr_tum = `Epithelial`/rowSums(fr_tum_2)) %>% as.data.frame()
 
 #GMM - Ecad
 nr_tum_3 <- colData(sce) %>% as.data.frame %>% select(cluster, GMM_Ecad) %>% table()
 fr_tum_3 <- as.data.frame(nr_tum_3) %>% pivot_wider(names_from = GMM_Ecad, values_from = Freq) %>% column_to_rownames("cluster")
 fr_tum_3 <- fr_tum_3 %>% transmute(fr_tum_3 = `Ecad+`/rowSums(fr_tum_3)) %>% as.data.frame()
 
-### 4. Define tumor and stroma cluster (Fraction of tumor cells according to GMM >80%)
-anno_tumor <- fr_tum %>% rownames_to_column(var = "cluster") %>% mutate(cluster_category = ifelse(fr_tum >= 0.8,"Epithelial",
-                                                                                                  ifelse(fr_tum < 0.8 & fr_tum > 0.2,"Mixed","Non_Epithelial")))
+ha_meta = HeatmapAnnotation(GMM_CK = anno_barplot(fr_tum, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
+                            GMM_Ecad = anno_barplot(fr_tum_3, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
+                            Astir_Epi = anno_barplot(fr_tum_2, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
+                            n_cells = anno_barplot(n_cells$ncells, width = unit(10, "mm"),gp = gpar(fill = "violet", col = 1)),
+                            border = TRUE, 
+                            annotation_name_rot = 90,
+                            gap = unit(1,"mm"),
+                            which = "row")
 
-col <- list(cluster = colorRampPalette(brewer.pal(9, "Paired"))(length(unique(anno_tumor$cluster))),
-           cluster_category = c("#1F78B4","#A6CEE3","#B2DF8A"))
+### 3. Define tumor, mixed and stroma cluster (based on GMM_CK)
 
-col_list_1 <- foreach(i=1:2) %do% {
-  color= col[[i]]
-  names(color)= sort(unique(anno_tumor[,names(col)[i]]))
-  color
-}
-names(col_list_1) <- c(names(col))
+anno_cluscat <- fr_tum %>% 
+  rownames_to_column(var = "cluster") %>% 
+  mutate(cluster_category = ifelse(fr_tum >= 0.75,"Epithelial",ifelse(fr_tum < 0.75 & fr_tum > 0.2,"Mixed","Non_Epithelial")))
 
-#heatmap body color 
-col_main = viridis(100)
+#Set colors for cluster_category and add to metdata
+cluster_category <- setNames(c("#1F78B4", "#A6CEE3", "#B2DF8A"),sort(unique(anno_cluscat$cluster_category)))                                                                  
+metadata(sce)$colors$cluster_category <- cluster_category               
+
+#Visualize GMM_panCK density plots
+ggplot(anno_cluscat, aes(fr_tum))+
+  geom_density()+
+  geom_rug(aes(color = cluster_category))+
+  geom_vline(xintercept = 0.75, color = "red3")+
+  geom_vline(xintercept = 0.2, color = "red3")+
+  theme_classic()+
+  theme(axis.title.x = element_blank())+
+  scale_color_manual(values = cluster_category)
+
+ha_cluscat <- HeatmapAnnotation(cluster_category = anno_cluscat$cluster_category,
+                                col = list(cluster_category = metadata(sce)$colors$cluster_category),
+                                border = TRUE,
+                                which = "row")
 
 
-### Plot combined Heatmap
+
+### 4. Plot combined Heatmap
 h <- Heatmap(t(assay(mean_sce, "min_max")),
         col = col_main,
         name= "min-max",
@@ -297,22 +313,16 @@ h <- Heatmap(t(assay(mean_sce, "min_max")),
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
   ha_spatial+
-  rowAnnotation(panCK_GMM = anno_barplot(fr_tum, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),annotation_name_rot = 90)+
-  #rowAnnotation(panCK_Astir = anno_barplot(fr_tum_2, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),annotation_name_rot = 90)+
-  rowAnnotation(Ecad_GMM = anno_barplot(fr_tum_3, width = unit(10, "mm"),gp = gpar(fill = "#33A02C", col = 1)),annotation_name_rot = 90)+
-  rowAnnotation(Number_Cells = anno_barplot(nr_tum, width = unit(10, "mm"),gp = gpar(fill = c("#E41A1C","#377EB8"), col = 1)),annotation_name_rot = 90)+
-  rowAnnotation(cluster = anno_tumor$cluster,
-                cluster_category = anno_tumor$cluster_category,
-                col = col_list_1, 
-                border = TRUE)
+  ha_meta+
+  ha_cluscat
 
 draw(h)
 
 ### Add cluster_categories to sce
-#sce$cluster_category <- anno_tumor$cluster_category[match(sce$cluster,anno_tumor$cluster)]
+sce$cluster_category <- anno_cluscat $cluster_category[match(sce$cluster,anno_cluscat $cluster)]
 
 #Save sce
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 ```
 
 ## Venn diagrams / Pie plots for categories

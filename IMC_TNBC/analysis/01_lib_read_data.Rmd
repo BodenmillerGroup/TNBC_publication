@@ -80,9 +80,6 @@ sce <- sce[,!is.na(sce$PID)]
 for (entry in colnames(meta)[!colnames(meta) %in% c("PID","ID_Number","OS_data","DFS_data")]) {
   colData(sce)[,entry] <- meta[,entry][match(colData(sce)[,"PID"],meta[,"PID"])]
 }
-
-#Mark cases that are HER2+ (no metadata available)
-sce$HER2_case <- ifelse(!is.na(sce$TMANr),FALSE,TRUE)
 ```
 
 **Define interesting channels**
