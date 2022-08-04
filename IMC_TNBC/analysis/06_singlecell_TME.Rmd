@@ -4,7 +4,7 @@ author: "Lasse Meyer"
 date: "`r Sys.Date()`"
 output: html_document
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -69,14 +69,14 @@ First, we will read in the `SingleCellExperiment` object containing the cleaned,
 **Important:** For now, We will filter the object for ZTMA249 samples, since we are sure that those are TNBC. 
 
 ```{r read-data-batch-correction, message=FALSE}
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 ```
 
 ## Filter sce for tumor cells
 Here, we will filter for TME cells based on the cluster category and GMM approach.
 
 ```{r filter sce, message=FALSE}
-#based on cluster categories (n=327161)
+#based on cluster categories (n=430840)
 sce <- sce[,colData(sce)$analysis_cat == "non_tumor"]
 sce
 ```
@@ -99,58 +99,82 @@ rowData(sce)$other_epi_channel <- (rowData(sce)$clean_target %in% other_epi_chan
 Next, we will run Rphenograph (Jaccard-based weights, Louvain clustering as community detection algorithm) clustering with different resolution parameters (k=30,50,75). 
 
 ```{r overcluster, message=FALSE}
-#k=30
+library(Rphenoannoy)
 set.seed(22)
-snn.sce <- buildSNNGraph(sce[rowData(sce)$cluster_channel==TRUE,], k=30, 
-                         d = NA, 
-                         type = "jaccard",
-                         assay.type = "exprs",
-                         BNPARAM=AnnoyParam(),
-                         BPPARAM = MulticoreParam(workers = (detectCores()-2), progressbar = TRUE)
-                         )
 
-clusters_3 <- igraph::cluster_louvain(snn.sce)
-sce$cluster_30 <- as.factor(clusters_3$membership)
+mat <- t(assay(sce, "exprs")[rowData(sce)$cluster_channel,])
+
+#k=30
+out <- Rphenoannoy(mat, k = 30)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_30 <- clusters
+
 unique(sce$cluster_30)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k_CD45.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
 
+gc()
 
 #k=50
-set.seed(22)
-snn.sce <- buildSNNGraph(sce[rowData(sce)$cluster_channel==TRUE,], k=50, 
-                         d = NA, 
-                         type = "jaccard",
-                         assay.type = "exprs",
-                         BNPARAM=AnnoyParam(),
-                         BPPARAM = MulticoreParam(workers = (detectCores()-2), progressbar = TRUE)
-                         )
+out <- Rphenoannoy(mat, k = 50)
 
-clusters <- igraph::cluster_louvain(snn.sce)
-sce$cluster_50 <- as.factor(clusters$membership)
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_50 <- clusters
+
 unique(sce$cluster_50)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k_CD45.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
 
-#k=75
-set.seed(22)
-snn.sce <- buildSNNGraph(sce[rowData(sce)$cluster_channel==TRUE,], k=75, 
-                         d = NA, 
-                         type = "jaccard",
-                         assay.type = "exprs",
-                         BNPARAM=AnnoyParam(),
-                         BPPARAM = MulticoreParam(workers = (detectCores()-2), progressbar = TRUE)
-                         )
+gc()
 
-clusters_1 <- igraph::cluster_louvain(snn.sce)
-sce$cluster_75 <- as.factor(clusters_1$membership)
-unique(sce$cluster_75)
+#k=70
+out <- Rphenoannoy(mat, k = 70)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_70 <- clusters
+
+unique(sce$cluster_70)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k_CD45.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+
+gc()
+
+#k=90
+out <- Rphenoannoy(mat, k = 90)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_90 <- clusters
+
+unique(sce$cluster_90)
+
+#Save SCEs after clustering
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+
+gc()
+
+#k=110
+out <- Rphenoannoy(mat, k = 110)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_110 <- clusters
+
+unique(sce$cluster_110)
+
+#Save SCEs after clustering
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+
+gc()
 ```
+
 
 ### Cluster stability testing and comparison
 
