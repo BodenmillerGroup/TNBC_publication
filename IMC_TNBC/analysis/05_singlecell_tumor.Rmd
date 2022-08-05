@@ -84,11 +84,11 @@ sce
 ## Define markers for clustering
 
 ```{r tumor_markers, message = FALSE, warning = FALSE}
-cluster_channel = c("CK5","CK8_18","CD15","KRT14","cMYC","HER2","ER","PR","p53","AR","GATA3","EGFR","p_mTOR","CK7","Ki67","Vimentin","HLADR")
+cluster_channel = c("CK5","CK8_18","CD15","KRT14","cMYC","HER2","ER","PR","p53","AR","GATA3","EGFR","p_mTOR","CK7","Vimentin") #usually includes Ki67, HLADR
 
-cell_state_channel = c("pH3","H3K27me3","Bcl2", "c_Cas3_PARP","S6", "CD44","CAIX")
+cell_state_channel = c("pH3","H3K27me3","Bcl2", "c_Cas3_PARP","S6", "CD44","CAIX","Ki67","HLADR")
 
-other_immune_channel = c("panCK","Ecad","SMA","Fibronectin","CD68","CD3","CD20","HLA_DR","CD11c","CD45","CD20","CD8a","CD4","CD31_vWF")
+other_immune_channel = c("panCK","Ecad","SMA","Fibronectin","CD68","CD3","CD20","CD11c","CD45","CD20","CD8a","CD4","CD31_vWF")
 
 #Add to sce
 rowData(sce)$cluster_channel <- (rowData(sce)$clean_target %in% cluster_channel)
@@ -115,7 +115,7 @@ sce$cluster_30 <- clusters
 unique(sce$cluster_30)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_1.rds")
 
 gc()
 
@@ -129,7 +129,7 @@ sce$cluster_50 <- clusters
 unique(sce$cluster_50)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_1.rds")
 
 gc()
 
@@ -143,7 +143,7 @@ sce$cluster_70 <- clusters
 unique(sce$cluster_70)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_1.rds")
 
 gc()
 
@@ -157,7 +157,7 @@ sce$cluster_90 <- clusters
 unique(sce$cluster_90)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_1.rds")
 
 gc()
 
@@ -171,10 +171,136 @@ sce$cluster_110 <- clusters
 unique(sce$cluster_110)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_1.rds")
+
+gc()
+
+#k=130
+out <- Rphenoannoy(mat, k = 130)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_130 <- clusters
+
+unique(sce$cluster_130)
+
+#Save SCEs after clustering
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_1.rds")
 
 gc()
 ```
+
+### Delete after tomorrow 
+
+## Define markers for clustering
+
+```{r tumor_markers, message = FALSE, warning = FALSE}
+cluster_channel = c("CK5","CK8_18","CD15","KRT14","cMYC","HER2","ER","PR","p53","AR","GATA3","EGFR","p_mTOR","CK7","Ki67","Vimentin","HLADR","S6","Bcl2","pH3","H3K27me3","CAIX")
+
+cell_state_channel = c("c_Cas3_PARP", "CD44")
+
+other_immune_channel = c("panCK","Ecad","SMA","Fibronectin","CD68","CD3","CD20","CD11c","CD45","CD20","CD8a","CD4","CD31_vWF")
+
+#Add to sce
+rowData(sce)$cluster_channel <- (rowData(sce)$clean_target %in% cluster_channel)
+rowData(sce)$cell_state_channel <- (rowData(sce)$clean_target %in% cell_state_channel)
+rowData(sce)$other_immune_channel <- (rowData(sce)$clean_target %in% other_immune_channel)
+```
+
+## Perform overclustering and hierarchical clustering
+Next, we will run Rphenoannoy (Jaccard-based weights, Louvain clustering as community detection algorithm) clustering with different resolution parameters. 
+
+```{r overcluster, message=FALSE}
+library(Rphenoannoy)
+set.seed(22)
+
+mat <- t(assay(sce, "exprs")[rowData(sce)$cluster_channel,])
+
+#k=30
+out <- Rphenoannoy(mat, k = 30)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_30 <- clusters
+
+unique(sce$cluster_30)
+
+#Save SCEs after clustering
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_2.rds")
+
+gc()
+
+#k=50
+out <- Rphenoannoy(mat, k = 50)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_50 <- clusters
+
+unique(sce$cluster_50)
+
+#Save SCEs after clustering
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_2.rds")
+
+gc()
+
+#k=70
+out <- Rphenoannoy(mat, k = 70)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_70 <- clusters
+
+unique(sce$cluster_70)
+
+#Save SCEs after clustering
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_2.rds")
+
+gc()
+
+#k=90
+out <- Rphenoannoy(mat, k = 90)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_90 <- clusters
+
+unique(sce$cluster_90)
+
+#Save SCEs after clustering
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_2.rds")
+
+gc()
+
+#k=110
+out <- Rphenoannoy(mat, k = 110)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_110 <- clusters
+
+unique(sce$cluster_110)
+
+#Save SCEs after clustering
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_2.rds")
+
+gc()
+
+#k=130
+out <- Rphenoannoy(mat, k = 130)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_130 <- clusters
+
+unique(sce$cluster_130)
+
+#Save SCEs after clustering
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_2.rds")
+
+gc()
+```
+
 
 ### Cluster stability testing and comparison
 
@@ -430,11 +556,11 @@ summary(testCL)
 plot(testCL, legend = TRUE)
 
 #Stability measures 
-testCL_1<- clValid(t(assay(cluster_mean_sce, "exprs")),nClust = 4:20,clMethods = c("hierarchical","agnes","kmeans","pam"),validation="stability",metric="euclidean", method = "ward")
-summary(testCL_1)
-plot(testCL_1, legend = TRUE)
+#testCL_1<- clValid(t(assay(cluster_mean_sce, "exprs")),nClust = 4:20,clMethods = c("hierarchical","agnes","kmeans","pam"),validation="stability",metric="euclidean", method = "ward")
+#summary(testCL_1)
+#plot(testCL_1, legend = TRUE)
 
-#chosen method: kmeans, k=9
+#chosen method: kmeans, k=9 (or 6!)
 
 #retrieve row_order
 set.seed(22)
@@ -446,8 +572,9 @@ ht_kmeans <- Heatmap(t(assay(cluster_mean_sce, "exprs")),
         show_column_names =  T, 
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2",
+        cluster_row_slices = FALSE,
         row_km = 9, row_km_repeats = 10000)
-
+  
 ht_kmeans <- draw(ht_kmeans)
 row_order_ht <- row_order(ht_kmeans)
 
@@ -459,7 +586,6 @@ anno$metacluster <- as.factor((ifelse(anno$cluster_70_merg %in% row_order_ht[[i]
 
 #add metacluster to sce
 sce$metacluster <- anno$metacluster[match(sce$cluster_70_merg,anno$cluster_70_merg)]
-
 
 ###2.3 Metadata features
 
@@ -498,6 +624,7 @@ row_order_clusters <- row_order(Heatmap(t(assay(cluster_mean_sce, "exprs")),
         km = 1,
         show_row_names = T, 
         show_column_names =  T, 
+        cluster_row_slices = FALSE,
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2"))
 
@@ -520,9 +647,6 @@ ha_meta <- HeatmapAnnotation(cluster_70_merg = anno_simple(unfactor(anno$cluster
                             gap = unit(1,"mm"),
                             which = "row")
                             
-                            
-
-
 ### 3. Plot heatmap ###
 
 h <- Heatmap(t(assay(cluster_mean_sce, "exprs")),
@@ -568,7 +692,7 @@ h_cluster_anno <- HeatmapAnnotation(cluster_70_merg = anno_simple(row_order_clus
 draw(h_cluster_anno)
 
 #Save sce after metacluster assignment
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 ```
 
 
@@ -867,7 +991,7 @@ pairs.panels(cor_sce[,c("CK5","KRT14")],
              digits = 2)
 ```
 
-## Cox-proportonal hazards model for tumor phenotypes and metaclusters
+## Cox-proportonal hazards model for metaclusters
 
 ### For OS on metaclusters
 
@@ -895,9 +1019,9 @@ Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
 Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
 
 #Based on proportions
-covariates <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -MC4) %>% colnames
+covariates <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -MC1) %>% colnames
 
-multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ MC4"))
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ MC1"))
 
 multi_model <- coxph(multi_formula, data = Cox_df)
 
@@ -964,7 +1088,7 @@ coord_cartesian(ylim=c(0,50))+
 geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
 scale_color_brewer(palette = "Set1")+
 xlab("Tumor metaclusters")+
-ylab("HR for con_prop")+
+ylab("HR for mean")+
 theme_classic()+
 theme(axis.text.x = element_text(angle = 90))
 
@@ -1012,7 +1136,7 @@ coord_cartesian(ylim=c(0,50))+
 geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
 scale_color_brewer(palette = "Set1")+
 xlab("Tumor metaclusters")+
-ylab("HR for con_prop")+
+ylab("HR for GMM")+
 theme_classic()+
 theme(axis.text.x = element_text(angle = 90))
 
@@ -1021,235 +1145,44 @@ hr_mean/
 hr_GMM
 ```
 
-### For OS on clusters
 
-```{r cox}
-library(survival)
-library(survminer)
+```{r OS survival_curves}
+#Plot survival curves
+fit <- survfit(Surv(OS_months, status_OS) ~ MC4, data = Cox_df_mean)
+print(fit)
 
-# TO DO: plot proportion density curves for all MCs 
+p1 <- ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = "Set1",
+          log.rank.weights = "n")+
+  ggtitle("Mean proportion")
 
-### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
-PID_groups <- PID_cluster %>% pivot_wider(id_cols = "PID",names_from = "cluster_70_merg",values_from = "fra") %>% column_to_rownames("PID")
-colnames(PID_groups) <- paste0("TC",colnames(PID_groups))
+fit <- survfit(Surv(OS_months, status_OS) ~ MC4, data = Cox_df_GMM)
+print(fit)
 
-## 1. Based on continuous cluster proportions
-Cox_df <- PID_groups
+p2 <- ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = "Set1",
+          log.rank.weights = "n")+
+  ggtitle("GMM proportion")
 
-#add covariates for correction
-Cox_df$status_OS <- sce$status_OS[match(rownames(Cox_df),sce$PID)]
-Cox_df$OS_months <- sce$OS_months[match(rownames(Cox_df),sce$PID)]
-
-Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
-Cox_df$grade <- as.factor(sce$grade[match(rownames(Cox_df),sce$PID)])
-Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
-Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
-Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
-
-#Based on proportions
-covariates <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -TC8) %>% colnames
-
-multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ TC8"))
-
-multi_model <- coxph(multi_formula, data = Cox_df)
-
-multi_res <- summary(multi_model)
-
-plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
-                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
-                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
-                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
-                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
-                      wald_test = signif(multi_res$waldtest["pvalue"],2))
-
-
-#Plot hazard ratios
-hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
-geom_point(size = 4)+
-geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
-#coord_cartesian(ylim=c(0,50))+
-geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
-scale_color_brewer(palette = "Set1")+
-xlab("Tumor metaclusters")+
-ylab("HR for con_prop")+
-scale_y_continuous(trans='log')+
-theme_classic()+
-theme(axis.text.x = element_text(angle = 90))
-
-hr_prop
-
-## 2. Based on categories (mean division of cluster proportions)
-
-Cox_df_mean <- foreach(i = Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
-Cox_df %>% select(i) %>% mutate(mean = ifelse(Cox_df[,i] > mean(Cox_df[,i]),"B","A")) %>% pull(mean)
-}
-
-colnames(Cox_df_mean) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
-rownames(Cox_df_mean) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
-Cox_df_mean <- as.data.frame(Cox_df_mean)
-
-identical(rownames(Cox_df), rownames(Cox_df_mean))
-
-Cox_df_mean <- cbind(Cox_df_mean, Cox_df %>% select(status_OS,OS_months, status_OS, OS_months, age, grade, pT_simple, pN_simple, pM_simple))
-
-#Based on proportions
-covariates <- Cox_df_mean %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
-
-multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
-
-multi_model <- coxph(multi_formula, data = Cox_df_mean)
-
-summary(multi_model)
-
-multi_res <- summary(multi_model)
-
-plot_df_mean <- data.frame(group = rownames(multi_res$coefficients),
-                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
-                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
-                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
-                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
-                      wald_test = signif(multi_res$waldtest["pvalue"],2))
-
-#Plot hazard ratios
-hr_mean <- ggplot(plot_df_mean, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
-geom_point(size = 4)+
-geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
-coord_cartesian(ylim=c(0,50))+
-geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
-scale_color_brewer(palette = "Set1")+
-xlab("Tumor metaclusters")+
-ylab("HR for con_prop")+
-theme_classic()+
-theme(axis.text.x = element_text(angle = 90))
-
-hr_mean
-
-## 3. Based on categories (GMM division of cluster proportions)
-Cox_df_GMM <- foreach(i = Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
-GMM_Cox <- Mclust(Cox_df[,i], G = 2)
-as.character(GMM_Cox$classification)
-}
-
-colnames(Cox_df_GMM) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
-rownames(Cox_df_GMM) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
-Cox_df_GMM <- as.data.frame(Cox_df_GMM,stringsAsFactors=TRUE)
-
-identical(rownames(Cox_df), rownames(Cox_df_GMM))
-
-Cox_df_GMM <- cbind(Cox_df_GMM, Cox_df %>% select(status_OS,OS_months, status_OS, OS_months, age, grade, pT_simple, pN_simple, pM_simple))
-
-#Based on proportions
-covariates <- Cox_df_GMM %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
-
-multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
-
-multi_model <- coxph(multi_formula, data = Cox_df_GMM)
-
-summary(multi_model)
-
-summary(Cox_df_GMM)
-
-multi_res <- summary(multi_model)
-
-plot_df_GMM <- data.frame(group = rownames(multi_res$coefficients),
-                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
-                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
-                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
-                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
-                      wald_test = signif(multi_res$waldtest["pvalue"],2))
-
-#Plot hazard ratios
-hr_GMM <- ggplot(plot_df_GMM, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
-geom_point(size = 4)+
-geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
-coord_cartesian(ylim=c(0,50))+
-geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
-scale_color_brewer(palette = "Set1")+
-xlab("Tumor metaclusters")+
-ylab("HR for con_prop")+
-theme_classic()+
-theme(axis.text.x = element_text(angle = 90))
-
-hr_mean
-
-hr_prop/
-hr_mean/
-hr_GMM
-```
-
-```{r lasso OS clusters}
-library(glmnet)
-# Continue here tomorrow!
-
-### Lasso regularization
-### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
-PID_groups <- PID_cluster %>% pivot_wider(id_cols = "PID",names_from = "cluster_70_merg",values_from = "fra") %>% column_to_rownames("PID")
-colnames(PID_groups) <- paste0("TC",colnames(PID_groups))
-
-## 1. Based on continuous cluster proportions
-Cox_df <- PID_groups
-
-#add covariates for correction
-Cox_df$status_OS <- sce$status_OS[match(rownames(Cox_df),sce$PID)]
-Cox_df$OS_months <- sce$OS_months[match(rownames(Cox_df),sce$PID)]
-
-Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
-Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
-Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
-Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
-#Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)]) #remove from model otherwise coefficients are shrinked to 0 for all others? 
-
-## Run lasso regularized coxph model
-Cox_df <- Cox_df[complete.cases(Cox_df),] #only have complete rows as input
-
-x <- data.matrix(Cox_df %>% select(-status_OS,-OS_months)) #predictor variables
-
-y <- Surv(time = Cox_df$OS_months, event = Cox_df$status_OS) #response variables
-
-set.seed(100)
-cv.fit <- cv.glmnet(x, y, family="cox", type.measure = "C")
-plot(cv.fit)
-
-fit <- glmnet(x, y, family="cox")
-
-coef(fit, s = cv.fit$lambda.min)
-
-## Run lasso 100 times and average error curves to be more robust
-MSEs <- NULL
-for (i in 1:100){
-                 cv <- cv.glmnet(x, y, family="cox", type.measure = "C")
-                 MSEs <- cbind(MSEs, cv$cvm)
-             }
-
-rownames(MSEs) <- cv$lambda
-lambda.min <- as.numeric(names(which.min(rowMeans(MSEs))))
-
-fit <-glmnet(x, y, family="cox")
-Coefficients <- coef(fit, s = lambda.min)
-
-#Extract non-zeros from model output
-td_coef = as.data.table(tidy(Coefficients))
-td_coef = td_coef[order(value),]
-td_coef$row = factor(td_coef$row,levels = td_coef$row)
-colnames(td_coef) = c("celltype","column","coef")
-
-#Visualize hazard ratios
-ggplot(td_coef, aes(x = celltype, y = exp(coef))) +
-geom_point(size = 4) +
-coord_flip()+ylim(0,5)+
-geom_hline(yintercept = 1,color = 'blue')+
-scale_y_continuous(trans='log')
+arrange_ggsurvplots(list(p1,p2))
 ```
 ### For DFS on metaclusters
 
 ```{r cox dfs}
 library(survival)
 library(survminer)
-
-# TO DO: plot proportion density curves for all MCs 
-ggplot(PID_metacluster, aes(fra))+
-  facet_wrap(~metacluster)+
-  geom_density()+
 
 ### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
 PID_metagroups <- PID_metacluster %>% pivot_wider(id_cols = "PID",names_from = "metacluster",values_from = "fra") %>% column_to_rownames("PID")
@@ -1269,9 +1202,9 @@ Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
 Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
 
 #Based on proportions
-covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -MC4) %>% colnames
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -MC5) %>% colnames
 
-multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ MC4"))
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ MC5"))
 
 multi_model <- coxph(multi_formula, data = Cox_df)
 
@@ -1397,8 +1330,136 @@ hr_prop/
 hr_mean/
 hr_GMM
 ```
+```{r OS survival_curves}
+#Plot survival curves
+fit <- survfit(Surv(DFS_months, status_DFS) ~ MC2, data = Cox_df_mean)
+print(fit)
+
+p1 <- ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = "Set1",
+          log.rank.weights = "n")+
+  ggtitle("Mean proportion")
+
+fit <- survfit(Surv(DFS_months, status_DFS) ~ MC2, data = Cox_df_GMM)
+print(fit)
+
+p2 <- ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = "Set1",
+          log.rank.weights = "S2")+
+  ggtitle("GMM proportion")
+
+arrange_ggsurvplots(list(p1,p2))
+```
+
+### Plot proportion density curves for all metaclusters
+
+Add lines for mean and GMM division.
+
+```{r}
+#mean division
+mean_metacluster <- PID_metacluster %>% group_by(metacluster) %>% transmute(metacluster,mean = mean(fra)) %>% unique()
+
+#GMM division
+GMM_div <- Cox_df_GMM %>% select(colnames(Cox_df_GMM)[str_detect(colnames(Cox_df_GMM),"MC")]) %>% rownames_to_column("PID") %>% pivot_longer(cols = 2:10,names_to = "metacluster", values_to = "GMM")
+PID_metacluster$GMM <- GMM_div$GMM
+GMM_1_max_metacluster <- PID_metacluster %>% filter(GMM == "1") %>% group_by(metacluster) %>% summarise(max = max(fra))
+
+# Plot proportion density curves for all metaclusters
+ggplot(PID_metacluster, aes(fra))+
+  facet_wrap(~metacluster)+
+  geom_density(aes(fill = metacluster))+
+  geom_rug()+
+  coord_cartesian(ylim = c(0,10))+
+  scale_fill_manual(values = metadata(sce)$colors$metacluster)+
+  theme_classic()+
+  geom_vline(data = mean_metacluster, aes(xintercept = mean),color = "#E41A1C", linetype = "dashed")+ #red
+  geom_vline(data = GMM_1_max_metacluster, aes(xintercept = max),color = "#377EB8", linetype = "dashed") #blue
+```
+
+## Lasso-regularized Cox-proportonal hazards model for clusters
+
+TO BE UPDATED - consider kicking out pM for coefficient shrinkage
+
+```{r lasso OS clusters}
+library(glmnet)
+# Continue here tomorrow!
+
+### Lasso regularization
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_groups <- PID_cluster %>% pivot_wider(id_cols = "PID",names_from = "cluster_70_merg",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_groups) <- paste0("TC",colnames(PID_groups))
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_groups
+
+#add covariates for correction
+Cox_df$status_OS <- sce$status_OS[match(rownames(Cox_df),sce$PID)]
+Cox_df$OS_months <- sce$OS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+#Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)]) #remove from model otherwise coefficients are shrinked to 0 for all others? 
+
+## Run lasso regularized coxph model
+Cox_df <- Cox_df[complete.cases(Cox_df),] #only have complete rows as input
+
+x <- data.matrix(Cox_df %>% select(-status_OS,-OS_months)) #predictor variables
+
+y <- Surv(time = Cox_df$OS_months, event = Cox_df$status_OS) #response variables
+
+set.seed(100)
+cv.fit <- cv.glmnet(x, y, family="cox", type.measure = "C")
+plot(cv.fit)
+
+fit <- glmnet(x, y, family="cox")
+
+coef(fit, s = cv.fit$lambda.min)
+
+## Run lasso 1000 times and average error curves to be more robust
+MSEs <- NULL
+for (i in 1:1000){
+                 cv <- cv.glmnet(x, y, family="cox", type.measure = "C")
+                 MSEs <- cbind(MSEs, cv$cvm)
+             }
+
+rownames(MSEs) <- cv$lambda
+lambda.min <- as.numeric(names(which.min(rowMeans(MSEs))))
+
+fit <-glmnet(x, y, family="cox")
+Coefficients <- coef(fit, s = lambda.min)
+
+#Extract non-zeros from model output
+td_coef = as.data.table(tidy(Coefficients))
+td_coef = td_coef[order(value),]
+td_coef$row = factor(td_coef$row,levels = td_coef$row)
+colnames(td_coef) = c("celltype","column","coef")
+
+#Visualize hazard ratios
+ggplot(td_coef, aes(x = celltype, y = exp(coef))) +
+geom_point(size = 4) +
+coord_flip()+ylim(0,5)+
+geom_hline(yintercept = 1,color = 'blue')+
+scale_y_continuous(trans='log')
+```
+
 
 ## Make patientgroups based on primary tumor cluster compositions
+
+TO BE UPDATED! 
 
 #Quality control: Filter PID with low tumor cell frequency (see previous script - when clustering was performed again)
 

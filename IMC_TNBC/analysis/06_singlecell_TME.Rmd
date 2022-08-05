@@ -83,9 +83,9 @@ sce
 
 ## Define markers for clustering
 ```{r tumor_markers, message = FALSE, warning = FALSE}
-cluster_channel = c("Vimentin","SMA","Fibronectin","CD68","CD3","CD20","CD11c","CD20","CD8a","CD4","CD31_vWF","CD15")
+cluster_channel = c("SMA","CD68","CD3","CD20","CD11c","CD20","CD8a","CD4","CD31_vWF","CD15", "HLADR")
 
-other_epi_channel = c("panCK","Ecad","CK5","CK8_18","KRT14","cMYC","HER2","ER","PR","p53","AR","EGFR","p_mTOR","CK7","GATA3","CD45")
+other_epi_channel = c("Vimentin", "Fibronectin","panCK","Ecad","CK5","CK8_18","KRT14","cMYC","HER2","ER","PR","p53","AR","EGFR","p_mTOR","CK7","GATA3","CD45")
 
 cell_state_channel = c("pH3","H3K27me3","Bcl2", "c_Cas3_PARP","S6", "CD44","CAIX","Ki67")
 
@@ -173,6 +173,20 @@ unique(sce$cluster_110)
 saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
 
 gc()
+
+#k=130
+out <- Rphenoannoy(mat, k = 130)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster_130 <- clusters
+
+unique(sce$cluster_130)
+
+#Save SCEs after clustering
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+
+gc()
 ```
 
 
@@ -180,18 +194,19 @@ gc()
 
 ```{r clustree, message = FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
 sce
 
 #Pairwise rand index 
 #Agreement between two clustering approaches - ARI > 0.5 = "good" similarity
 pairwiseRand(sce$cluster_30,sce$cluster_50, mode = "index")
-pairwiseRand(sce$cluster_50,sce$cluster_75, mode = "index")
+pairwiseRand(sce$cluster_50,sce$cluster_70, mode = "index")
+pairwiseRand(sce$cluster_70,sce$cluster_90, mode = "index")
+pairwiseRand(sce$cluster_90,sce$cluster_110, mode = "index")
+pairwiseRand(sce$cluster_110,sce$cluster_130, mode = "index")
 
 #Over different resolution parameters - Silhouette width [-1,1,max], Purity[0,1,max], Root-mean-squared difference [min]
 clusters <- colnames(colData(sce))[str_detect(colnames(colData(sce)),"cluster_[:digit:]")]
-clusters <- clusters[!clusters %in% c("cluster_50_renamed","cluster_50_merg")]
-
 df <- foreach(i = seq_along(clusters),.combine = rbind) %do% {
 num_clus <- length(unique(colData(sce)[,clusters[i]]))
 sil <- approxSilhouette(t(assay(sce, "exprs")), clusters=colData(sce)[,clusters[i]])
@@ -249,27 +264,6 @@ p4
 # p5 
 ```
 
-Observation:  
-- Lowest RMSD and number of clusters for k=50 => selected for downstream phenotyping
-
-## Add metadata to SCE object
-
-```{r metadata addition, message=FALSE, warning=TRUE}
-sample_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed.csv")
-
-#Add lehmann_subtype by sample
-colData(sce)$lehmann_subtype <- sample_meta$lehmann_subtype[match(colData(sce)$ID,sample_meta$ID_Number)]
-
-patient_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed_byPID.csv")
-#Add Grade by PID
-colData(sce)$grade <- patient_meta$grade[match(colData(sce)$PID,patient_meta$PID)]
-colData(sce)$OS_months <- patient_meta$OS_months[match(colData(sce)$PID,patient_meta$PID)]
-colData(sce)$status_OS <- patient_meta$status_OS[match(colData(sce)$PID,patient_meta$PID)]
-colData(sce)$DFS_months <- patient_meta$Diseasefree_months[match(colData(sce)$PID,patient_meta$PID)]
-colData(sce)$status_DFS <- patient_meta$status_DFS[match(colData(sce)$PID,patient_meta$PID)]
-#SaveSCEwithmetadata
-#saveRDS(sce,"/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
-```
 
 ## Heatmap with different scales 
 
@@ -278,22 +272,23 @@ colData(sce)$status_DFS <- patient_meta$status_DFS[match(colData(sce)$PID,patien
 #sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 
 #Heatmap body colors
-col_exprs <- colorRamp2(c(0,1,2,3,4), c("#440154FF","#3B518BFF","#20938CFF","#6ACD5AFF","#FDE725FF"))
+col_exprs <- colorRamp2(c(0,1,2,3), c("#440154FF", "#31688EFF", "#35B779FF", "#FDE725FF"))
 col_min_max <- colorRamp2(c(0,0.2,0.4,0.6,0.8), c("#440154FF", "#33628DFF", "#28AE80FF", "#DBE318FF", "#FDE725FF"))
 
 ### 1. Mean exprs counts
-#Aggregrate across cells with the mean (median is also possible)
-cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
+#Aggregrate across cells with the mean
+
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_130,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$cluster_channel)
 
-cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
+cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_130,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$cell_state_channel)
 
-other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_130,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$other_epi_channel)
@@ -302,15 +297,14 @@ h_exprs <- Heatmap(t(assay(cluster_mean_sce, "exprs")),
         column_title = "1. mean exprs",
         col = col_exprs,
         name= "mean exprs",
-        km = 1,
         show_row_names = T, 
         show_column_names =  T, 
+        row_names_side = "left",
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
 Heatmap(t(assay(cellstate_mean_sce, "exprs")),
         col = col_exprs,
         name= "mean exprs",
-        km = 1,
         show_row_names = T,
         show_column_names =  T,
         clustering_method_rows = "ward.D2",
@@ -318,25 +312,27 @@ Heatmap(t(assay(cellstate_mean_sce, "exprs")),
   Heatmap(t(assay(other_mean_sce, "exprs")),
         col = col_exprs,
         name= "mean exprs",
-        km = 1,
         show_row_names = T, 
         show_column_names =  T, 
         clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")
+        clustering_method_columns = "ward.D2")+
+  rowAnnotation(ncells = anno_barplot(cluster_mean_sce$ncells))
+
+h_exprs 
 
 ### 2. Mean min_max counts
-#Aggregrate across cells with the mean (median is also possible)
-cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
+#Aggregrate across cells with the mean
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_130,
                                  statistics = "mean",
                                  use.assay.type = "min_max",
                                  subset.row = rowData(sce)$cluster_channel)
 
-cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
+cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_130,
                                  statistics = "mean",
                                  use.assay.type = "min_max",
                                  subset.row = rowData(sce)$cell_state_channel)
 
-other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_130,
                                  statistics = "mean",
                                  use.assay.type = "min_max",
                                  subset.row = rowData(sce)$other_epi_channel)
@@ -349,8 +345,7 @@ h_min_max <- Heatmap(t(assay(cluster_mean_sce, "min_max")),
         show_row_names = T, 
         show_column_names =  T, 
         clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2",
-        row_km = 10, row_km_repeats = 10000)+
+        clustering_method_columns = "ward.D2")+
 Heatmap(t(assay(cellstate_mean_sce, "min_max")),
         col = col_min_max,
         name= "min_max",
@@ -366,115 +361,13 @@ Heatmap(t(assay(other_mean_sce, "min_max")),
         show_row_names = T, 
         show_column_names =  T, 
         clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")
-
-### 3. Min_max scaled mean exprs counts
-#Aggregrate across cells with the mean (median is also possible)
-cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
-                                 statistics = "mean",
-                                 use.assay.type = "exprs",
-                                 subset.row = rowData(sce)$cluster_channel)
-
-assay(cluster_mean_sce, "min_max") <- assay(cluster_mean_sce, "exprs") - rowMins(assay(cluster_mean_sce, "exprs"))
-assay(cluster_mean_sce, "min_max") <- assay(cluster_mean_sce, "min_max") / (rowMaxs(assay(cluster_mean_sce, "exprs")) - rowMins(assay(cluster_mean_sce, "exprs")))
-
-cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
-                                 statistics = "mean",
-                                 use.assay.type = "exprs",
-                                 subset.row = rowData(sce)$cell_state_channel)
-assay(cellstate_mean_sce, "min_max") <- assay(cellstate_mean_sce, "exprs") - rowMins(assay(cellstate_mean_sce, "exprs"))
-assay(cellstate_mean_sce, "min_max") <- assay(cellstate_mean_sce, "min_max") / (rowMaxs(assay(cellstate_mean_sce, "exprs")) - rowMins(assay(cellstate_mean_sce, "exprs")))
-
-other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
-                                 statistics = "mean",
-                                 use.assay.type = "exprs",
-                                 subset.row = rowData(sce)$other_epi_channel)
-assay(other_mean_sce, "min_max") <- assay(other_mean_sce, "exprs") - rowMins(assay(other_mean_sce, "exprs"))
-assay(other_mean_sce, "min_max") <- assay(other_mean_sce, "min_max") / (rowMaxs(assay(other_mean_sce, "exprs")) - rowMins(assay(other_mean_sce, "exprs")))
-
-h_exprs_min_max <- Heatmap(t(assay(cluster_mean_sce, "min_max")),
-        column_title = "3. Min_max mean exprs",
-        col = col_min_max,
-        name= "min_max mean exprs",
-        km = 1,
-        show_row_names = T, 
-        show_column_names =  T, 
-        clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2")+
-Heatmap(t(assay(cellstate_mean_sce, "min_max")),
-        col = col_min_max,
-        name= "min_max mean exprs",
-        km = 1,
-        show_row_names = T,
-        show_column_names =  T,
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")+
-  Heatmap(t(assay(other_mean_sce, "min_max")),
-        col = col_min_max,
-        name= "min_max mean exprs",
-        km = 1,
-        show_row_names = T, 
-        show_column_names =  T, 
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")
+  rowAnnotation(ncells = anno_barplot(cluster_mean_sce$ncells))
 
-### 4. Z-scored mean exprs counts
-#Aggregrate across cells with the mean (median is also possible)
-cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
-                                 statistics = "mean",
-                                 use.assay.type = "exprs",
-                                 subset.row = rowData(sce)$cluster_channel)
-
-assay(cluster_mean_sce, "z") <- t(scale(t(assay(cluster_mean_sce, "exprs")), center = TRUE,scale=TRUE)) 
-
-#double-check Z scores
-#z_t <- as.data.frame(t(assay(cluster_mean_sce, "z")))
-#summary(z_t)
-
-cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
-                                 statistics = "mean",
-                                 use.assay.type = "exprs",
-                                 subset.row = rowData(sce)$cell_state_channel)
-assay(cellstate_mean_sce, "z") <- t(scale(t(assay(cellstate_mean_sce, "exprs")), center = TRUE,scale=TRUE)) 
-
-
-other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_50,
-                                 statistics = "mean",
-                                 use.assay.type = "exprs",
-                                 subset.row = rowData(sce)$other_epi_channel)
-assay(other_mean_sce, "z") <- t(scale(t(assay(other_mean_sce, "exprs")), center = TRUE,scale=TRUE)) 
-
-h_exprs_z <- Heatmap(t(assay(cluster_mean_sce, "z")),
-        column_title = "4. Z-scores mean exprs",
-        #col = col_main,
-        name= "z mean exprs",
-        km = 1,
-        show_row_names = T, 
-        show_column_names =  T, 
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")+
-Heatmap(t(assay(cellstate_mean_sce, "z")),
-        #col = col_main,
-        name= "z mean exprs",
-        km = 1,
-        show_row_names = T,
-        show_column_names =  T,
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")+
-Heatmap(t(assay(other_mean_sce, "z")),
-        #col = col_main,
-        name= "z mean exprs",
-        km = 1,
-        show_row_names = T, 
-        show_column_names =  T, 
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")
+h_min_max 
 
 h_exprs+
 h_min_max
-
-h_exprs_min_max+
-h_exprs_z
 ```
 
 Observation: Mean "raw" or "min_max" exprs counts are most interpretable and logical - use min_max for downstream analysis
