@@ -35,26 +35,29 @@ TNBC_raw <- list.files("/Volumes/rcc_volume/TNBC/raw/")
 
 TNBC_files_174 <- TNBC_raw[str_detect(TNBC_raw,pattern = "_ZTMA174_")]
 
-## 1. Filter PID for which metadata is missing (should be HER2 cases)
+## 1. Filter PID for which metadata is missing
 PID_174 <- str_split(TNBC_files_174,"_",simplify = TRUE)[,3] %>% unique()
 
 PID_174_missing <- PID_174[!PID_174 %in% Meta_174$PID] #Patients for which we have samples but no metadata (should be HER2 positive; n=22)
 
-#write_csv(as.data.frame(PID_174_missing),"/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA174_BnummerHER2.csv")
+# add back to metadata 
+PID_174_missing_df <- str_split(TNBC_files_174,"_",simplify = TRUE) %>% 
+  as.data.frame() %>% 
+  filter(V3 %in% PID_174_missing) %>% 
+  filter(!as.numeric(V4) %% 2 == 0) %>% 
+  transmute(PID = V3, SpotNr = V4, TMANr = "TMA174")
 
-# #move HER2 cases to `exclude` folder
-# PID_174_missing_files <- TNBC_files_174[str_split(TNBC_files_174,"_",simplify = TRUE)[,3] %in% PID_174_missing]
-# 
-# file.copy(from = paste0("/Volumes/rcc_volume/TNBC/raw/",PID_174_missing_files),
-#           to = "/Volumes/rcc_volume/TNBC/excluded/")
-# 
-# file.remove(from = paste0("/Volumes/rcc_volume/TNBC/raw/",PID_174_missing_files))
+Meta_174 <- full_join(Meta_174, PID_174_missing_df)
 
+#write_csv(PID_174_missing_df,"/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA174_MetadataMissing.csv")
 
-## 2. Filter PID for which metadata is there but not samples
+#Load file with information on HER2 cases 
+PID174_HER2 <- read.csv("~/Desktop/BNummer_HER2_PS_174.csv")
+
+Meta_174$HER2_case <- PID174_HER2$Exclude[match(Meta_174$PID,PID174_HER2$PID)]
+
+## 2. Filter PID for which samples are missing
 PID_174_missing_2 <- Meta_174[!Meta_174$PID %in% PID_174,] %>% pull(PID) #Patients for which we have metadata but no samples (n=2)
-
-PID_174_missing_2
 
 #Remove from file
 Meta_174 <- Meta_174 %>% filter(!PID %in% PID_174_missing_2)
@@ -199,7 +202,6 @@ diff(ID_numbers)
 ID_meta <- Meta_249$ID_Number %>% unique()
 PID_274_missing_2 <- Meta_249 %>% filter(ID_Number == ID_meta[!ID_meta %in% ID_numbers]) %>% pull(PID) #Patients for which we have metadata but no samples ("B14.19170")
 
-
 ID_meta[!ID_meta %in% ID_numbers]
 
 #Remove from file
@@ -238,7 +240,7 @@ Meta_249 <- Meta_249 %>% mutate(lehmann_subtype = ifelse(Meta_249$sample_ID == S
 ```
 
 ```{r save_processed}
-write.csv(Meta_249, "/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA249_TNBC_LM_processed_bysample.csv", col.names = TRUE)
+write.csv(Meta_249, "/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA249_TNBC_LM_processed_bysample.csv")
 ```
 
 ```{r tidy_2, message=F,warning=F}
@@ -247,7 +249,6 @@ Meta_249 <- aggregate(Meta_249,by=list(Meta_249$PID),function(x){paste(x[!is.na(
 Meta_249 <- Meta_249 %>% mutate(PID = Meta_249$Group.1) %>% select(-"Group.1")
 
 #1. Decode and simplify TNM staging 
-
 decode_pT_df <- data.frame(value = as.character(seq(1,10)), 
                         key = c("NO_TUMOR","ypT1a","ypT2","ypT3","pT1a","pT1c","pT2","pT3","pT4","NODAL_MET_CHEMO"))
 
@@ -261,6 +262,12 @@ Meta_249$pN <- decode_pN_df$key[match(Meta_249$pN, decode_pN_df$value)]
 Meta_249$pT_simple <- str_extract(Meta_249$pT,"[0-4]")
 Meta_249$pN_simple <- str_extract(Meta_249$pN,"[0-4]")
 Meta_249$pM_simple <- Meta_249$pM
+
+#2. Add age information 
+#Add external age at diagnosis information 
+age_249 <- read_csv("~/Desktop/BNummer_age249_PS.csv")
+
+Meta_249$age <- age_249$age[match(Meta_249$PID, age_249$PID)]
 
 #3. Survival data availability and n_samples
 Meta_249 <- Meta_249 %>% mutate(OS_data = ifelse(Meta_249$OS_months != "", TRUE,FALSE)) %>% mutate(DFS_data = ifelse(Meta_249$OS_months != "",TRUE,FALSE)) %>% mutate(n_samples = 2)
@@ -342,15 +349,50 @@ draw(sample_anno)
 
 ```{r combine}
 #select columns of interest 
-Meta_174_comb <- Meta_174 %>% select("TMANr","SpotNr","PID","n_samples","age","age_bin","tumor_size_cm","grade","pT","pT_simple","pN","pN_simple","pM","pM_simple","status_OS","OS_months", "status_DFS","DFS_months","OS_data","DFS_data")
+Meta_174_comb <- Meta_174 %>% select("TMANr","PID","n_samples","age","tumor_size_cm","grade","pT","pT_simple","pN","pN_simple","pM","pM_simple","status_OS","OS_months", "status_DFS","DFS_months","OS_data","DFS_data","HER2_case")
 
 Meta_249$TMANr <- "TMA249"
-Meta_249_comb <- Meta_249 %>% select("TMANr","SpotNr","PID","n_samples","lehmann_subtype","grade","pT","pT_simple","pN","pN_simple","pM","pM_simple","status_OS","OS_months", "status_DFS","DFS_months","OS_data","DFS_data")
+Meta_249$HER2_case <- FALSE
+Meta_249_comb <- Meta_249 %>% select("TMANr","ID_Number","PID","n_samples","age","lehmann_subtype","grade","pT","pT_simple","pN","pN_simple","pM","pM_simple","status_OS","OS_months", "status_DFS","DFS_months","OS_data","DFS_data","HER2_case")
 
 Meta <- bind_rows(Meta_174_comb,Meta_249_comb)
 
 Meta$n_samples <- as.character(Meta$n_samples)
 Meta$tumor_size_cm <- as.numeric(Meta$tumor_size_cm)
+```
+
+```{r}
+#quality control 
+##double-check that PID entries are distinct
+dup <- Meta %>% 
+  count(PID) %>% 
+  filter(n>1) %>% 
+  pull(PID)
+
+dup #10 patients are duplicated between the two TMAs (combine metadata information?)
+
+dup_meta <- Meta %>% filter(PID %in% dup) %>% arrange(PID)
+write.csv(dup_meta, "/Users/lasmey/Desktop/TNBC/Metadaten/Metadata_Duplicated_TNBC_LM.csv")
+
+#read in metadata updates for duplicated cases
+dup_meta_update <- read.csv("/Users/lasmey/Desktop/TNBC/Metadaten/Metadata_Duplicated_TNBC_LM_mod.csv",)
+
+Meta <- Meta %>% filter(!PID %in% dup)
+
+Meta <- rbind(Meta, dup_meta_update)
+
+## Filter patients which are TNBC but metadata is missing 
+Meta_meta_missing <- Meta %>% filter(HER2_case %in% c(NA,FALSE) & is.na(pT))
+
+write_csv(Meta_174_meta_missing,"/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA174_MetadataMissing.csv")
+
+##Create age_bin 
+summary(Meta$age)
+Meta<- Meta %>% mutate(age_bin = ifelse(age <= 40, "27-40", 
+                                   ifelse(40<age & age<=55, "41-55",
+                                          ifelse(55<age & age<=70, "56-70",
+                                                 ifelse(70<age & age<=85, "71-85",
+                                                        ifelse(85<age & age<=90, "85-91",NA))))))
 ```
 
 ```{r save combined}
@@ -367,7 +409,7 @@ library(ggsci)
 library(RColorBrewer)
 
 #Filter for columns to visualize
-Meta_viz <- Meta %>% select(TMANr,PID,n_samples,grade,pT_simple,pN_simple,pM_simple,OS_data, DFS_data, age_bin, tumor_size_cm, lehmann_subtype)
+Meta_viz <- Meta %>% filter(HER2_case == FALSE) %>% select(TMANr,PID,n_samples,grade,pT_simple,pN_simple,pM_simple,OS_data, DFS_data, age_bin, tumor_size_cm, lehmann_subtype) 
 
 #Convert empty columns and NAs for easier handling with ComplexHeatmap package
 Meta_viz[is.na(Meta_viz)] <- "NA"
@@ -383,9 +425,9 @@ TMANr = setNames(colorRampPalette(brewer.pal(3, "Dark2"))(length(unique(Meta_viz
                 sort(unique(Meta_viz$TMANr))),
 PID = setNames(colorRampPalette(brewer.pal(12, "Paired"))(length(unique(Meta_viz$PID))), 
                 sort(unique(Meta_viz$PID))),
-n_samples = setNames(c("#A6CEE3", "#1F78B4"), 
+n_samples = setNames(colorRampPalette(brewer.pal(3, "Greens"))(length(unique(Meta_viz$n_samples))), 
                 sort(unique(Meta_viz$n_samples))),
-grade = setNames(colorRampPalette(brewer.pal(3, "Oranges"))(length(unique(Meta_viz$grade))), 
+grade = setNames(c(colorRampPalette(brewer.pal(3, "Oranges"))(length(unique(Meta_viz$grade))-1),"black"), 
                 sort(unique(Meta_viz$grade))),
 pT_simple = setNames(c(colorRampPalette(brewer.pal(9, "Blues"))(length(unique(Meta_viz$pT_simple))-1),"black"), 
                 sort(unique(Meta_viz$pT_simple), na.last = TRUE)),
