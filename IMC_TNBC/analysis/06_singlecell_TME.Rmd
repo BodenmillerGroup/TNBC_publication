@@ -64,9 +64,9 @@ library(batchelor)
 
 Here, we will perform the third single cell analysis steps, including phenotyping of TME cells.
 
-## Read in data and filter for ZTMA249
+## Read in data
+
 First, we will read in the `SingleCellExperiment` object containing the cleaned, spillover- and (batch-corrected) single-cell data. 
-**Important:** For now, We will filter the object for ZTMA249 samples, since we are sure that those are TNBC. 
 
 ```{r read-data-batch-correction, message=FALSE}
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
@@ -76,12 +76,13 @@ sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 Here, we will filter for TME cells based on the cluster category and GMM approach.
 
 ```{r filter sce, message=FALSE}
-#based on cluster categories (n=430840)
+#based on cluster categories (n=436281)
 sce <- sce[,colData(sce)$analysis_cat == "non_tumor"]
 sce
 ```
 
 ## Define markers for clustering
+
 ```{r tumor_markers, message = FALSE, warning = FALSE}
 cluster_channel = c("SMA","CD68","CD3","CD20","CD11c","CD20","CD8a","CD4","CD31_vWF","CD15", "HLADR")
 
@@ -370,7 +371,7 @@ h_exprs+
 h_min_max
 ```
 
-Observation: Mean "raw" or "min_max" exprs counts are most interpretable and logical - use min_max for downstream analysis
+Observation: Mean "raw" or "min_max" exprs counts are most interpretable and logical - use raw exprs for downstream analysis
 
 ## Optional: Cluster merging of similar clusters with clear phenotype
 
