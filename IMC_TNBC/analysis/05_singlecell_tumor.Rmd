@@ -81,6 +81,8 @@ sce <- sce[,colData(sce)$analysis_cat == "tumor"]
 sce
 ```
 
+# 1. Clustering
+
 ## Define markers for clustering
 
 ```{r tumor_markers, message = FALSE, warning = FALSE}
@@ -96,7 +98,7 @@ rowData(sce)$cell_state_channel <- (rowData(sce)$clean_target %in% cell_state_ch
 rowData(sce)$other_immune_channel <- (rowData(sce)$clean_target %in% other_immune_channel)
 ```
 
-## Perform overclustering and hierarchical clustering
+## Run clustering
 Next, we will run Rphenoannoy (Jaccard-based weights, Louvain clustering as community detection algorithm) clustering with different resolution parameters. 
 
 ```{r overcluster, message=FALSE}
@@ -190,8 +192,7 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 gc()
 ```
 
-
-### Cluster stability testing and comparison
+## Cluster stability testing and comparison
 
 ```{r clustree, message = FALSE, warning=FALSE}
 #Read sce after clustering and GMM
@@ -253,9 +254,9 @@ p4
 
 ```
 
-## Heatmap 
+# 2. Heatmap visualization
 
-Heatmaps with different scales
+## Heatmap with different scales 
 
 ```{r heatmap scales, message=FALSE,warning=FALSE}
 #Read sce after clustering
@@ -353,7 +354,7 @@ h_exprs+
 h_min_max
 ```
 
-## Optional: Cluster merging of similar clusters
+### Optional: Cluster merging of similar clusters - NOT PERFORMED HERE
 
 ```{r cluster merg}
 sce$cluster_110_merg <- sce$cluster_110
@@ -366,7 +367,7 @@ sce$cluster_110_merg <- cluster_110_merg_df$cluster_110_merg_names[match(sce$clu
 sce$cluster_110_merg <- as.factor(sce$cluster_110_merg)
 ```
 
-Rich heatmap of clusters with additional information (other channels, spatial, grade, subtype)
+## Rich heatmap of clusters with additional information (other channels, spatial, grade, subtype)
 
 ```{r heatmap sce_1, message=FALSE, warning=FALSE}
 ### 1. Heatmap body ###
@@ -514,7 +515,7 @@ ha_meta <- HeatmapAnnotation(cluster_110 = anno_simple(unfactor(anno$cluster_110
                             pN = anno_barplot(pN, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$pN_simple)),
                             #cluster_cat = anno_barplot(cluster_CC, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$cluster_category)),
                             border = TRUE, 
-                            annotation_name_rot = 110,
+                            annotation_name_rot = 90,
                             gap = unit(1,"mm"),
                             which = "row")
                             
@@ -556,101 +557,19 @@ h_cluster_anno <- HeatmapAnnotation(cluster_110 = anno_simple(row_order_clusters
                             metacluster = anno_simple(unfactor(anno$metacluster[row_order_clusters]), 
                                                       pch= unfactor(anno$metacluster[row_order_clusters]),border=TRUE,col=metadata(sce)$colors$metacluster),
                             border = TRUE, 
-                            annotation_name_rot = 110,
+                            annotation_name_rot = 90,
                             gap = unit(1,"mm"),
                             which = "row")+NULL
 
 draw(h_cluster_anno)
+```
 
+```{r save object}
 #Save sce after metacluster assignment
 saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 ```
 
-
-```{r compare cluster fractions}
-library(ggpubr)
-
-#pT overview
-pT_simple_n <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(sample_id,pT_simple) %>% 
-  mutate(pT_simple = as.character(pT_simple)) %>%
-  unique() %>% 
-  group_by(pT_simple) %>% 
-  count()
-
-ggplot(pT_simple_n, aes(x=pT_simple,y=n,fill=pT_simple))+
-  geom_bar(stat = "identity", color = "black")+
-  scale_fill_manual(values = metadata(sce)$colors$pT_simple)+
-  theme_classic()
-
-#pN overview
-pN_simple_n <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(sample_id,pN_simple) %>% 
-  mutate(pN_simple = as.character(pN_simple)) %>%
-  unique() %>% 
-  group_by(pN_simple) %>% 
-  count()
-
-ggplot(pN_simple_n, aes(x=pN_simple,y=n,fill=pN_simple))+
-  geom_bar(stat = "identity", color = "black")+
-  scale_fill_manual(values = metadata(sce)$colors$pN_simple)+
-  theme_classic()
-
-## merge and add to sce
-sce$pT_merg <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(pT_simple) %>% 
-  mutate(pT_merg = ifelse(pT_simple %in% c("3","4"),"3/4", pT_simple)) %>% pull(pT_merg)
-
-sce$pN_merg <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(pN_simple) %>% 
-  mutate(pN_merg = ifelse(pN_simple %in% c("2","3"),"2/3", pN_simple)) %>% pull(pN_merg)
-
-### Metacluster fraction comparison 
-
-##1. by pT_merg
-pT_cluster <- colData(sce) %>% as.data.frame() %>% select(PID,metacluster,pT_merg) %>% filter(!is.na(pT_merg)) %>% group_by(PID,metacluster, pT_merg) %>% count()
-pT_cluster <- pT_cluster %>% group_by(PID) %>% mutate(fra = n/sum(n))
-
-#Statistical testing
-pT_cluster_kruskal <- compare_means(fra ~ pT_merg,pT_cluster, group.by = "metacluster", method = "kruskal.test", p.adjust.method = "BH")
-
-pT_cluster_wil <- compare_means(fra ~ pT_merg,pT_cluster %>% filter(pT_merg %in% c("1","2")), group.by = "metacluster", method = "wilcox.test", p.adjust.method = "BH")
-
-#Plot
-ggplot(pT_cluster, aes(x=pT_merg,y=fra))+
-  facet_wrap(~metacluster)+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = metacluster), size = 2, position=position_jitter(w=0.1,h=0.1))+
-  scale_color_manual(values = metadata(sce)$colors$metacluster)+
-  theme_classic()+
-  ylab("Patient cluster fraction")+
-  xlab("pT_merg")+
-  geom_text(pT_cluster_kruskal, mapping = aes(x = "1",y = 1, label = p.adj),inherit.aes = FALSE)
-
-##2. by pN_merg
-pN_cluster <- colData(sce) %>% as.data.frame() %>% select(PID,metacluster,pN_merg) %>% filter(!is.na(pN_merg)) %>% group_by(PID,metacluster, pN_merg) %>% count()
-pN_cluster <- pN_cluster %>% group_by(PID) %>% mutate(fra = n/sum(n))
-
-#Statistical testing
-pN_cluster_kruskal <- compare_means(fra ~ pN_merg,pN_cluster, group.by = "metacluster", method = "kruskal.test", p.adjust.method = "BH")
-
-pN_cluster_wil <- compare_means(fra ~ pN_merg,pN_cluster %>% filter(pN_merg %in% c("0","2/3")), group.by = "metacluster", method = "wilcox.test", p.adjust.method = "BH")
-
-#Plot
-ggplot(pN_cluster, aes(x=pN_merg,y=fra))+
-  facet_wrap(~metacluster)+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = metacluster), size = 2, position=position_jitter(w=0.1,h=0.1))+
-  scale_color_manual(values = metadata(sce)$colors$metacluster)+
-  theme_classic()+
-  ylab("Sample cluster fraction")+
-  xlab("pN_merg")+
-  geom_text(pN_cluster_kruskal, mapping = aes(x = "0",y = 1, label = p.adj),inherit.aes = FALSE)
-```
+# 3. Single-cell visualization
 
 ## Dimensionality reduction 
 
@@ -708,7 +627,7 @@ library(cowplot)
 exp_plots_TSNE <- plot_grid(plotlist = all_plots_TSNE)
 ```
 
-### Heatmap for subset of cells
+## Heatmap for subset of cells
 
 ```{r heatmap sub}
 #Heatmap visualization
@@ -724,7 +643,8 @@ dittoHeatmap(sce_sub,
 )
              
 ```
-### Violin plot visualization
+
+## Violin plot visualization
 
 ```{r celltype violin, message=FALSE, fig.width=6, fig.height=10}
 #Violin Plot - plotExpression
@@ -736,7 +656,9 @@ plotExpression(sce_sub,
     scale_color_manual(values = metadata(sce_sub)$colors$metacluster)
 ```
 
-## Barplot visualization / Correlation of cluster fractions
+## Barplot visualization 
+
+### Fractions - Visualization and correlation of cluster fractions
 
 ```{r cluster-pro, message = FALSE, warning = FALSE}
 ## 1. Fraction of metacluster/cluster per sample/PID
@@ -833,6 +755,112 @@ SID_metacluster_cor_plot <- ggplot(SID_metacluster_cor, aes(x = category, y = V1
 SID_metacluster_cor_plot
 ```
 
+### Densities - Visualization and correlation of cluster densities
+
+```{r density cor}
+
+# 1. By metaclusters
+
+## Density barplot
+
+### For each sample
+SID_metacluster <- colData(sce) %>% as.data.frame() %>% select(metacluster,sample_id) %>% group_by(sample_id) %>% table() %>% as.data.frame
+
+SID_metacluster$tissue_area <- sce$tissue_area[match(SID_metacluster$sample_id,sce$sample_id)]
+
+SID_metacluster <- SID_metacluster %>% mutate(density = Freq/(tissue_area/1000000))
+
+ggplot(SID_metacluster) +
+  geom_tile(color = "black",aes(sample_id, density, fill = metacluster), position = "stack")+
+  scale_fill_manual(values=metadata(sce)$colors$metacluster) + 
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  xlab("PID")+
+  theme(axis.text.x = element_blank())
+
+SID_metacluster %>% filter(metacluster == "BnT_cell") %>% arrange(desc(density))
+
+
+### For each PID
+PID_metacluster <- colData(sce) %>% as.data.frame() %>% select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_metacluster$tissue_area <- sce$tissue_area[match(PID_metacluster$PID,sce$PID)]
+
+PID_metacluster <- PID_metacluster %>% mutate(density = Freq/(tissue_area/1000000))
+
+ggplot(PID_metacluster) +
+  geom_tile(color = "black",aes(PID, density, fill = metacluster), position = "stack")+
+  scale_fill_manual(values=metadata(sce)$colors$metacluster) + 
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  xlab("PID")+
+  theme(axis.text.x = element_blank())
+
+
+## Correlation of metacluster/cluster densities for each PID (2-4 samples per PID) - SAME AS FOR FRACTION CORRELATION?
+
+### By metacluster density
+SID_metacluster_cor <- SID_metacluster
+
+SID_metacluster_cor$PID <- sce$PID[match(SID_metacluster_cor$sample_id,sce$sample_id)]
+
+SID_metacluster_cor <- foreach(i = unique(colData(sce)$PID),.combine = "rbind")%do%{
+SID <- SID_metacluster_cor %>% filter(PID %in% i) %>% select(-Freq,-PID) %>% pivot_wider(id_cols = metacluster,names_from = sample_id,values_from = density) %>% column_to_rownames("metacluster")
+cor <- cor(SID,method = "spearman")
+cor[2]
+}
+
+SID_metacluster_cor <- as.data.frame(SID_metacluster_cor) 
+SID_metacluster_cor$PID <- unique(colData(sce)$PID) 
+SID_metacluster_cor$category <- "PID"
+
+SID_metacluster_dens_cor_plot <- ggplot(SID_metacluster_cor, aes(x = category, y = V1))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  theme_classic(base_size = 12)+
+  theme(axis.title.x = element_blank())+
+  ylab("Correlation of cluster fractions per PID (n=2-4)")+
+  ggtitle(paste("Spearman rho = ",round(median(SID_metacluster_cor$V1, na.rm = TRUE), digits = 2)))
+
+SID_metacluster_dens_cor_plot
+
+
+### By cluster density
+SID_immune_cluster <- colData(sce) %>% as.data.frame() %>% select(cluster_130,sample_id) %>% group_by(sample_id) %>% table() %>% as.data.frame
+
+SID_immune_cluster$tissue_area <- sce$tissue_area[match(SID_immune_cluster$sample_id,sce$sample_id)]
+
+SID_immune_cluster <- SID_immune_cluster %>% mutate(density = Freq/(tissue_area/1000000))
+
+SID_cluster_dens_cor <- SID_immune_cluster
+
+SID_cluster_dens_cor$PID <- sce$PID[match(SID_cluster_dens_cor$sample_id,sce$sample_id)]
+
+SID_cluster_dens_cor <- foreach(i = unique(colData(sce)$PID),.combine = "rbind")%do%{
+SID <- SID_cluster_dens_cor %>% filter(PID %in% i) %>% select(-Freq,-PID,-tissue_area) %>% pivot_wider(id_cols = cluster_130,names_from = sample_id,values_from = density) %>% column_to_rownames("cluster_130")
+cor <- cor(SID,method = "pearson")
+cor[2]
+}
+
+SID_cluster_dens_cor <- as.data.frame(SID_cluster_dens_cor) 
+SID_cluster_dens_cor$PID <- unique(colData(sce)$PID) 
+SID_cluster_dens_cor$category <- "PID"
+
+SID_cluster_dens_cor_plot <- ggplot(SID_cluster_dens_cor, aes(x = category, y = V1))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  theme_classic(base_size = 12)+
+  theme(axis.title.x = element_blank())+
+  ylab("Correlation of cluster fractions per PID (n=2-4)")+
+  ggtitle(paste("Spearman rho = ",round(median(SID_cluster_cor$V1, na.rm = TRUE), digits = 3)))
+
+SID_cluster_dens_cor_plot
+```
+
 ## CATALYST-based visualization
 
 We will first convert the sce into a CATALYST-compatible format.
@@ -905,6 +933,97 @@ pairs.panels(cor_sce[,c("CK5","KRT14")],
              hist.col = "royalblue1",
              digits = 2)
 ```
+
+# 4. Differential abundance testing
+
+## Cluster fraction comparison
+
+```{r compare cluster fractions}
+library(ggpubr)
+
+#pT overview
+pT_simple_n <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(sample_id,pT_simple) %>% 
+  mutate(pT_simple = as.character(pT_simple)) %>%
+  unique() %>% 
+  group_by(pT_simple) %>% 
+  count()
+
+ggplot(pT_simple_n, aes(x=pT_simple,y=n,fill=pT_simple))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = metadata(sce)$colors$pT_simple)+
+  theme_classic()
+
+#pN overview
+pN_simple_n <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(sample_id,pN_simple) %>% 
+  mutate(pN_simple = as.character(pN_simple)) %>%
+  unique() %>% 
+  group_by(pN_simple) %>% 
+  count()
+
+ggplot(pN_simple_n, aes(x=pN_simple,y=n,fill=pN_simple))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = metadata(sce)$colors$pN_simple)+
+  theme_classic()
+
+## merge and add to sce
+sce$pT_merg <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(pT_simple) %>% 
+  mutate(pT_merg = ifelse(pT_simple %in% c("3","4"),"3/4", pT_simple)) %>% pull(pT_merg)
+
+sce$pN_merg <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(pN_simple) %>% 
+  mutate(pN_merg = ifelse(pN_simple %in% c("2","3"),"2/3", pN_simple)) %>% pull(pN_merg)
+
+### Metacluster fraction comparison 
+
+##1. by pT_merg
+pT_cluster <- colData(sce) %>% as.data.frame() %>% select(PID,metacluster,pT_merg) %>% filter(!is.na(pT_merg)) %>% group_by(PID,metacluster, pT_merg) %>% count()
+pT_cluster <- pT_cluster %>% group_by(PID) %>% mutate(fra = n/sum(n))
+
+#Statistical testing
+pT_cluster_kruskal <- compare_means(fra ~ pT_merg,pT_cluster, group.by = "metacluster", method = "kruskal.test", p.adjust.method = "BH")
+
+pT_cluster_wil <- compare_means(fra ~ pT_merg,pT_cluster %>% filter(pT_merg %in% c("1","2")), group.by = "metacluster", method = "wilcox.test", p.adjust.method = "BH")
+
+#Plot
+ggplot(pT_cluster, aes(x=pT_merg,y=fra))+
+  facet_wrap(~metacluster)+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = metacluster), size = 2, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$metacluster)+
+  theme_classic()+
+  ylab("Patient cluster fraction")+
+  xlab("pT_merg")+
+  geom_text(pT_cluster_kruskal, mapping = aes(x = "1",y = 1, label = p.adj),inherit.aes = FALSE)
+
+##2. by pN_merg
+pN_cluster <- colData(sce) %>% as.data.frame() %>% select(PID,metacluster,pN_merg) %>% filter(!is.na(pN_merg)) %>% group_by(PID,metacluster, pN_merg) %>% count()
+pN_cluster <- pN_cluster %>% group_by(PID) %>% mutate(fra = n/sum(n))
+
+#Statistical testing
+pN_cluster_kruskal <- compare_means(fra ~ pN_merg,pN_cluster, group.by = "metacluster", method = "kruskal.test", p.adjust.method = "BH")
+
+pN_cluster_wil <- compare_means(fra ~ pN_merg,pN_cluster %>% filter(pN_merg %in% c("0","2/3")), group.by = "metacluster", method = "wilcox.test", p.adjust.method = "BH")
+
+#Plot
+ggplot(pN_cluster, aes(x=pN_merg,y=fra))+
+  facet_wrap(~metacluster)+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = metacluster), size = 2, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$metacluster)+
+  theme_classic()+
+  ylab("Sample cluster fraction")+
+  xlab("pN_merg")+
+  geom_text(pN_cluster_kruskal, mapping = aes(x = "0",y = 1, label = p.adj),inherit.aes = FALSE)
+```
+
+# 5. Survival analysis 
 
 ## Cox-proportonal hazards model for metaclusters
 
@@ -1094,6 +1213,7 @@ p2 <- ggsurvplot(fit,
 
 arrange_ggsurvplots(list(p1,p2))
 ```
+
 ### For DFS on metaclusters
 
 ```{r cox dfs}
@@ -1228,7 +1348,7 @@ plot_df_GMM <- data.frame(group = rownames(multi_res$coefficients),
                       CI_high = signif(multi_res$conf.int[,"upper .95"],2),
                       wald_test = signif(multi_res$waldtest["pvalue"],2))
 
-#Plot hazard ratiDFS
+#Plot hazard ratio
 hr_GMM <- ggplot(plot_df_GMM, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
 geom_point(size = 4)+
 geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
@@ -1246,6 +1366,7 @@ hr_prop/
 hr_mean/
 hr_GMM
 ```
+
 ```{r OS survival_curves}
 #Plot survival curves
 fit <- survfit(Surv(DFS_months, status_DFS) ~ MC6, data = Cox_df_mean)
@@ -1277,6 +1398,158 @@ p2 <- ggsurvplot(fit,
   ggtitle("GMM proportion")
 
 arrange_ggsurvplots(list(p1,p2))
+```
+
+### For OS on metacluster density 
+
+```{r OS metacluster density}
+library(survival)
+library(survminer)
+
+PID_metacluster <- colData(sce) %>% as.data.frame() %>% select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_area <- colData(sce) %>% as.data.frame() %>% select(tissue_area,PID) %>% unique() %>% group_by(PID) %>% mutate(mean_tissue_area = mean(tissue_area))
+
+PID_metacluster$mean_tissue_area <- PID_area$mean_tissue_area[match(PID_metacluster$PID, PID_area$PID)]
+  
+PID_metacluster <- PID_metacluster %>% group_by(PID) %>% mutate(density = Freq/(mean_tissue_area/1000000))  
+
+### Multivariate cox proportional hazard model on multiple covariates (here density of phenotypes)
+PID_metagroups <- PID_metacluster %>% pivot_wider(id_cols = "PID",names_from = "metacluster",values_from = "density") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("MC",colnames(PID_metagroups))
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_OS <- sce$status_OS[match(rownames(Cox_df),sce$PID)]
+Cox_df$OS_months <- sce$OS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#mean division 
+Cox_df_mean <- foreach(i = Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
+Cox_df %>% select(i) %>% mutate(mean = ifelse(Cox_df[,i] > mean(Cox_df[,i]),"B","A")) %>% pull(mean)
+}
+
+colnames(Cox_df_mean) <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+rownames(Cox_df_mean) <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
+Cox_df_mean <- as.data.frame(Cox_df_mean)
+
+identical(rownames(Cox_df), rownames(Cox_df_mean))
+
+Cox_df_mean <- cbind(Cox_df_mean, Cox_df %>% select(status_OS,OS_months, age, grade, pT_simple, pN_simple, pM_simple))
+
+#run the model
+covariates <- Cox_df_mean %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+
+multi_model <- coxph(multi_formula, data = Cox_df_mean)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+multi_res$coefficients
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Immune metaclusters")+
+ylab("HR for mean_density")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+### For DFS on metacluster density 
+
+```{r DFS metacluster density}
+library(survival)
+library(survminer)
+
+PID_metacluster <- colData(sce) %>% as.data.frame() %>% select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_area <- colData(sce) %>% as.data.frame() %>% select(tissue_area,PID) %>% unique() %>% group_by(PID) %>% mutate(mean_tissue_area = mean(tissue_area))
+
+PID_metacluster$mean_tissue_area <- PID_area$mean_tissue_area[match(PID_metacluster$PID, PID_area$PID)]
+  
+PID_metacluster <- PID_metacluster %>% group_by(PID) %>% mutate(density = Freq/(mean_tissue_area/1000000))  
+
+### Multivariate cox proportional hazard model on multiple covariates (here density of phenotypes)
+PID_metagroups <- PID_metacluster %>% pivot_wider(id_cols = "PID",names_from = "metacluster",values_from = "density") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("MC",colnames(PID_metagroups))
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#mean division 
+Cox_df_mean <- foreach(i = Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
+Cox_df %>% select(i) %>% mutate(mean = ifelse(Cox_df[,i] > mean(Cox_df[,i]),"B","A")) %>% pull(mean)
+}
+
+colnames(Cox_df_mean) <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+rownames(Cox_df_mean) <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
+Cox_df_mean <- as.data.frame(Cox_df_mean)
+
+identical(rownames(Cox_df), rownames(Cox_df_mean))
+
+Cox_df_mean <- cbind(Cox_df_mean, Cox_df %>% select(status_DFS,DFS_months, age, grade, pT_simple, pN_simple, pM_simple))
+
+#run the model
+covariates <- Cox_df_mean %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+
+multi_model <- coxph(multi_formula, data = Cox_df_mean)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+multi_res$coefficients
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Immune metaclusters")+
+ylab("HR for mean_density")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
 ```
 
 ### Plot proportion density curves for all metaclusters
@@ -1375,6 +1648,7 @@ ggplot(lasso_df, aes(x = predictor, y = exp(coef))) +
   scale_color_manual(values = metadata(sce)$colors$cluster_110, limits = force, na.value = "black")
 
 ```
+
 ### DFS
 
 ```{r lasso DFS clusters}
@@ -1446,7 +1720,155 @@ ggplot(lasso_df, aes(x = predictor, y = exp(coef))) +
   scale_color_manual(values = metadata(sce)$colors$cluster_110, limits = force, na.value = "black")
 ```
 
-### TO BE UPDATED BELOW! ###
+# 6. Image visualization
+
+```{r load images, message = FALSE}
+#Load images and masks
+images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+```
+
+## Visualize metaclusters on images 
+
+```{r viz clus, message=FALSE, warning=FALSE}
+clus_select <- unique(sce$metacluster)
+
+library(doParallel)
+registerDoParallel(cores = 7)
+
+foreach(i = clus_select)%dopar%{
+
+##Visualize clusters on images - select 10 images for each category with highest number of cells
+cur_sample <- colData(sce) %>% as.data.frame %>% group_by(metacluster) %>% filter(metacluster == i) %>% count(sample_id) %>% arrange(desc(n)) %>% slice(1:10) %>% pull(sample_id)
+
+#Prepare images
+cur_images <- images[cur_sample]
+cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
+cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
+
+#Subset sce
+cur_sce <- sce[,sce$metacluster == i]
+
+#Plot 
+plotPixels(cur_images,
+           mask = masks[cur_sample],
+           object = cur_sce,
+           img_id = "sample_id",
+           cell_id = "ObjectNumber",
+           missing_colour = "white",
+           outline_by = "metacluster",
+           colour_by = c("CK5","Vimentin","CK7","CD15","EGFR","KRT14"),
+           thick = FALSE,
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7),
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/Tumor_clusters_viz/Tumor_viz_metacluster_",i,".png"), scale = 2)
+           )
+ 
+  }
+
+```
+
+
+## Visualize metaclusters on images
+
+```{r viz metaclus, message=FALSE, warning=FALSE}
+
+# 1. Part 1 of immune_metacluster viz 
+clus_select <- anno %>% filter(!metacluster %in% c("Endothelial","Stromal","Neutrophil")) %>% pull(metacluster) %>% unfactor()
+
+for (i in clus_select) {
+  
+##Visualize clusters on images - select 10 images for each category with highest number of cells
+cur_sample <- colData(sce) %>% as.data.frame %>% group_by(immune_metacluster) %>% filter(immune_metacluster == i) %>% count(sample_id) %>% arrange(desc(n)) %>% slice(1:10) %>% pull(sample_id)
+
+#Prepare images
+cur_images <- images[cur_sample]
+cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
+cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
+
+#Subset sce
+cur_sce <- sce[,sce$immune_metacluster == i]
+
+#Plot 
+plotPixels(cur_images,
+           mask = masks[cur_sample],
+           object = cur_sce,
+           img_id = "sample_id",
+           cell_id = "ObjectNumber",
+           missing_colour = "white",
+           outline_by = "cluster_130",
+           colour_by = c("CD4", "HLADR", "CD68","CD8a", "CD20","CD3"),
+           #colour = list("SMA" = c("black", "green"),
+           #              "CD3" = c("black", "yellow"),
+           #              "CD31_vWF" = c("black", "magenta"),
+           #              "CD20" = c("black", "cyan"),
+           #              "CD68" = c("black", "red"),
+           #              "cluster_130" = metadata(test_sce)$colors$cluster_130
+           #              ),
+           thick = FALSE,
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7),
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_viz_immune_metacluster_",i,".png"), scale = 2)
+           )
+ 
+  }
+
+
+# 2. Part 2 of immune_metacluster viz 
+
+clus_select <- anno %>% filter(metacluster %in% c("Endothelial","Stromal","Neutrophil")) %>% pull(metacluster) %>% unfactor()
+
+for (i in clus_select) {
+  
+##Visualize clusters on images - select 10 images for each category with highest number of cells
+cur_sample <- colData(sce) %>% as.data.frame %>% group_by(immune_metacluster) %>% filter(immune_metacluster == i) %>% count(sample_id) %>% arrange(desc(n)) %>% slice(1:10) %>% pull(sample_id)
+
+#Prepare images
+cur_images <- images[cur_sample]
+cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
+cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
+
+#Subset sce
+cur_sce <- sce[,sce$immune_metacluster == i]
+
+#Plot 
+plotPixels(cur_images,
+           mask = masks[cur_sample],
+           object = cur_sce,
+           img_id = "sample_id",
+           cell_id = "ObjectNumber",
+           missing_colour = "white",
+           outline_by = "cluster_130",
+           colour_by = c("CD31_vWF", "SMA", "CD68","CD15", "CD20","CD3"),
+           #colour = list("SMA" = c("black", "green"),
+           #              "CD3" = c("black", "yellow"),
+           #              "CD31_vWF" = c("black", "magenta"),
+           #              "CD20" = c("black", "cyan"),
+           #              "CD68" = c("black", "red"),
+           #              "cluster_130" = metadata(test_sce)$colors$cluster_130
+           #              ),
+           thick = FALSE,
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7),
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_viz_immune_metacluster_",i,".png"), scale = 2)
+           )
+ 
+  }
+```
+
+## Save sce objects
+
+```{r save_objects, message = FALSE, warning=FALSE}
+#Save sce
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+```
+
+# 7. OLD CODE 
+
+TO BE UPDATED
 
 ## Make patientgroups based on primary tumor cluster compositions
 
