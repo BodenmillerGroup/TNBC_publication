@@ -63,103 +63,97 @@ library(batchelor)
 
 Here, we will perform the first combined analysis steps for tumor and TME phenotypes.
 
-## Load data and color mapping of phenotypes
+## Load data
 
 ```{r load data, message = FALSE, warning = FALSE}
-#Set global seed
-set.seed(22)
-
 #tumor sce
-sce_tumor <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds") 
+sce_tumor <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds") 
 sce_tumor
 
 #TME sce
-sce_TME <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_TME_CC_ClusterChannelClus_k.rds") 
+sce_TME <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds") 
 sce_TME
 
 #sce with all cells
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 sce
-
-##Load color mapping of tumor and TME phenotypes
-col_TMEpheno <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/color_TMEpheno.rds")
-col_tumorpheno <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/color_Tumorpheno.rds")
 ```
 
-## Combine tumor and TME phenotypes information and PID groups
+## 1. Data integration
+
+## Combine tumor and TME cluster/metacluster/color information
 
 ```{r combine tumor TME, message=FALSE,warning=FALSE}
-#Combine cluster phenotypes from tumor and TME (add "TME" character to distinguish)
-tumor_pheno <- colData(sce_tumor) %>% as.data.frame %>% mutate(cluster_combined = sce_tumor$cluster_100) %>% select(cluster_combined,cluster_names) %>% rownames_to_column(var = "cell_id")
-TME_pheno <- colData(sce_TME) %>% as.data.frame %>% mutate(cluster_combined = paste0("TME_",sce_TME$cluster_50_renamed)) %>% select(cluster_combined,cluster_names) %>% rownames_to_column(var = "cell_id")
-tumor_TME_pheno <- rbind(tumor_pheno, TME_pheno)
+## 1. Cluster 
+tumor_cluster <- colData(sce_tumor) %>% as.data.frame %>% mutate(cluster_combined = paste0("tumor_",sce_tumor$cluster_110)) %>% select(cell_id,cluster_combined)
 
-sce$cluster_combined <- tumor_TME_pheno$cluster_combined[match(rownames(colData(sce)),tumor_TME_pheno$cell_id)]
-sce$cluster_names <- tumor_TME_pheno$cluster_names[match(rownames(colData(sce)),tumor_TME_pheno$cell_id)]
-sce$cluster_origin <- ifelse(str_detect(unfactor(sce$cluster_combined),"TME"),"02_TME","01_tumor")
+TME_cluster <- colData(sce_TME) %>% as.data.frame %>% mutate(cluster_combined = paste0("TME_",sce_TME$cluster_130)) %>% select(cell_id,cluster_combined)
 
-#Add metaclusters by cell! to be updated
-sce$metacluster <- sce_tumor$metacluster[match(rownames(colData(sce)),rownames(colData(sce_tumor)))]
+tumor_TME_cluster <- rbind(tumor_cluster, TME_cluster)
 
-#Add PID groups 
-sce$PID_groups <- sce_tumor$PID_groups[match(sce$sample_id,sce_tumor$sample_id)]
+### Add to sce
+sce$cluster_combined <- tumor_TME_cluster$cluster_combined[match(sce$cell_id, tumor_TME_cluster$cell_id)]
+sce$cluster_combined <- factor(sce$cluster_combined)
 
-no_PID_group <- colData(sce)[is.na(sce$PID_groups),] %>% as.data.frame %>% select(sample_id) %>% unique() #Undefined PID_groups - "ZTMA249.1_ZTMA249_ID_212_BX4Y12_123" "ZTMA249.3_ZTMA249_ID_329_CX1Y12_339" - no panck+ cells detected
 
-#Combine color mapping
-names(col_TMEpheno$cluster_50_renamed) <- paste0("TME_",names(col_TMEpheno$cluster_50_renamed))
-col_clusters <- list("cluster_combined" = c(col_TMEpheno$cluster_50_renamed,col_tumorpheno$cluster_100), "metacluster" = col_tumorpheno$metaclusters)
+## 2. Metacluster 
+tumor_metacluster <- colData(sce_tumor) %>% as.data.frame %>% mutate(metacluster_combined = paste0("tumor_",sce_tumor$metacluster)) %>% select(cell_id,metacluster_combined)
 
-#Add PID identifier to sce
-sample_meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_metadata_processed.csv")
-colData(sce)$ID <- str_split(colData(sce)$sample_id,"_",simplify = TRUE)[,4]
-colData(sce)$PID <- sample_meta$PID[match(colData(sce)$ID,sample_meta$ID_Number)]
+TME_metacluster <- colData(sce_TME) %>% as.data.frame %>% mutate(metacluster_combined = sce_TME$immune_metacluster) %>% select(cell_id,metacluster_combined)
 
-##Save sce and colors 
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
-saveRDS(col_clusters, "/mnt/rcc_volume/TNBC/data_analysis/color_phenocombined.rds")
+tumor_TME_metacluster <- rbind(tumor_metacluster, TME_metacluster)
+
+### Add to sce
+sce$metacluster_combined <- tumor_TME_metacluster$metacluster_combined[match(sce$cell_id, tumor_TME_metacluster$cell_id)]
+sce$metacluster_combined <- factor(sce$metacluster_combined)
+
+## 3. Color mapping
+names(metadata(sce_tumor)$colors$cluster_110) <- paste0("tumor_", names(metadata(sce_tumor)$colors$cluster_110))
+names(metadata(sce_TME)$colors$cluster_130) <- paste0("TME_", names(metadata(sce_TME)$colors$cluster_130))
+
+names(metadata(sce_tumor)$colors$metacluster) <- paste0("tumor_", names(metadata(sce_tumor)$colors$metacluster))
+
+#Add to sce 
+metadata(sce)$colors$cluster_combined <- c(metadata(sce_tumor)$colors$cluster_110, metadata(sce_TME)$colors$cluster_130)
+metadata(sce)$colors$metacluster_combined <- c(metadata(sce_tumor)$colors$metacluster, metadata(sce_TME)$colors$immune_metacluster)
+```
+
+```{r save_objects, message = FALSE, warning=FALSE}
+#Save sce
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 ## Overlay tumor and TME cluster colors onto combined tSNE
 
 ```{r combined tSNE}
 #Read subsampled sce from pipeline 1
-sce_sub <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
+sce_sub <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds")
 
 #Add cluster_combined info
-sce_sub$cluster_combined <- sce$cluster_combined[match(rownames(colData(sce_sub)),rownames(colData(sce)))]
-sce_sub$cluster_origin <- sce$cluster_origin[match(rownames(colData(sce_sub)),rownames(colData(sce)))]
-sce_sub$metacluster <- sce$metacluster[match(rownames(colData(sce_sub)),rownames(colData(sce)))]
+sce_sub$cluster_combined <- sce$cluster_combined[match(sce_sub$cell_id, sce$cell_id)]
+sce_sub$metacluster_combined <- sce$metacluster_combined[match(sce_sub$cell_id, sce$cell_id)]
 
 #Plot TSNE
-plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster",shape_by = "cluster_origin")+
-  scale_color_manual(values = col_clusters$metacluster)
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_combined",shape_by = "analysis_cat")+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)
+
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_combined",shape_by = "analysis_cat")+
+    scale_color_manual(values = metadata(sce)$colors$cluster_combined)
 ```
+
+# 2. Image visualization
+
 ## Load masks and images 
 
-```{r masks images}
+```{r load images}
 #Load images and masks
 images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
 masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
-
-#subset images and masks for TMA249
-images <- images[str_detect(mcols(images)$sample_id,"ZTMA249")]
-masks <- masks[str_detect(mcols(masks)$sample_id,"ZTMA249")]
-
-#update masks mcols with PID
-mcols(masks)$PID <- sce$PID[match(mcols(masks)$sample_id,sce$sample_id)]
-mcols(images)$PID <- sce$PID[match(mcols(images)$sample_id,sce$sample_id)]
 ```
 
-## Plot cell features onto image using cytomapper
+## Plot cell features onto image
 
-```{r cytomapper, eval =F}
-### TO BE UPDATED! 
-
-#Add sample identifiers to own column for cytomapper
-sce$sample_id_short <- as.numeric(str_split(sce$sample_id,"_",simplify = TRUE)[,6])
-
-#Randomly select 10 images and add 10 manually selected ones
+```{r image viz, eval =F}
 set.seed(22)
 img_random <- sample(seq_len(length(images)), 10)
 
@@ -169,40 +163,26 @@ img_selected <- c(which(str_detect(img_files ,"ZTMA249_ID_320_CX8Y10")),which(st
 img_ids <- c(img_selected,img_random)
 
 #Plot masks of cell phenotypes
-plotCells(mask = masks[img_ids[1:9]], 
+plotCells(mask = masks[img_ids], 
           object = sce,
           img_id = "sample_id", 
           cell_id = "ObjectNumber", 
-          colour_by = "cluster_combined",
-          colour = col_clusters,
-          outline_by = "cluster_origin")
-           
-##Select images only from certain PID groups 
-PID_group_5_ids <- colData(sce) %>% as.data.frame %>% filter(PID_groups == "5") %>% pull("sample_id") %>% unique()
-
-#images[mcols(images)$sample_id %in% PID_group_5_ids]
-masks_PID_group_5 <- masks[mcols(masks)$sample_id %in% PID_group_5_ids]
-
-#Plot masks of cell phenotypes by PID group
-plotCells(mask = masks_PID_group_5, 
-          object = sce,
-          img_id = "sample_id", 
-          cell_id = "ObjectNumber", 
-          colour_by = "cluster_combined",
-          colour = col_clusters,
-          outline_by = "cluster_origin",
-          image_title = list(text = mcols(masks_PID_group_5)$PID),
-          save_plot = list(filename = "/mnt/rcc_volume/TNBC/data_analysis/01_figures/masks_celltypes_PIDgroup5.png", scale = 2))
-
-
-check <- colData(sce_tumor)[sce_tumor$sample_id == "ZTMA249.2_ZTMA249_ID_321_CX1Y11_174",] %>% as.data.frame
-check <- colData(sce_tumor)[sce_tumor$PID == "B16.56280",] %>% as.data.frame
+          colour_by = "metacluster_combined",
+          outline_by = "analysis_cat",
+          colour = list(metacluster_combined = metadata(sce)$colors$metacluster_combined),
+          thick = TRUE)
 ```
 
 
-# Spatial analysis
+# 3. Spatial analysis
 
-## 1. Neighborhood aggregation
+# 3.1 Cellular neighborhoods
+
+# 3.2 Spatial contexts
+
+# 3.3 Interaction testing
+
+# 3.4 Patch detection
 
 ### 1.1 For all clusters (Tumor ecosystem communities)
 
@@ -212,23 +192,20 @@ In the next section, we will define cellular neighborhoods by clustering cells b
 library(imcRtools)
 library(bluster)
 
-##Load sce and colors
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
-col_clusters <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/color_phenocombined.rds")
+##Load sce
+#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
 
-# Build 10-nearest neighbor graph (max distance between neighbors 30 um)
-sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "knn", k = 10, 
-                             coords = c("Pos_X",  "Pos_Y"), max_dist = 30,
+# Build spatial knn graph
+sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "knn", k = 20, 
+                         coords = c("Pos_X",  "Pos_Y"),
+                         #max_dist = 30,
                          BPPARAM = MulticoreParam(progressbar = TRUE))
 
 colPairNames(sce) #now includes knn_interaction_graph
 
-#create new category (metacluster for tumor, cluster for TNE)
-sce$metacluster_TME <- ifelse(is.na(sce$metacluster), as.character(sce$cluster_combined), as.character(sce$metacluster))
-
 # Aggregate across neighbors
 sce <- aggregateNeighbors(sce, colPairName = "knn_interaction_graph", 
-                              aggregate_by = "metadata", count_by = "metacluster_TME")
+                              aggregate_by = "metadata", count_by = "metacluster_combined")
 
 head(sce$aggregatedNeighbors)
 
@@ -262,13 +239,11 @@ ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
   ylab("Total WCSS")+
   scale_color_continuous(type = "viridis")
 
-# Select 11 clusters
-cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 11, nstart = 100)$cluster
+# Select 6 clusters
+set.seed(22)
+cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 6, nstart = 1000)$cluster
 
 sce$cellular_neighborhood <- as.factor(cur_clusters)
-
-##Save sce 
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
 ```
 
 We can now visualize a few example images and highlight the type of cells within each neighborhoood.
