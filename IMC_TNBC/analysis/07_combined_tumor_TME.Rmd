@@ -178,13 +178,7 @@ plotCells(mask = masks[img_ids],
 
 # 3.1 Cellular neighborhoods
 
-# 3.2 Spatial contexts
-
-# 3.3 Interaction testing
-
-# 3.4 Patch detection
-
-### 1.1 For all clusters (Tumor ecosystem communities)
+## Detect CN
 
 In the next section, we will define cellular neighborhoods by clustering cells based on their neighboring cells.
 
@@ -193,7 +187,7 @@ library(imcRtools)
 library(bluster)
 
 ##Load sce
-#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
 
 # Build spatial knn graph
 sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "knn", k = 20, 
@@ -239,612 +233,758 @@ ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
   ylab("Total WCSS")+
   scale_color_continuous(type = "viridis")
 
-# Select 6 clusters
+# Select 9 clusters
 set.seed(22)
-cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 6, nstart = 1000)$cluster
-
-sce$cellular_neighborhood <- as.factor(cur_clusters)
-```
-
-We can now visualize a few example images and highlight the type of cells within each neighborhoood.
-
-```{r neighborhood-2, fig.width=15, fig.height=12}
-set.seed(22)
-cur_sam <- sample(unique(sce$sample_id), 6)
-
-plotSpatial(sce[,sce$sample_id %in% cur_sam], 
-            img_id = "sample_id",
-            coords = c("Pos_X", "Pos_Y"),
-            node_color_by = "cellular_neighborhood",
-            draw_edges = TRUE,
-            colPairName = "knn_interaction_graph", 
-            nodes_first = FALSE,
-            directed = FALSE)+
-  scale_color_brewer(palette = "Set3")+
-  theme_classic()
-
-colPairNames(sce)
-
-plotSpatial(sce[,sce$sample_id %in% cur_sam], 
-            img_id = "sample_id",
-            coords = c("Pos_X", "Pos_Y"),
-            node_color_by = "cluster_combined",
-            node_shape_by = "cluster_origin",
-            draw_edges = TRUE,
-            directed = FALSE,
-            colPairName = "knn_interaction_graph", 
-            nodes_first = FALSE) +
-  scale_color_manual(values = col_clusters$cluster_combined)+
-  theme_classic()
-```
-
-```{r}
-# Visualize cell type proportions of cellular neighborhoods
-cn_prop <- table(cellular_neighborhood = sce$cellular_neighborhood,metacluster_TME = sce$metacluster_TME) %>% as.data.frame %>% group_by(cellular_neighborhood) %>% mutate(fra = Freq/sum(Freq))
-
-## 1. Heatmap body
-cn_prop_wide <- cn_prop %>% pivot_wider(id_cols = cellular_neighborhood, names_from = metacluster_TME, values_from = fra) %>% column_to_rownames(var = "cellular_neighborhood")
-
-#Option: min_max normalization per neighborhood
-cn_prop_wide <- as.matrix(cn_prop_wide)
-cn_prop_wide_min_max <- (cn_prop_wide - rowMins(cn_prop_wide))/(rowMaxs(cn_prop_wide)-rowMins(cn_prop_wide))
-
-#Heatmap body color
-col_main = viridis(100)
-
-## 2. Row annotation - number of cells/PID
-cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,PID) %>% group_by(cellular_neighborhood) %>% table() %>% as.data.frame
-n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(cellular_neighborhood) %>% count(name = "n_PID") %>% column_to_rownames("cellular_neighborhood")
-ncells <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood) %>% group_by(cellular_neighborhood) %>% count() 
-
-row_anno <- cbind(n_PID,ncells)
-
-#check and correct order
-row_anno <- row_anno[match(rownames(cn_prop_wide),row_anno$cellular_neighborhood),]
-
-## 3. Column annotation 
-col_anno <- colData(sce) %>% as.data.frame() %>% select(metacluster_TME,metacluster) %>% unique()
-col_anno$metacluster_TME <- as.character(col_anno$metacluster_TME)
-col_anno$metacluster <- as.character(col_anno$metacluster)
-
-#check and correct order
-col_anno <- col_anno[match(colnames(cn_prop_wide),col_anno$metacluster_TME),]
-
-
-col_ha <- HeatmapAnnotation(metacluster_TME = col_anno$metacluster_TME,
-                            metacluster = col_anno$metacluster,
-                  #col = col_clusters, 
-                  border = TRUE, 
-                  na_col = "black",
-                  annotation_name_side = "left")
-
-## 4. Plot heatmap
-h <- Heatmap(cn_prop_wide_min_max,
-             name = "min_max cluster proportion",
-        col = col_main, 
-        bottom_annotation = col_ha)+
-  rowAnnotation(neighborhood = anno_simple(unfactor(row_anno$cellular_neighborhood),pch = unfactor(row_anno$cellular_neighborhood), border = TRUE))+
-  rowAnnotation(n_PID = anno_barplot(n_PID, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)+
-  rowAnnotation(n_cells = anno_barplot(ncells$n, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)
-
-draw(h)
-```
-
-### 1.2 For tumor clusters (Tumor neighborhoods)
-
-In the next section, we will define tumor neighborhoods by clustering tumor cells based on their neighboring tumor cells.
-
-1. Based on clusters
-
-```{r neighborhood-2, message=FALSE, warning=FALSE}
-library(imcRtools)
-library(bluster)
-
-##Load sce and colors
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
-col_clusters <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/color_phenocombined.rds")
-
-#subset sce for tumor cells 
-# this will also subset the knn interaction graph from all cells
-sce <- sce[,sce$analysis_cat == "tumor"]
-
-# # Build 10-nearest neighbor graph (max distance between neighbors 30 um)
-sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "knn", k = 20,
-                        #threshold = 30, 
-                        name = "knn_interaction_graph_tumor",
-                        coords = c("Pos_X",  "Pos_Y"))
-
-
-# Aggregate across neighbors
-sce <- aggregateNeighbors(sce, colPairName = "knn_interaction_graph", 
-                              aggregate_by = "metadata", count_by = "metacluster")
-
-# Perform cluster sweep for kmeans (silhouette width, wcss)
-set.seed(22)
-clust_list <- lapply(2:20, function(k){
-  cur_km <- kmeans(sce$aggregatedNeighbors, centers = k)
-  return(list(wss = sum(cur_km$withinss),
-           clusters = cur_km$cluster))
-})
-
-sil <- vapply(lapply(clust_list, `[[`, 2), 
-              function(x) mean(approxSilhouette(sce$aggregatedNeighbors, x)$width), 
-              0)
-
-ggplot(data.frame(k = 2:20, sil = sil))+
-  geom_point(aes(k, sil, col = sil))+
-  geom_line(aes(k, sil,col=sil))+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
-  xlab("k")+
-  ylab("Mean silhouette width")+
-  scale_color_continuous(type = "viridis")
-
-ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
-  geom_point(aes(k, wss, col = wss))+
-  geom_line(aes(k, wss, col = wss))+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  xlab("k")+
-  ylab("Total WCSS")+
-  scale_color_continuous(type = "viridis")
-
-# Select 9 neighborhoods
 cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 9, nstart = 100)$cluster
 
 sce$cellular_neighborhood <- as.factor(cur_clusters)
-
 ```
 
+## Heatmap visualization
+
+Quick and easy heatmap to visualize the proportion of metaclusters in each CN
 
 ```{r}
+library(tidyverse)
+for_plot <- colData(sce) %>% as_tibble() %>%
+    group_by(cellular_neighborhood, metacluster_combined) %>%
+    summarize(count = n()) %>%
+    mutate(freq = count / sum(count)) %>%
+    pivot_wider(id_cols = cellular_neighborhood, names_from = metacluster_combined, 
+                values_from = freq, values_fill = 0) %>%
+    ungroup() %>%
+    select(-cellular_neighborhood)
+
+pheatmap(for_plot, color = colorRampPalette(c("dark blue", "white", "dark red"))(100), 
+         scale = "column")
+```
+Rich heatmap visualization 
+
+```{r rich heatmap}
+### 1. Heatmap body ###
+
 # Visualize cell type proportions of cellular neighborhoods
-cn_prop <- table(cellular_neighborhood = sce$cellular_neighborhood,metacluster = sce$metacluster) %>% as.data.frame %>% group_by(cellular_neighborhood) %>% mutate(fra = Freq/sum(Freq))
+cn_prop_wide <- colData(sce) %>% as_tibble() %>%
+    group_by(cellular_neighborhood, metacluster_combined) %>%
+    summarize(count = n()) %>%
+    mutate(freq = count / sum(count)) %>%
+    pivot_wider(id_cols = cellular_neighborhood, names_from = metacluster_combined, 
+                values_from = freq, values_fill = 0) %>%
+    ungroup() %>% column_to_rownames(var = "cellular_neighborhood")
 
-## 1. Heatmap body
-cn_prop_wide <- cn_prop %>% pivot_wider(id_cols = cellular_neighborhood, names_from = metacluster, values_from = fra) %>% column_to_rownames(var = "cellular_neighborhood")
 
-#Option: min_max normalization per neighborhood
-cn_prop_wide <- as.matrix(cn_prop_wide)
-cn_prop_wide_min_max <- (cn_prop_wide - rowMins(cn_prop_wide))/(rowMaxs(cn_prop_wide)-rowMins(cn_prop_wide))
+#Option: Column-scaled
+cn_prop_wide_scaled <- scale(as.matrix(cn_prop_wide))
 
 #Heatmap body color
 col_main = viridis(100)
+col_scaled <- colorRamp2(c(-1, 0, 2, 3), c("#A278FAFF", "#F1E9E7FF", "#FF8061FF", "#FF0000FF"))
 
-## 2. Row annotation - number of cells/PID
+
+### 2. Heatmap annotation ###
+
+#Number of cells per cluster 
+n_cells <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood) %>% group_by(cellular_neighborhood) %>% count() 
+
+# Proportion of grade per cluster
+grade <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,grade) %>% group_by(cellular_neighborhood) %>% table() %>% as.data.frame
+grade <- grade %>% group_by(cellular_neighborhood) %>% mutate(fra = Freq/sum(Freq)) 
+grade <- grade %>% select(-Freq) %>% pivot_wider(id_cols = cellular_neighborhood,names_from = grade,values_from = fra) %>% column_to_rownames("cellular_neighborhood")
+
+# Proportion of pT stage per cluster
+pT <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,pT_simple) %>% group_by(cellular_neighborhood) %>% table() %>% as.data.frame
+pT <- pT %>% group_by(cellular_neighborhood) %>% mutate(fra = Freq/sum(Freq)) 
+pT <- pT %>% select(-Freq) %>% pivot_wider(id_cols = cellular_neighborhood,names_from = pT_simple,values_from = fra) %>% column_to_rownames("cellular_neighborhood")
+
+# Proportion of pN stage per cluster
+pN <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,pN_simple) %>% group_by(cellular_neighborhood) %>% table() %>% as.data.frame
+pN <- pN %>% group_by(cellular_neighborhood) %>% mutate(fra = Freq/sum(Freq)) 
+pN <- pN %>% select(-Freq) %>% pivot_wider(id_cols = cellular_neighborhood,names_from = pN_simple,values_from = fra) %>% column_to_rownames("cellular_neighborhood")
+
+# Number of contributing patients
 cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,PID) %>% group_by(cellular_neighborhood) %>% table() %>% as.data.frame
 n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(cellular_neighborhood) %>% count(name = "n_PID") %>% column_to_rownames("cellular_neighborhood")
-ncells <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood) %>% group_by(cellular_neighborhood) %>% count() 
 
-row_anno <- cbind(n_PID,ncells)
+# Define colors for cellular neighborhood 
+cn_col <- setNames(colorRampPalette(brewer.pal(9, "Accent"))(length(unique(sce$cellular_neighborhood))), sort(unique(sce$cellular_neighborhood)))         
 
-#check and correct order
-row_anno <- row_anno[match(rownames(cn_prop_wide),row_anno$cellular_neighborhood),]
+metadata(sce)$colors$cellular_neighborhood <- cn_col
 
-## 3. Column annotation 
-col_anno <- colData(sce) %>% as.data.frame() %>% select(metacluster) %>% unique()
-col_anno$metacluster <- as.character(col_anno$metacluster)
+# Metadata annotation
+ha_meta <- HeatmapAnnotation(cellular_neighborhood = anno_simple(unfactor(ncells$cellular_neighborhood),pch = unfactor(ncells$cellular_neighborhood), border=TRUE,col=metadata(sce)$colors$cellular_neighborhood),
+                            n_cells = anno_barplot(ncells$n, width = unit(10, "mm"),gp = gpar(fill = "#440154FF")),
+                            n_PID = anno_barplot(n_PID, width = unit(10, "mm"),gp = gpar(fill = "#440154FF")),
+                            grade = anno_barplot(grade, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$grade)),
+                            pT = anno_barplot(pT, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$pT_simple)),
+                            pN = anno_barplot(pN, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$pN_simple)),
+                            border = TRUE, 
+                            annotation_name_rot = 90,
+                            gap = unit(1,"mm"),
+                            which = "row")
 
-#check and correct order
-col_anno <- col_anno[match(colnames(cn_prop_wide),col_anno$metacluster),]
-
-col_anno <- col_anno %>% as.data.frame()
-
-col_ha <- HeatmapAnnotation(metacluster = col_anno$.,
-                  col = col_clusters, 
-                  border = TRUE, 
-                  na_col = "black",
-                  annotation_name_side = "left")
-
-## 4. Plot heatmap
+### 3. Plot heatmap ###
 h <- Heatmap(cn_prop_wide,
-             name = "cluster proportion",
+        name = "MC proportion",
         col = col_main,
-        bottom_annotation = col_ha)+
-  rowAnnotation(neighborhood = anno_simple(unfactor(row_anno$cellular_neighborhood),pch = unfactor(row_anno$cellular_neighborhood), border = TRUE))+
-  rowAnnotation(n_PID = anno_barplot(n_PID, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)+
-  rowAnnotation(n_cells = anno_barplot(ncells$n, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)
-
-draw(h)
-```
-We can now visualize a few example neighborhoods and highlight the type of cells within each neighborhoood.
-
-```{r neighborhood-2}
-i=7
-cur_sam <- colData(sce) %>% as.data.frame %>% select(sample_id,cellular_neighborhood) %>% filter(cellular_neighborhood == i) %>% count(sample_id,sort = TRUE) %>% slice(1:10) %>% pull(sample_id)
-
-pdf(paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_combined/TNBC_249_TumorNeighborhood_SubsetKNN_",i,".pdf"),width = 12, height = 8)
-plotSpatial(sce[,sce$sample_id %in% cur_sam], 
-            img_id = "sample_id",
-            coords = c("Pos_X", "Pos_Y"),
-            node_color_by = "cellular_neighborhood",
-            draw_edges = TRUE,
-            colPairName = "knn_interaction_graph", 
-            nodes_first = FALSE,
-            directed = FALSE)+
-  scale_color_brewer(palette = "Set3")+
-  theme_classic()
-
-plotSpatial(sce[,sce$sample_id %in% cur_sam], 
-            img_id = "sample_id",
-            coords = c("Pos_X", "Pos_Y"),
-            node_color_by = "metacluster",
-            draw_edges = TRUE,
-            directed = FALSE,
-            colPairName = "knn_interaction_graph", 
-            nodes_first = FALSE) +
-  scale_color_manual(values = col_clusters$metacluster)+
-  theme_classic()
-
-plotSpatial(sce[,sce$sample_id %in% cur_sam], 
-            img_id = "sample_id",
-            coords = c("Pos_X", "Pos_Y"),
-            node_color_by = "cluster_combined",
-            draw_edges = TRUE,
-            directed = FALSE,
-            colPairName = "knn_interaction_graph", 
-            nodes_first = FALSE) +
-  scale_color_manual(values = col_clusters$cluster_combined)+
-  theme_classic()
-dev.off()
-
-```
-
-```{r}
-nh_meta_cells <- colData(sce) %>% as.data.frame %>% select(cellular_neighborhood,metacluster) %>% group_by(cellular_neighborhood) %>% count(metacluster)
-
-ggplot(nh_meta_cells)+
-  geom_tile(color = "black",aes(cellular_neighborhood, n, fill = metacluster), position = "stack")+
-  scale_fill_manual(values=col_clusters$metacluster)+
-  theme_classic(base_size = 12)+
-  ylab("Number of cells per neighborhood")+
-  xlab("Tumor neighborhoods")
-```
-
-```{r}
-PID_neighborhoods <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,PID) %>% group_by(PID) %>% table() %>% as.data.frame
-PID_neighborhoods <- PID_neighborhoods %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
-
-ggplot(PID_neighborhoods)+
-   geom_tile(color = "black",aes(PID, fra, fill = cellular_neighborhood), position = "stack")+
-  #scale_fill_manual(values=col_clusters$metaclusters) + 
-  theme_classic(base_size = 12)+
-  ylab("Fraction of tumor metacluster neighborhood")+
-  xlab("PID")+
-  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
-
-ggplot(PID_neighborhoods)+
-   geom_tile(color = "black",aes(PID, Freq, fill = cellular_neighborhood), position = "stack")+
-  #scale_fill_manual(values=col_clusters$metaclusters) + 
-  theme_classic(base_size = 12)+
-  ylab("Number of cells per tumor neighborhood")+
-  xlab("PID")+
-  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
-
-
-p_PID_neighborhoods
-
-SID_neighborhoods <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,sample_id) %>% group_by(sample_id) %>% table() %>% as.data.frame
-SID_neighborhoods <- SID_neighborhoods %>% group_by(sample_id) %>% mutate(fra = Freq/sum(Freq))
-
-SID_neighborhoods_cor <- SID_neighborhoods
-SID_neighborhoods_cor$PID <- sce$PID[match(SID_neighborhoods$sample_id,sce$sample_id)]
-
-SID_neighborhoods_cor <- foreach(i = unique(colData(sce)$PID),.combine = "rbind")%do%{
-SID <- SID_neighborhoods_cor %>% filter(PID %in% i) %>% select(-Freq,-PID) %>% pivot_wider(id_cols = cellular_neighborhood,names_from = sample_id,values_from = fra) %>% column_to_rownames("cellular_neighborhood")
-cor <- cor(SID,method = "spearman")
-cor[2]
-}
-
-SID_neighborhoods_cor <- as.data.frame(SID_neighborhoods_cor) 
-SID_neighborhoods_cor$PID <- unique(colData(sce)$PID) 
-SID_neighborhoods_cor$category <- "PID"
-
-SID_metacluster_cor_plot <- ggplot(SID_neighborhoods_cor, aes(x = category, y = V1))+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  guides(color = "none")+
-  #scale_color_manual(values = col_PID)+
-  theme_classic(base_size = 12)+
-  theme(axis.title.x = element_blank())+
-  ylab("Correlation of tumor neighborhood fractions per PID (n=2)")+
-  ggtitle(paste("Spearman rho = ",round(median(SID_neighborhoods_cor$V1, na.rm = TRUE), digits = 2)))
-
-SID_metacluster_cor_plot
-```
-
-
-```{r}
-PID_groups <- PID_neighborhoods
-
-PID_groups <- PID_groups %>% pivot_wider(id_cols = "PID",names_from = "cellular_neighborhood",values_from = "fra") %>% column_to_rownames("PID")
-
-#double-check that rowsums are 1 
-#TO DO: need to calculate new fractions per PID if I remove cluster
-rowSums(PID_groups)
-
-
-### 1. Cluster-testing
-library(clValid)
-#Internal measures
-testCL<- clValid(PID_groups,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
-summary(testCL)
-plot(testCL, legend = FALSE)
-
-#Stability measures 
-testCL_1<- clValid(PID_groups,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans"),validation="stability",metric="euclidean", method = "ward")
-summary(testCL_1)
-
-plot(testCL_1, legend = FALSE)
-#Selected method: kmeans, 10
-
-# #kmeans clustering
-set.seed(22)
-out_k <- kmeans(PID_groups,10,nstart = 10000)
-row_anno$PID_groups <- as.factor(out_k$cluster)
-
-#Annotation dataframes
-row_anno <- PID_groups %>% rownames_to_column(var = "PID")
-
-col_anno <- PID_metacluster %>% ungroup %>% select(metacluster) %>% distinct()
-
-
-#Coloring main heatmap and column anno
-col_main = viridis(100)
-
-col_cluster_groups <- col_clusters$cluster_100[names(col_clusters$cluster_100) %in% col_anno$cluster_100]
-
-col_clusters$cluster_100
-
-#Print heatmap
-h_g_clus <- Heatmap(PID_groups, name = "Cluster fraction", 
-        col = col_main,split = row_anno$PID_groups,
-        show_column_names = T, show_row_names =  F, 
-        row_title_side = c("right"),
-        #cluster_rows = avg_col_dend_MCP,
-        row_split = row_anno$PID_groups,
+        row_title = NULL,
         clustering_method_columns = "ward.D2",
-        #right_annotation = ha_right,
-        row_title_rot = 0)
-
-%v%
-  columnAnnotation(cluster_100 = anno_simple(unfactor(col_anno$cluster_100), pch = unfactor(col_anno$cluster_100),border=TRUE, col = col_clusters$cluster_100),annotation_name_side = "left")%v%
-  columnAnnotation(metacluster = anno_simple(col_anno$metacluster, pch = col_anno$metacluster,border=TRUE, col = col_clusters$metaclusters),annotation_name_side = "left")
-
-  
-h_g_clus <- draw(h_g_clus)
-draw(h_g_clus)
-
-```
-
-### 1.3 For TME clusters (TME neighborhoods)
-In the next section, we will define tumor neighborhoods by clustering tumor cells based on their neighboring tumor cells.
-
-1. Based on clusters
-
-```{r neighborhood-2, message=FALSE, warning=FALSE}
-library(imcRtools)
-library(bluster)
-
-##Load sce and colors
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_08.rds")
-col_clusters <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/color_phenocombined.rds")
-
-#subset sce for tumor cells 
-# this will also subset the knn interaction graph from all cells
-sce <- sce[,sce$analysis_cat == "non_tumor"]
-
-
-# # Build 10-nearest neighbor graph (max distance between neighbors 30 um)
-# sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "expansion",
-#                                  threshold = 30, coords = c("Pos_X",  "Pos_Y"),
-#                          BPPARAM = MulticoreParam(workers = detectCores()-2,progressbar = TRUE))
-
-
-# Aggregate across neighbors
-sce <- aggregateNeighbors(sce, colPairName = "knn_interaction_graph", 
-                              aggregate_by = "metadata", count_by = "cluster_combined")
-
-sce$aggregatedNeighbors
-
-# Perform cluster sweep for kmeans (silhouette width, wcss)
-set.seed(22)
-clust_list <- lapply(2:20, function(k){
-  cur_km <- kmeans(sce$aggregatedNeighbors, centers = k)
-  return(list(wss = sum(cur_km$withinss),
-           clusters = cur_km$cluster))
-})
-
-sil <- vapply(lapply(clust_list, `[[`, 2), 
-              function(x) mean(approxSilhouette(sce$aggregatedNeighbors, x)$width), 
-              0)
-
-ggplot(data.frame(k = 2:20, sil = sil))+
-  geom_point(aes(k, sil, col = sil))+
-  geom_line(aes(k, sil,col=sil))+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
-  xlab("k")+
-  ylab("Mean silhouette width")+
-  scale_color_continuous(type = "viridis")
-
-ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
-  geom_point(aes(k, wss, col = wss))+
-  geom_line(aes(k, wss, col = wss))+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  xlab("k")+
-  ylab("Total WCSS")+
-  scale_color_continuous(type = "viridis")
-
-# Select 11 neighborhoods
-cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 11, nstart = 100)$cluster
-
-sce$cellular_neighborhood <- as.factor(cur_clusters)
-```
-
-
-```{r}
-
-sce$cluster_combined <- factor(sce$cluster_combined)
-
-# Visualize cell type proportions of cellular neighborhoods
-cn_prop <- table(cellular_neighborhood = sce$cellular_neighborhood,cluster_combined = sce$cluster_combined) %>% as.data.frame %>% group_by(cellular_neighborhood) %>% mutate(fra = Freq/sum(Freq))
-
-## 1. Heatmap body
-cn_prop_wide <- cn_prop %>% pivot_wider(id_cols = cellular_neighborhood, names_from = cluster_combined, values_from = fra) %>% column_to_rownames(var = "cellular_neighborhood")
-
-#Option: min_max normalization per neighborhood
-cn_prop_wide <- as.matrix(cn_prop_wide)
-cn_prop_wide_min_max <- (cn_prop_wide - rowMins(cn_prop_wide))/(rowMaxs(cn_prop_wide)-rowMins(cn_prop_wide))
-
-#Heatmap body color
-col_main = viridis(100)
-
-## 2. Row annotation - number of cells/PID
-cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,PID) %>% group_by(cellular_neighborhood) %>% table() %>% as.data.frame
-n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(cellular_neighborhood) %>% count(name = "n_PID") %>% column_to_rownames("cellular_neighborhood")
-ncells <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood) %>% group_by(cellular_neighborhood) %>% count() 
-
-row_anno <- cbind(n_PID,ncells)
-
-#check and correct order
-row_anno <- row_anno[match(rownames(cn_prop_wide),row_anno$cellular_neighborhood),]
-
-## 3. Column annotation 
-col_anno <- colData(sce) %>% as.data.frame() %>% select(cluster_combined) %>% unique()
-col_anno$cluster_combined <- as.character(col_anno$cluster_combined)
-
-#check and correct order
-col_anno <- col_anno[match(colnames(cn_prop_wide),col_anno$cluster_combined),]
-
-col_anno <- col_anno %>% as.data.frame()
-
-col_ha <- HeatmapAnnotation(cluster_combined = col_anno$.,
-                  col = col_clusters, 
-                  border = TRUE, 
-                  na_col = "black",
-                  annotation_name_side = "left")
-
-## 4. Plot heatmap
-h <- Heatmap(cn_prop_wide,
-             name = "cluster proportion",
-        col = col_main,
-        bottom_annotation = col_ha)+
-  rowAnnotation(neighborhood = anno_simple(unfactor(row_anno$cellular_neighborhood),pch = unfactor(row_anno$cellular_neighborhood), border = TRUE))+
-  rowAnnotation(n_PID = anno_barplot(n_PID, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)+
-  rowAnnotation(n_cells = anno_barplot(ncells$n, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)
+        clustering_method_rows = "ward.D2")+
+  Heatmap(cn_prop_wide_scaled,
+          col = col_scaled,
+          name = "scaled MC proportion")+
+  ha_meta
 
 draw(h)
 ```
+## Patient visualization
 
-We can now visualize a few example neighborhoods and highlight the type of cells within each neighborhoood.
+```{r}
+## 1. Fraction of CN per PID
+dittoBarPlot(sce, var = "cellular_neighborhood", group.by = "PID")+
+  scale_fill_manual(values = metadata(sce)$colors$cellular_neighborhood)+
+  theme(axis.text.x = element_blank())
+
+## 2. Fraction of PID per CN
+dittoBarPlot(sce, var = "PID", group.by = "cellular_neighborhood")+
+  scale_fill_manual(values = metadata(sce)$colors$PID)+
+  guides(fill = "none")
+```
+
+## Image visualization
+
+We can now visualize a few example images and highlight the CN
 
 ```{r neighborhood-2}
-i=7
-cur_sam <- colData(sce) %>% as.data.frame %>% select(sample_id,cellular_neighborhood) %>% filter(cellular_neighborhood == i) %>% count(sample_id,sort = TRUE) %>% slice(1:10) %>% pull(sample_id)
+set.seed(22)
+cur_sam <- sample(unique(sce$sample_id), 6)
 
-pdf(paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_combined/TNBC_249_TumorNeighborhood_SubsetKNN_",i,".pdf"),width = 12, height = 8)
+# Metacluster
 plotSpatial(sce[,sce$sample_id %in% cur_sam], 
-            img_id = "sample_id",
-            coords = c("Pos_X", "Pos_Y"),
-            node_color_by = "cellular_neighborhood",
-            draw_edges = TRUE,
-            colPairName = "knn_interaction_graph", 
-            nodes_first = FALSE,
-            directed = FALSE)+
-  scale_color_brewer(palette = "Set3")+
-  theme_classic()
+            node_color_by = "metacluster_combined", 
+            img_id = "sample_id", 
+            node_size_fix = 0.5,
+            node_shape_by = "analysis_cat") +
+    scale_color_manual(values = metadata(sce)$colors$metacluster_combined)
 
+# Cellular Neighborhoods
 plotSpatial(sce[,sce$sample_id %in% cur_sam], 
-            img_id = "sample_id",
-            coords = c("Pos_X", "Pos_Y"),
-            node_color_by = "metacluster",
-            draw_edges = TRUE,
-            directed = FALSE,
-            colPairName = "knn_interaction_graph", 
-            nodes_first = FALSE) +
-  scale_color_manual(values = col_clusters$metacluster)+
-  theme_classic()
-
-plotSpatial(sce[,sce$sample_id %in% cur_sam], 
-            img_id = "sample_id",
-            coords = c("Pos_X", "Pos_Y"),
-            node_color_by = "cluster_combined",
-            draw_edges = TRUE,
-            directed = FALSE,
-            colPairName = "knn_interaction_graph", 
-            nodes_first = FALSE) +
-  scale_color_manual(values = col_clusters$cluster_combined)+
-  theme_classic()
-dev.off()
+            node_color_by = "cellular_neighborhood", 
+            img_id = "sample_id", 
+            node_size_fix = 0.5) +
+    scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)
 
 ```
+## Survival analysis 
 
-```{r}
-nh_meta_cells <- colData(sce) %>% as.data.frame %>% select(cellular_neighborhood,cluster_combined) %>% group_by(cellular_neighborhood) %>% count(cluster_combined)
+### For OS on CN proportions
 
-ggplot(nh_meta_cells)+
-  geom_tile(color = "black",aes(cellular_neighborhood, n, fill = cluster_combined), position = "stack")+
-  scale_fill_manual(values=col_clusters$cluster_combined)+
-  theme_classic(base_size = 12)+
-  ylab("Number of cells per community")+
-  xlab("TME neighborhoods")
-```
+```{r cox}
+library(survival)
+library(survminer)
 
-```{r}
-PID_neighborhoods <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,PID) %>% group_by(PID) %>% table() %>% as.data.frame
-PID_neighborhoods <- PID_neighborhoods %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_cellular_neighborhood <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_cellular_neighborhood <- PID_cellular_neighborhood %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
-ggplot(PID_neighborhoods)+
-   geom_tile(color = "black",aes(PID, fra, fill = cellular_neighborhood), position = "stack")+
-  #scale_fill_manual(values=col_clusters$metaclusters) + 
-  theme_classic(base_size = 12)+
-  ylab("Fraction of tumor metacluster neighborhood")+
-  xlab("PID")+
-  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_cellular_neighborhood %>% pivot_wider(id_cols = "PID",names_from = "cellular_neighborhood",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("CN",colnames(PID_metagroups))
 
-ggplot(PID_neighborhoods)+
-   geom_tile(color = "black",aes(PID, Freq, fill = cellular_neighborhood), position = "stack")+
-  #scale_fill_manual(values=col_clusters$metaclusters) + 
-  theme_classic(base_size = 12)+
-  ylab("Number of cells per tumor neighborhood")+
-  xlab("PID")+
-  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_OS <- sce$status_OS[match(rownames(Cox_df),sce$PID)]
+Cox_df$OS_months <- sce$OS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -CN4) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ CN4"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
 
 
-p_PID_neighborhoods
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("CN")+
+ylab("HR for con_prop")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
 
-SID_neighborhoods <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,sample_id) %>% group_by(sample_id) %>% table() %>% as.data.frame
-SID_neighborhoods <- SID_neighborhoods %>% group_by(sample_id) %>% mutate(fra = Freq/sum(Freq))
+hr_prop
 
-SID_neighborhoods_cor <- SID_neighborhoods
-SID_neighborhoods_cor$PID <- sce$PID[match(SID_neighborhoods$sample_id,sce$sample_id)]
-
-SID_neighborhoods_cor <- foreach(i = unique(colData(sce)$PID),.combine = "rbind")%do%{
-SID <- SID_neighborhoods_cor %>% filter(PID %in% i) %>% select(-Freq,-PID) %>% pivot_wider(id_cols = cellular_neighborhood,names_from = sample_id,values_from = fra) %>% column_to_rownames("cellular_neighborhood")
-cor <- cor(SID,method = "spearman")
-cor[2]
+## 2. Based on categories (mean division of cluster proportions)
+Cox_df_mean <- foreach(i = Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
+Cox_df %>% select(i) %>% mutate(mean = ifelse(Cox_df[,i] > mean(Cox_df[,i]),"B","A")) %>% pull(mean)
 }
 
-SID_neighborhoods_cor <- as.data.frame(SID_neighborhoods_cor) 
-SID_neighborhoods_cor$PID <- unique(colData(sce)$PID) 
-SID_neighborhoods_cor$category <- "PID"
+colnames(Cox_df_mean) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+rownames(Cox_df_mean) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
+Cox_df_mean <- as.data.frame(Cox_df_mean)
 
-SID_metacluster_cor_plot <- ggplot(SID_neighborhoods_cor, aes(x = category, y = V1))+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  guides(color = "none")+
-  #scale_color_manual(values = col_PID)+
-  theme_classic(base_size = 12)+
-  theme(axis.title.x = element_blank())+
-  ylab("Correlation of tumor neighborhood fractions per PID (n=2)")+
-  ggtitle(paste("Spearman rho = ",round(median(SID_neighborhoods_cor$V1, na.rm = TRUE), digits = 2)))
+identical(rownames(Cox_df), rownames(Cox_df_mean))
 
-SID_metacluster_cor_plot
+Cox_df_mean <- cbind(Cox_df_mean, Cox_df %>% select(status_OS,OS_months, status_OS, OS_months, age, grade, pT_simple, pN_simple, pM_simple))
+
+#Based on proportions
+covariates <- Cox_df_mean %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+
+multi_model <- coxph(multi_formula, data = Cox_df_mean)
+
+summary(multi_model)
+
+multi_res <- summary(multi_model)
+
+plot_df_mean <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+#Plot hazard ratios
+hr_mean <- ggplot(plot_df_mean, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("CN")+
+ylab("HR for mean")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_mean
+
+## 3. Based on categories (GMM division of cluster proportions)
+Cox_df_GMM <- foreach(i = Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
+GMM_Cox <- Mclust(Cox_df[,i], G = 2)
+as.character(GMM_Cox$classification)
+}
+
+colnames(Cox_df_GMM) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+rownames(Cox_df_GMM) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
+Cox_df_GMM <- as.data.frame(Cox_df_GMM,stringsAsFactors=TRUE)
+
+identical(rownames(Cox_df), rownames(Cox_df_GMM))
+
+Cox_df_GMM <- cbind(Cox_df_GMM, Cox_df %>% select(status_OS,OS_months, status_OS, OS_months, age, grade, pT_simple, pN_simple, pM_simple))
+
+#Based on proportions
+covariates <- Cox_df_GMM %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+
+multi_model <- coxph(multi_formula, data = Cox_df_GMM)
+
+summary(multi_model)
+
+summary(Cox_df_GMM)
+
+multi_res <- summary(multi_model)
+
+plot_df_GMM <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+#Plot hazard ratios
+hr_GMM <- ggplot(plot_df_GMM, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("CN")+
+ylab("HR for GMM")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop/
+hr_mean/
+hr_GMM
+```
+### For DFS on CN proportions
+
+```{r cox}
+library(survival)
+library(survminer)
+
+PID_cellular_neighborhood <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_cellular_neighborhood <- PID_cellular_neighborhood %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_cellular_neighborhood %>% pivot_wider(id_cols = "PID",names_from = "cellular_neighborhood",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("CN",colnames(PID_metagroups))
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -CN4) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ CN4"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("CN")+
+ylab("HR for con_prop")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+
+## 2. Based on categories (mean division of cluster proportions)
+Cox_df_mean <- foreach(i = Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
+Cox_df %>% select(i) %>% mutate(mean = ifelse(Cox_df[,i] > mean(Cox_df[,i]),"B","A")) %>% pull(mean)
+}
+
+colnames(Cox_df_mean) <- Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+rownames(Cox_df_mean) <- Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
+Cox_df_mean <- as.data.frame(Cox_df_mean)
+
+identical(rownames(Cox_df), rownames(Cox_df_mean))
+
+Cox_df_mean <- cbind(Cox_df_mean, Cox_df %>% select(status_DFS,DFS_months, status_DFS, DFS_months, age, grade, pT_simple, pN_simple, pM_simple))
+
+#Based on proportions
+covariates <- Cox_df_mean %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+
+multi_model <- coxph(multi_formula, data = Cox_df_mean)
+
+summary(multi_model)
+
+multi_res <- summary(multi_model)
+
+plot_df_mean <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+#Plot hazard ratios
+hr_mean <- ggplot(plot_df_mean, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("CN")+
+ylab("HR for mean")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_mean
+
+## 3. Based on categories (GMM division of cluster proportions)
+Cox_df_GMM <- foreach(i = Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
+GMM_Cox <- Mclust(Cox_df[,i], G = 2)
+as.character(GMM_Cox$classification)
+}
+
+colnames(Cox_df_GMM) <- Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+rownames(Cox_df_GMM) <- Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
+Cox_df_GMM <- as.data.frame(Cox_df_GMM,stringsAsFactors=TRUE)
+
+identical(rownames(Cox_df), rownames(Cox_df_GMM))
+
+Cox_df_GMM <- cbind(Cox_df_GMM, Cox_df %>% select(status_DFS,DFS_months, status_DFS, DFS_months, age, grade, pT_simple, pN_simple, pM_simple))
+
+#Based on proportions
+covariates <- Cox_df_GMM %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+
+multi_model <- coxph(multi_formula, data = Cox_df_GMM)
+
+summary(multi_model)
+
+summary(Cox_df_GMM)
+
+multi_res <- summary(multi_model)
+
+plot_df_GMM <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+#Plot hazard ratios
+hr_GMM <- ggplot(plot_df_GMM, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("CN")+
+ylab("HR for GMM")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop/
+hr_mean/
+hr_GMM
 ```
 
+# 3.2 Spatial contexts
 
+## Detect SC
+
+Here, we will define spatial contexts based on the previous CN assignments.
+
+```{r detectSpatialContext}
+# Generate k-nearest neighbor graph for SC detection (k=40) 
+sce <- buildSpatialGraph(sce, 
+                         img_id = "sample_id", 
+                         type = "knn", 
+                         name = "knn_spatialcontext_graph", 
+                         k = 40,
+                         BPPARAM = MulticoreParam(progressbar = TRUE))
+
+# Aggregate based on clustered_neighbors
+sce <- aggregateNeighbors(sce, 
+                          colPairName = "knn_spatialcontext_graph",
+                          aggregate_by = "metadata",
+                          count_by = "cellular_neighborhood",
+                          name = "aggregatedNeighborhood")
+
+# Detect spatial contexts
+sce <- detectSpatialContext(sce, 
+                            entry = "aggregatedNeighborhood",
+                            threshold = 0.90,
+                            name = "spatial_context")
+
+length(unique(sce$spatial_context))
+```
+
+## Filter SC 
+
+```{r}
+#Abundant SC - at least 20 PID and 500 cells
+sce <- filterSpatialContext(sce, group_by = "PID", group_threshold = 20, cells_threshold = 500)
+
+length(unique(sce$spatial_context_filtered))
+
+# Define SC color scheme and add to metadata
+col_SC <- setNames(colorRampPalette(brewer.pal(8, "Accent"))(length(unique(sce$spatial_context_filtered))), 
+                   sort(unique(sce$spatial_context_filtered)))
+
+metadata(sce)$colors$col_SC <- col_SC 
+```
+
+## Plot SC Graph 
+
+```{r}
+plotSpatialContext(sce, entry = "spatial_context_filtered", 
+                   group_by = "PID", node_color_by = "name", node_size_by = "n_cells")+
+  scale_color_manual(values = metadata(sce)$colors$col_SC)
+
+
+plotSpatialContext(sce, entry = "spatial_context_filtered", 
+                   group_by = "PID", node_color_by = "n_group", node_size_by = "n_cells")+
+  scale_color_viridis()
+```
+
+## Image visualization 
+
+```{r}
+set.seed(22)
+cur_sam <- sample(unique(sce$sample_id), 6)
+
+# Cellular Neighborhoods
+plotSpatial(sce[,sce$sample_id %in% cur_sam], 
+            node_color_by = "cellular_neighborhood", 
+            img_id = "sample_id", 
+            node_size_fix = 0.5) +
+    scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)
+
+# Spatial Contexts
+plotSpatial(sce[,sce$sample_id %in% cur_sam], 
+            node_color_by = "spatial_context_filtered", 
+            img_id = "sample_id", 
+            node_size_fix = 0.5) +
+    scale_color_manual(values = metadata(sce)$colors$col_SC)
+```
+
+## Patient visualization
+
+```{r}
+## 1. Fraction of CN per PID
+dittoBarPlot(sce, var = "spatial_context_filtered", group.by = "PID")+
+  scale_fill_manual(values = metadata(sce)$colors$col_SC)+
+  theme(axis.text.x = element_blank())
+
+## 2. Fraction of PID per CN
+dittoBarPlot(sce, var = "PID", group.by = "spatial_context_filtered")+
+  scale_fill_manual(values = metadata(sce)$colors$PID)+
+  guides(fill = "none")
+```
+
+## Survival analysis
+
+### Lasso - OS
+
+```{r lasso OS clusters}
+library(glmnet)
+library(broom) 
+
+PID_SC <- colData(sce) %>% as.data.frame() %>% select(spatial_context_filtered,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_SC <- PID_SC %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_SC <- PID_SC %>% pivot_wider(id_cols = "PID",names_from = "spatial_context_filtered",values_from = "fra") %>% column_to_rownames("PID")
+
+### Lasso regularization
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_SC
+
+#add covariates for correction
+Cox_df$status_OS <- sce$status_OS[match(rownames(Cox_df),sce$PID)]
+Cox_df$OS_months <- sce$OS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)]) #remove from model otherwise coefficients are shrinked to 0 for all others? 
+
+## Run lasso regularized coxph model
+Cox_df <- Cox_df[complete.cases(Cox_df),] #only have complete rows as input
+
+x <- data.matrix(Cox_df %>% select(-status_OS,-OS_months)) #predictor variables
+
+y <- Surv(time = Cox_df$OS_months, event = Cox_df$status_OS) #response variables
+
+set.seed(22)
+cv.fit <- cv.glmnet(x, y, family="cox", type.measure = "C")
+plot(cv.fit)
+
+fit <- glmnet(x, y, family="cox")
+
+coef(fit, s = cv.fit$lambda.min)
+
+# ## Run lasso 100 times and average error curves to be more robust
+# MSEs <- NULL
+# for (i in 1:100){
+#                  cv <- cv.glmnet(x, y, family="cox", type.measure = "C")
+#                  MSEs <- cbind(MSEs, cv$cvm)
+#              }
+# 
+# rownames(MSEs) <- cv$lambda
+# lambda.min <- as.numeric(names(which.min(rowMeans(MSEs))))
+# 
+# fit <- glmnet(x, y, family="cox")
+# coef(fit, s = lambda.min)
+
+#Extract output
+lasso_df <- tidy(coef(fit, s = cv.fit$lambda.min))
+colnames(lasso_df) <- c("predictor","column","coef")
+
+#Visualize hazard ratios
+ggplot(lasso_df, aes(x = reorder(predictor,-exp(coef)), y = exp(coef))) +
+  geom_point(size = 4, aes(color = exp(coef)>1)) +
+  geom_hline(yintercept = 1,color = "black")+
+  scale_y_continuous(trans="log")+
+  ylab("Lasso HR")+
+  xlab("Predictors")+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ggtitle("OS")+
+  scale_color_brewer(palette = "Set1")
+  scale_color_manual(values = metadata(sce)$colors$cluster_110, limits = force, na.value = "black")
+```
+### Lasso - DFS
+
+```{r lasso OS clusters}
+library(glmnet)
+library(broom) 
+
+PID_SC <- colData(sce) %>% as.data.frame() %>% select(spatial_context_filtered,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_SC <- PID_SC %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_SC <- PID_SC %>% pivot_wider(id_cols = "PID",names_from = "spatial_context_filtered",values_from = "fra") %>% column_to_rownames("PID")
+
+### Lasso regularization
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_SC
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)]) #remove from model otherwise coefficients are shrinked to 0 for all others? 
+
+## Run lasso regularized coxph model
+Cox_df <- Cox_df[complete.cases(Cox_df),] #only have complete rows as input
+
+Cox_df <- Cox_df %>% filter(DFS_months != 0)
+
+x <- data.matrix(Cox_df %>% select(-status_DFS,-DFS_months)) #predictor variables
+
+y <- Surv(time = Cox_df$DFS_months, event = Cox_df$status_DFS) #response variables
+
+set.seed(22)
+cv.fit <- cv.glmnet(x, y, family="cox", type.measure = "C")
+plot(cv.fit)
+
+fit <- glmnet(x, y, family="cox")
+
+coef(fit, s = cv.fit$lambda.min)
+
+# ## Run lasso 100 times and average error curves to be more robust
+# MSEs <- NULL
+# for (i in 1:100){
+#                  cv <- cv.glmnet(x, y, family="cox", type.measure = "C")
+#                  MSEs <- cbind(MSEs, cv$cvm)
+#              }
+# 
+# rownames(MSEs) <- cv$lambda
+# lambda.min <- as.numeric(names(which.min(rowMeans(MSEs))))
+# 
+# fit <- glmnet(x, y, family="cox")
+# coef(fit, s = lambda.min)
+
+#Extract output
+lasso_df <- tidy(coef(fit, s = cv.fit$lambda.min))
+colnames(lasso_df) <- c("predictor","column","coef")
+
+#Visualize hazard ratios
+ggplot(lasso_df, aes(x = reorder(predictor,-exp(coef)), y = exp(coef))) +
+  geom_point(size = 4, aes(color = exp(coef)>1)) +
+  geom_hline(yintercept = 1,color = "black")+
+  scale_y_continuous(trans="log")+
+  ylab("Lasso HR")+
+  xlab("Predictors")+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ggtitle("DFS")+
+  scale_color_brewer(palette = "Set1")
+  scale_color_manual(values = metadata(sce)$colors$cluster_110, limits = force, na.value = "black")
+
+```
+
+# 3.3 Spatial communities 
+
+# 3.4 Interaction testing
+
+A) Classical method: "How many neighbors of type B does a cell of type A have on average?"
+
+```{r interaction testing}
+library(scales)
+out <- testInteractions(sce, 
+                        method = "classic",
+                        group_by = "PID",
+                        label = "metacluster_combined", 
+                        colPairName = "neighborhood",
+                        BPPARAM = MulticoreParam())
+head(out)
+```
+
+```{r viz interaction}
+library(scales)
+out_viz <- out %>% as_tibble() %>%
+    group_by(from_label, to_label) %>%
+    summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>% 
+  pivot_wider(id_cols = "from_label", names_from = "to_label", values_from = "sum_sigval") %>%
+  column_to_rownames("from_label")
+
+Heatmap(out_viz,
+        name = "Interaction_score",
+        row_title = "from_label",
+        column_title = "to_label",
+        cluster_columns = FALSE,
+        cluster_rows = FALSE)
+```
+B) Patch method - "What fraction of cells of type A have at least a given number of neighbors of type B?"
+
+```{r}
+out <- testInteractions(sce, 
+                        group_by = "sample_id",
+                        label = "metacluster_combined", 
+                        colPairName = "neighborhood",
+                        method = "patch", 
+                        patch_size = 5,
+                        BPPARAM = MulticoreParam())
+head(out)
+```
+
+```{r}
+library(scales)
+out_viz <- out %>% as_tibble() %>%
+    group_by(from_label, to_label) %>%
+    summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>% 
+  pivot_wider(id_cols = "from_label", names_from = "to_label", values_from = "sum_sigval") %>%
+  column_to_rownames("from_label")
+
+Heatmap(out_viz,
+        name = "Interaction_score",
+        row_title = "from_label",
+        column_title = "to_label",
+        cluster_columns = FALSE,
+        cluster_rows = FALSE)
+```
+
+# 3.5 Patch detection
 
 
 
