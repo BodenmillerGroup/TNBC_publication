@@ -30,6 +30,7 @@ library(dittoSeq)
 library(pheatmap)
 library(cowplot)
 library(ComplexHeatmap)
+library(circlize)
 
 #Utilities
 library(tidyverse)
@@ -199,7 +200,8 @@ colPairNames(sce) #now includes knn_interaction_graph
 
 # Aggregate across neighbors
 sce <- aggregateNeighbors(sce, colPairName = "knn_interaction_graph", 
-                              aggregate_by = "metadata", count_by = "metacluster_combined")
+                          aggregate_by = "metadata", count_by = "metacluster_combined", 
+                          proportions = TRUE)
 
 head(sce$aggregatedNeighbors)
 
@@ -233,9 +235,9 @@ ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
   ylab("Total WCSS")+
   scale_color_continuous(type = "viridis")
 
-# Select 9 clusters
+# Select 11 clusters
 set.seed(22)
-cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 9, nstart = 100)$cluster
+cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 11, nstart = 100)$cluster
 
 sce$cellular_neighborhood <- as.factor(cur_clusters)
 ```
@@ -255,8 +257,8 @@ for_plot <- colData(sce) %>% as_tibble() %>%
     ungroup() %>%
     select(-cellular_neighborhood)
 
-pheatmap(for_plot, color = colorRampPalette(c("dark blue", "white", "dark red"))(100), 
-         scale = "column")
+pheatmap(for_plot, #color = colorRampPalette(c("dark blue", "white", "dark red"))(100), 
+         scale = "column", show_rownames = TRUE)
 ```
 Rich heatmap visualization 
 
@@ -311,8 +313,8 @@ cn_col <- setNames(colorRampPalette(brewer.pal(9, "Accent"))(length(unique(sce$c
 metadata(sce)$colors$cellular_neighborhood <- cn_col
 
 # Metadata annotation
-ha_meta <- HeatmapAnnotation(cellular_neighborhood = anno_simple(unfactor(ncells$cellular_neighborhood),pch = unfactor(ncells$cellular_neighborhood), border=TRUE,col=metadata(sce)$colors$cellular_neighborhood),
-                            n_cells = anno_barplot(ncells$n, width = unit(10, "mm"),gp = gpar(fill = "#440154FF")),
+ha_meta <- HeatmapAnnotation(cellular_neighborhood = anno_simple(unfactor(n_cells$cellular_neighborhood),pch = unfactor(n_cells$cellular_neighborhood), border=TRUE,col=metadata(sce)$colors$cellular_neighborhood),
+                            n_cells = anno_barplot(n_cells$n, width = unit(10, "mm"),gp = gpar(fill = "#440154FF")),
                             n_PID = anno_barplot(n_PID, width = unit(10, "mm"),gp = gpar(fill = "#440154FF")),
                             grade = anno_barplot(grade, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$grade)),
                             pT = anno_barplot(pT, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$pT_simple)),
@@ -403,9 +405,9 @@ Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
 Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
 
 #Based on proportions
-covariates <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -CN4) %>% colnames
+covariates <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -CN10) %>% colnames
 
-multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ CN4"))
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ CN10"))
 
 multi_model <- coxph(multi_formula, data = Cox_df)
 
@@ -555,9 +557,9 @@ Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
 Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
 
 #Based on proportions
-covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -CN4) %>% colnames
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -CN10) %>% colnames
 
-multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ CN4"))
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ CN10"))
 
 multi_model <- coxph(multi_formula, data = Cox_df)
 
@@ -925,6 +927,521 @@ ggplot(lasso_df, aes(x = reorder(predictor,-exp(coef)), y = exp(coef))) +
 
 # 3.3 Spatial communities 
 
+## Detect Spatial Community
+
+```{r detect spatial community}
+library(igraph)
+
+set.seed(22)
+
+# Spatial community detection - tumor
+tumor_sce <- sce[,sce$analysis_cat == "tumor"]
+
+gr <- graph_from_data_frame(as.data.frame(colPair(tumor_sce, "neighborhood")), 
+                            directed = FALSE, 
+                            vertices = data.frame(index = seq_len(ncol(tumor_sce))))
+
+cl_comm <- cluster_louvain(gr)
+comm_tumor <- paste0("tumor_", membership(cl_comm))
+comm_tumor[membership(cl_comm) %in% which(sizes(cl_comm) < 10)] <- NA
+names(comm_tumor) <- colnames(tumor_sce)
+
+tumor_sce$spatial_community <- comm_tumor
+
+# Spatial community detection - non-tumor
+stroma_sce <- sce[,sce$analysis_cat == "non_tumor"]
+
+gr <- graph_from_data_frame(as.data.frame(colPair(stroma_sce, "neighborhood")), 
+                            directed = FALSE, 
+                            vertices = data.frame(index = seq_len(ncol(stroma_sce))))
+
+cl_comm <- cluster_louvain(gr)
+comm_stroma <- paste0("TME_", membership(cl_comm))
+comm_stroma[membership(cl_comm) %in% which(sizes(cl_comm) < 10)] <- NA
+names(comm_stroma) <- colnames(stroma_sce)
+length(unique(comm_stroma))
+
+stroma_sce$spatial_community <- comm_stroma
+
+# Combine and add to sce
+comm <- c(comm_tumor, comm_stroma)
+
+sce$spatial_community <- comm[colnames(sce)]
+```
+
+## Detect recurrent Spatial Communities
+
+1. For Tumor communities 
+
+```{r filter tumor communities}
+library(pheatmap)
+library(viridis)
+
+#tumor_sce$metacluster_combined <- unfactor(tumor_sce$metacluster_combined)
+
+for_plot <- prop.table(table(tumor_sce$spatial_community, tumor_sce$metacluster_combined), margin = 1)
+
+pheatmap(for_plot, color = viridis(100), show_rownames = FALSE)
+
+## Identify recurrent spatial communities 
+
+cur_dat <- colData(tumor_sce) %>% as.data.frame() %>% select(spatial_community, metacluster_combined) %>% group_by(spatial_community) %>% table() %>% as.data.frame
+cur_dat <- cur_dat %>% group_by(spatial_community) %>% mutate(fra = Freq/sum(Freq)) 
+cur_dat <- cur_dat  %>% select(-Freq) %>% pivot_wider(id_cols = spatial_community,names_from = metacluster_combined,values_from = fra) %>% column_to_rownames("spatial_community")
+
+# Perform cluster sweep for kmeans (silhouette width, wcss)
+set.seed(22)
+clust_list <- lapply(2:20, function(k){
+  cur_km <- kmeans(cur_dat, centers = k)
+  return(list(wss = sum(cur_km$withinss),
+           clusters = cur_km$cluster))
+})
+
+sil <- vapply(lapply(clust_list, `[[`, 2), 
+              function(x) mean(approxSilhouette(cur_dat, x)$width), 
+              0)
+
+ggplot(data.frame(k = 2:20, sil = sil))+
+  geom_point(aes(k, sil, col = sil))+
+  geom_line(aes(k, sil,col=sil))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  xlab("k")+
+  ylab("Mean silhouette width")+
+  scale_color_continuous(type = "viridis")
+
+ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
+  geom_point(aes(k, wss, col = wss))+
+  geom_line(aes(k, wss, col = wss))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("k")+
+  ylab("Total WCSS")+
+  scale_color_continuous(type = "viridis")
+
+# Select 8 clusters
+set.seed(22)
+tumor_cur_clusters <- kmeans(cur_dat, centers = 8, nstart = 1000)$cluster
+
+tumor_sce$tumor_meta_community <- tumor_cur_clusters[match(tumor_sce$spatial_community, names(tumor_cur_clusters))]
+
+# Visualize 
+for_plot <- prop.table(table(tumor_sce$tumor_meta_community, tumor_sce$metacluster_combined), margin = 1)
+rownames(for_plot) <- paste0("tumor_SMC_",rownames(for_plot))
+
+pheatmap(for_plot, show_rownames = TRUE, scale = "column")
+```
+
+2. For Stroma communities 
+
+```{r filter stroma communities}
+
+stroma_sce$metacluster_combined <- unfactor(stroma_sce$metacluster_combined)
+
+for_plot <- prop.table(table(stroma_sce$spatial_community, stroma_sce$metacluster_combined), margin = 1)
+
+pheatmap(for_plot, color = viridis(100), show_rownames = FALSE)
+
+## Identify recurrent spatial communities 
+
+cur_dat <- colData(stroma_sce) %>% as.data.frame() %>% select(spatial_community, metacluster_combined) %>% group_by(spatial_community) %>% table() %>% as.data.frame
+cur_dat <- cur_dat %>% group_by(spatial_community) %>% mutate(fra = Freq/sum(Freq)) 
+cur_dat <- cur_dat  %>% select(-Freq) %>% pivot_wider(id_cols = spatial_community,names_from = metacluster_combined,values_from = fra) %>% column_to_rownames("spatial_community")
+
+# Perform cluster sweep for kmeans (silhouette width, wcss)
+set.seed(22)
+clust_list <- lapply(2:20, function(k){
+  cur_km <- kmeans(cur_dat, centers = k)
+  return(list(wss = sum(cur_km$withinss),
+           clusters = cur_km$cluster))
+})
+
+sil <- vapply(lapply(clust_list, `[[`, 2), 
+              function(x) mean(approxSilhouette(cur_dat, x)$width), 
+              0)
+
+ggplot(data.frame(k = 2:20, sil = sil))+
+  geom_point(aes(k, sil, col = sil))+
+  geom_line(aes(k, sil,col=sil))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  xlab("k")+
+  ylab("Mean silhouette width")+
+  scale_color_continuous(type = "viridis")
+
+ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
+  geom_point(aes(k, wss, col = wss))+
+  geom_line(aes(k, wss, col = wss))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("k")+
+  ylab("Total WCSS")+
+  scale_color_continuous(type = "viridis")
+
+# Select 8 clusters
+set.seed(22)
+stroma_cur_clusters <- kmeans(cur_dat, centers = 6, nstart = 1000)$cluster
+
+stroma_sce$stroma_meta_community <- stroma_cur_clusters[match(stroma_sce$spatial_community, names(stroma_cur_clusters))]
+
+
+# Visualize 
+for_plot <- prop.table(table(stroma_sce$stroma_meta_community, stroma_sce$metacluster_combined), margin = 1)
+rownames(for_plot) <- paste0("TME_SMC_",rownames(for_plot))
+
+pheatmap(for_plot, show_rownames = TRUE, scale = "column")
+```
+
+Add to sce
+
+```{r}
+cur_clusters <- c(paste0("tumor_SMC_",tumor_cur_clusters),paste0("TME_SMC_",stroma_cur_clusters))
+names(cur_clusters) <- c(names(tumor_cur_clusters), names(stroma_cur_clusters))
+
+sce$spatial_metacommunity <- cur_clusters[match(sce$spatial_community, names(cur_clusters))]
+```
+
+## Image visualization
+
+```{r}
+set.seed(22)
+cur_sam <- sample(unique(sce$sample_id), 6)
+
+# Spatial_metacommunity
+plotSpatial(sce[,sce$sample_id %in% cur_sam], 
+            node_color_by = "spatial_metacommunity", 
+            img_id = "sample_id", 
+            node_size_fix = 0.5)
+
+## Specifically spatial metacommunity 3
+cur_sample <- colData(sce) %>% as.data.frame %>% group_by(spatial_metacommunity) %>% filter(spatial_metacommunity == "tumor_SMC_4") %>% count(sample_id) %>% arrange(desc(n)) %>% slice(1:15) %>% pull(sample_id)
+
+plotSpatial(tumor_sce[,tumor_sce$sample_id %in% cur_sample], 
+            node_color_by = "metacluster_combined", 
+            img_id = "sample_id", 
+            node_size_fix = 0.5)+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)
+
+plotSpatial(sce[,sce$sample_id %in% cur_sample], 
+            node_color_by = "spatial_metacommunity", 
+            img_id = "sample_id", 
+            node_size_fix = 0.5)
+  
+```
+
+## Patient visualization
+
+```{r}
+## 1. Fraction of SMC per PID
+dittoBarPlot(sce, var = "spatial_metacommunity", group.by = "PID")+
+  theme(axis.text.x = element_blank())
+```
+## Survival analysis 
+
+### For OS on community proportions
+
+```{r cox}
+library(survival)
+library(survminer)
+
+PID_spatial_metacommunity <- colData(sce) %>% as.data.frame() %>% select(spatial_metacommunity,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_spatial_metacommunity <- PID_spatial_metacommunity %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_spatial_metacommunity %>% pivot_wider(id_cols = "PID",names_from = "spatial_metacommunity",values_from = "fra") %>% column_to_rownames("PID")
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_OS <- sce$status_OS[match(rownames(Cox_df),sce$PID)]
+Cox_df$OS_months <- sce$OS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -tumor_SMC_5) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ tumor_SMC_5"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("SMC")+
+ylab("HR for con_prop")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+
+## 2. Based on categories (mean division of cluster proportions)
+Cox_df_mean <- foreach(i = Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
+Cox_df %>% select(i) %>% mutate(mean = ifelse(Cox_df[,i] > mean(Cox_df[,i]),"B","A")) %>% pull(mean)
+}
+
+colnames(Cox_df_mean) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+rownames(Cox_df_mean) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
+Cox_df_mean <- as.data.frame(Cox_df_mean)
+
+identical(rownames(Cox_df), rownames(Cox_df_mean))
+
+Cox_df_mean <- cbind(Cox_df_mean, Cox_df %>% select(status_OS,OS_months, status_OS, OS_months, age, grade, pT_simple, pN_simple, pM_simple))
+
+#Based on proportions
+covariates <- Cox_df_mean %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+
+multi_model <- coxph(multi_formula, data = Cox_df_mean)
+
+summary(multi_model)
+
+multi_res <- summary(multi_model)
+
+plot_df_mean <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+#Plot hazard ratios
+hr_mean <- ggplot(plot_df_mean, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("SMC")+
+ylab("HR for mean")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_mean
+
+## 3. Based on categories (GMM division of cluster proportions)
+Cox_df_GMM <- foreach(i = Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
+GMM_Cox <- Mclust(Cox_df[,i], G = 2)
+as.character(GMM_Cox$classification)
+}
+
+colnames(Cox_df_GMM) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+rownames(Cox_df_GMM) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
+Cox_df_GMM <- as.data.frame(Cox_df_GMM,stringsAsFactors=TRUE)
+
+identical(rownames(Cox_df), rownames(Cox_df_GMM))
+
+Cox_df_GMM <- cbind(Cox_df_GMM, Cox_df %>% select(status_OS,OS_months, status_OS, OS_months, age, grade, pT_simple, pN_simple, pM_simple))
+
+#Based on proportions
+covariates <- Cox_df_GMM %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+
+multi_model <- coxph(multi_formula, data = Cox_df_GMM)
+
+summary(multi_model)
+
+summary(Cox_df_GMM)
+
+multi_res <- summary(multi_model)
+
+plot_df_GMM <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+#Plot hazard ratios
+hr_GMM <- ggplot(plot_df_GMM, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("SMC")+
+ylab("HR for GMM")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop/
+hr_mean/
+hr_GMM
+```
+
+### For DFS on community proportions
+
+```{r cox}
+library(survival)
+library(survminer)
+
+PID_spatial_metacommunity <- colData(sce) %>% as.data.frame() %>% select(spatial_metacommunity,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_spatial_metacommunity <- PID_spatial_metacommunity %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_spatial_metacommunity %>% pivot_wider(id_cols = "PID",names_from = "spatial_metacommunity",values_from = "fra") %>% column_to_rownames("PID")
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -tumor_SMC_5) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ tumor_SMC_5"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("SMC")+
+ylab("HR for con_prop")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+
+## 2. Based on categories (mean division of cluster proportions)
+Cox_df_mean <- foreach(i = Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
+Cox_df %>% select(i) %>% mutate(mean = ifelse(Cox_df[,i] > mean(Cox_df[,i]),"B","A")) %>% pull(mean)
+}
+
+colnames(Cox_df_mean) <- Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+rownames(Cox_df_mean) <- Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
+Cox_df_mean <- as.data.frame(Cox_df_mean)
+
+identical(rownames(Cox_df), rownames(Cox_df_mean))
+
+Cox_df_mean <- cbind(Cox_df_mean, Cox_df %>% select(status_DFS,DFS_months, status_DFS, DFS_months, age, grade, pT_simple, pN_simple, pM_simple))
+
+#Based on proportions
+covariates <- Cox_df_mean %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+
+multi_model <- coxph(multi_formula, data = Cox_df_mean)
+
+summary(multi_model)
+
+multi_res <- summary(multi_model)
+
+plot_df_mean <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+#Plot hazard ratios
+hr_mean <- ggplot(plot_df_mean, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("SMC")+
+ylab("HR for mean")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_mean
+
+## 3. Based on categories (GMM division of cluster proportions)
+Cox_df_GMM <- foreach(i = Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
+GMM_Cox <- Mclust(Cox_df[,i], G = 2)
+as.character(GMM_Cox$classification)
+}
+
+colnames(Cox_df_GMM) <- Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+rownames(Cox_df_GMM) <- Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
+Cox_df_GMM <- as.data.frame(Cox_df_GMM,stringsAsFactors=TRUE)
+
+identical(rownames(Cox_df), rownames(Cox_df_GMM))
+
+Cox_df_GMM <- cbind(Cox_df_GMM, Cox_df %>% select(status_DFS,DFS_months, status_DFS, DFS_months, age, grade, pT_simple, pN_simple, pM_simple))
+
+#Based on proportions
+covariates <- Cox_df_GMM %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+
+multi_model <- coxph(multi_formula, data = Cox_df_GMM)
+
+summary(multi_model)
+
+summary(Cox_df_GMM)
+
+multi_res <- summary(multi_model)
+
+plot_df_GMM <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+#Plot hazard ratios
+hr_GMM <- ggplot(plot_df_GMM, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("SMC")+
+ylab("HR for GMM")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop/
+hr_mean/
+hr_GMM
+```
+
 # 3.4 Interaction testing
 
 A) Classical method: "How many neighbors of type B does a cell of type A have on average?"
@@ -955,6 +1472,7 @@ Heatmap(out_viz,
         cluster_columns = FALSE,
         cluster_rows = FALSE)
 ```
+
 B) Patch method - "What fraction of cells of type A have at least a given number of neighbors of type B?"
 
 ```{r}
@@ -984,7 +1502,471 @@ Heatmap(out_viz,
         cluster_rows = FALSE)
 ```
 
+# 3.5 Differential abundance analysis 
+
+## For metaclusters
+
+```{r}
+### Differential abundance analysis based on edgeR
+library(edgeR)
+
+sce$pT_merg <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(pT_simple) %>% 
+  mutate(pT_merg = ifelse(pT_simple %in% c("2","3","4"),"2/3/4", pT_simple)) %>% pull(pT_merg)
+
+abundances <- table(sce$metacluster_combined, sce$PID)
+abundances <- unclass(abundances) 
+head(abundances)
+
+#relevant patient metadata (Relevel so that pT 1/2 is baseline)
+meta <- colData(sce)[match(colnames(abundances), sce$PID),]
+meta$pT_merg <- relevel(x=factor(meta$pT_merg), ref = "1")
+
+#filter
+meta <- meta[!is.na(meta$pT_merg),]
+abundances <- abundances[,colnames(abundances) %in% meta$PID]
+
+#create DGEList - based on edgeR package
+y.ab <- DGEList(abundances, samples=meta, group = meta$pT_merg)
+
+#Design matrix
+design <- model.matrix(~pT_merg, data = y.ab$samples)
+
+#Visualize
+# logCPM of abundances per cluster
+cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
+
+Heatmap(cur_mat, 
+        col = viridis(100),
+        column_split = unfactor(meta$pT_merg))%v%
+  columnAnnotation(pT_merg = anno_simple(unfactor(meta$pT_merg)))
+
+
+# Estimate NB and QL dispersion 
+y.ab <- estimateDisp(y.ab, design, trend="none")
+summary(y.ab$common.dispersion)
+plotBCV(y.ab, cex=1)
+
+fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
+summary(fit.ab$var.prior)
+plotQLDisp(fit.ab, cex=1)
+
+# Test for differential abundance of clusters between tumor stages
+res <- glmQLFTest(fit.ab, coef=ncol(design))
+
+res$coefficients
+summary(decideTests(res))
+
+DA <- res$table
+
+DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
+
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
+  arrange(desc(logFC))
+
+DA$cluster <- factor(DA$cluster, levels = DA$cluster)
+
+sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
+
+## Visualize
+#Barplot
+ggplot(DA, aes(cluster, y = logFC))+
+  geom_col(aes(fill=result), col = "black")+
+  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
+  ylab("logFC")+
+  xlab("Cluster")+
+  labs(fill = "FDR<0.05")+
+  ggtitle("pT_stage (1 vs 2/3/4)")+
+  theme_classic()
+
+#Volcano plot  
+ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
+  geom_point(aes(col=cluster, size = -log10(FDR)))+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
+  xlab("logFC (pT: 1 vs 2/3/4)")+
+  ylab("-log10(FDR)")+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+
+#Abundance vs log fold change (best?)
+ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
+  xlab("logFC (pT: 1 vs 2/3/4)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+```
+
+## For cellular neighborhoods
+
+```{r}
+### Differential abundance analysis based on edgeR
+library(edgeR)
+
+sce$pT_merg <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(pT_simple) %>% 
+  mutate(pT_merg = ifelse(pT_simple %in% c("2","3","4"),"2/3/4", pT_simple)) %>% pull(pT_merg)
+
+abundances <- table(sce$cellular_neighborhood, sce$PID)
+abundances <- unclass(abundances) 
+head(abundances)
+
+#relevant patient metadata (Relevel so that pT 1/2 is baseline)
+meta <- colData(sce)[match(colnames(abundances), sce$PID),]
+meta$pT_merg <- relevel(x=factor(meta$pT_merg), ref = "1")
+
+#filter
+meta <- meta[!is.na(meta$pT_merg),]
+abundances <- abundances[,colnames(abundances) %in% meta$PID]
+
+#create DGEList - based on edgeR package
+y.ab <- DGEList(abundances, samples=meta, group = meta$pT_merg)
+
+#Design matrix
+design <- model.matrix(~pT_merg, data = y.ab$samples)
+
+#Visualize
+# logCPM of abundances per cluster
+cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
+
+Heatmap(cur_mat, 
+        col = viridis(100),
+        column_split = unfactor(meta$pT_merg))%v%
+  columnAnnotation(pT_merg = anno_simple(unfactor(meta$pT_merg)))
+
+
+# Estimate NB and QL dispersion 
+y.ab <- estimateDisp(y.ab, design, trend="none")
+summary(y.ab$common.dispersion)
+plotBCV(y.ab, cex=1)
+
+fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
+summary(fit.ab$var.prior)
+plotQLDisp(fit.ab, cex=1)
+
+# Test for differential abundance of clusters between tumor stages
+res <- glmQLFTest(fit.ab, coef=ncol(design))
+
+res$coefficients
+summary(decideTests(res))
+
+DA <- res$table
+
+DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
+
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
+  arrange(desc(logFC))
+
+DA$cluster <- factor(DA$cluster, levels = DA$cluster)
+
+sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
+
+## Visualize
+#Barplot
+ggplot(DA, aes(cluster, y = logFC))+
+  geom_col(aes(fill=result), col = "black")+
+  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
+  ylab("logFC")+
+  xlab("Cluster")+
+  labs(fill = "FDR<0.05")+
+  ggtitle("pT_stage (1 vs 2/3/4)")+
+  theme_classic()
+
+#Volcano plot  
+ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
+  geom_point(aes(col=cluster, size = -log10(FDR)))+
+  #scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
+  xlab("logFC (pT: 1 vs 2/3/4)")+
+  ylab("-log10(FDR)")+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+
+#Abundance vs log fold change (best?)
+ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
+  #scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
+  xlab("logFC (pT: 1 vs 2/3/4)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+```
+## For spatial contexts
+
+```{r}
+### Differential abundance analysis based on edgeR
+library(edgeR)
+
+sce$pT_merg <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(pT_simple) %>% 
+  mutate(pT_merg = ifelse(pT_simple %in% c("2","3","4"),"2/3/4", pT_simple)) %>% pull(pT_merg)
+
+abundances <- table(sce$spatial_context_filtered, sce$PID)
+abundances <- unclass(abundances) 
+head(abundances)
+
+#relevant patient metadata (Relevel so that pT 1/2 is baseline)
+meta <- colData(sce)[match(colnames(abundances), sce$PID),]
+meta$pT_merg <- relevel(x=factor(meta$pT_merg), ref = "1")
+
+#filter
+meta <- meta[!is.na(meta$pT_merg),]
+abundances <- abundances[,colnames(abundances) %in% meta$PID]
+
+#create DGEList - based on edgeR package
+y.ab <- DGEList(abundances, samples=meta, group = meta$pT_merg)
+
+#Design matrix
+design <- model.matrix(~pT_merg, data = y.ab$samples)
+
+#Visualize
+# logCPM of abundances per cluster
+cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
+
+Heatmap(cur_mat, 
+        col = viridis(100),
+        column_split = unfactor(meta$pT_merg))%v%
+  columnAnnotation(pT_merg = anno_simple(unfactor(meta$pT_merg)))
+
+
+# Estimate NB and QL dispersion 
+y.ab <- estimateDisp(y.ab, design, trend="none")
+summary(y.ab$common.dispersion)
+plotBCV(y.ab, cex=1)
+
+fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
+summary(fit.ab$var.prior)
+plotQLDisp(fit.ab, cex=1)
+
+# Test for differential abundance of clusters between tumor stages
+res <- glmQLFTest(fit.ab, coef=ncol(design))
+
+res$coefficients
+summary(decideTests(res))
+
+DA <- res$table
+
+DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
+
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.05, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
+  arrange(desc(logFC))
+
+DA$cluster <- factor(DA$cluster, levels = DA$cluster)
+
+sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
+
+## Visualize
+#Barplot
+ggplot(DA, aes(cluster, y = logFC))+
+  geom_col(aes(fill=result), col = "black")+
+  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
+  ylab("logFC")+
+  xlab("Cluster")+
+  labs(fill = "FDR<0.05")+
+  ggtitle("pT_stage (1 vs 2/3/4)")+
+  theme_classic()
+
+#Volcano plot  
+ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
+  geom_point(aes(col=cluster, size = -log10(FDR)))+
+  #scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
+  xlab("logFC (pT: 1 vs 2/3/4)")+
+  ylab("-log10(FDR)")+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+
+#Abundance vs log fold change (best?)
+ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
+  #scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
+  xlab("logFC (pT: 1 vs 2/3/4)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+```
+
+## For spatial metacommunities
+
+```{r}
+### Differential abundance analysis based on edgeR
+library(edgeR)
+
+sce$pT_merg <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(pT_simple) %>% 
+  mutate(pT_merg = ifelse(pT_simple %in% c("2","3","4"),"2/3/4", pT_simple)) %>% pull(pT_merg)
+
+abundances <- table(sce$spatial_metacommunity, sce$PID)
+abundances <- unclass(abundances) 
+head(abundances)
+
+#relevant patient metadata (Relevel so that pT 1/2 is baseline)
+meta <- colData(sce)[match(colnames(abundances), sce$PID),]
+meta$pT_merg <- relevel(x=factor(meta$pT_merg), ref = "1")
+
+#filter
+meta <- meta[!is.na(meta$pT_merg),]
+abundances <- abundances[,colnames(abundances) %in% meta$PID]
+
+#create DGEList - based on edgeR package
+y.ab <- DGEList(abundances, samples=meta, group = meta$pT_merg)
+
+#Design matrix
+design <- model.matrix(~pT_merg, data = y.ab$samples)
+
+#Visualize
+# logCPM of abundances per cluster
+cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
+
+Heatmap(cur_mat, 
+        col = viridis(100),
+        column_split = unfactor(meta$pT_merg))%v%
+  columnAnnotation(pT_merg = anno_simple(unfactor(meta$pT_merg)))
+
+
+# Estimate NB and QL dispersion 
+y.ab <- estimateDisp(y.ab, design, trend="none")
+summary(y.ab$common.dispersion)
+plotBCV(y.ab, cex=1)
+
+fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
+summary(fit.ab$var.prior)
+plotQLDisp(fit.ab, cex=1)
+
+# Test for differential abundance of clusters between tumor stages
+res <- glmQLFTest(fit.ab, coef=ncol(design))
+
+res$coefficients
+summary(decideTests(res))
+
+DA <- res$table
+
+DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
+
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
+  arrange(desc(logFC))
+
+DA$cluster <- factor(DA$cluster, levels = DA$cluster)
+
+sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
+
+## Visualize
+#Barplot
+ggplot(DA, aes(cluster, y = logFC))+
+  geom_col(aes(fill=result), col = "black")+
+  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
+  ylab("logFC")+
+  xlab("Cluster")+
+  labs(fill = "FDR<0.05")+
+  ggtitle("pT_stage (1 vs 2/3/4)")+
+  theme_classic()
+
+#Volcano plot  
+ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
+  geom_point(aes(col=cluster, size = -log10(FDR)))+
+  #scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
+  xlab("logFC (pT: 1 vs 2/3/4)")+
+  ylab("-log10(FDR)")+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+
+#Abundance vs log fold change (best?)
+ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
+  #scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
+  xlab("logFC (pT: 1 vs 2/3/4)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+```
+
 # 3.5 Patch detection
 
+# 3.6 TEST CODE 
+
+```{r}
+# Aggregate across neighbors
+sce_test <- sce
+sce_test <- aggregateNeighbors(sce_test, colPairName = "knn_interaction_graph", 
+                          aggregate_by = "metadata", count_by = "metacluster_combined", 
+                          proportions = FALSE)
+
+sce_test$aggregatedNeighbors
+
+#densities of metaclusters
+sce_test$aggregatedNeighbors <- sce_test$aggregatedNeighbors %>% as.data.frame %>% mutate(tissue_area = sce_test$tissue_area) %>% transmute_at(vars(1:ncol(sce_test$aggregatedNeighbors)),list(~./tissue_area))
+
+# Perform cluster sweep for kmeans (silhouette width, wcss)
+set.seed(22)
+clust_list <- lapply(2:20, function(k){
+  cur_km <- kmeans(sce_test$aggregatedNeighbors, centers = k)
+  return(list(wss = sum(cur_km$withinss),
+           clusters = cur_km$cluster))
+})
+
+sil <- vapply(lapply(clust_list, `[[`, 2), 
+              function(x) mean(approxSilhouette(sce_test$aggregatedNeighbors, x)$width), 
+              0)
+
+ggplot(data.frame(k = 2:20, sil = sil))+
+  geom_point(aes(k, sil, col = sil))+
+  geom_line(aes(k, sil,col=sil))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  xlab("k")+
+  ylab("Mean silhouette width")+
+  scale_color_continuous(type = "viridis")
+
+ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
+  geom_point(aes(k, wss, col = wss))+
+  geom_line(aes(k, wss, col = wss))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("k")+
+  ylab("Total WCSS")+
+  scale_color_continuous(type = "viridis")
+
+# Select 11 clusters
+set.seed(22)
+cur_clusters <- kmeans(sce_test$aggregatedNeighbors, centers = 11, nstart = 100)$cluster
+
+sce_test$cellular_neighborhood <- as.factor(cur_clusters)
+
+# Viz
+for_plot <- colData(sce_test) %>% as_tibble() %>%
+    group_by(cellular_neighborhood, metacluster_combined) %>%
+    summarize(count = n()) %>%
+    mutate(freq = count / sum(count)) %>%
+    pivot_wider(id_cols = cellular_neighborhood, names_from = metacluster_combined, 
+                values_from = freq, values_fill = 0) %>%
+    ungroup() %>%
+    select(-cellular_neighborhood)
+
+pheatmap(for_plot, #color = colorRampPalette(c("dark blue", "white", "dark red"))(100), 
+         scale = "column", show_rownames = TRUE)
+```
 
 
