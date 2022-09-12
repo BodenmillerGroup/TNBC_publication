@@ -238,7 +238,7 @@ p1+p3+p2
 #Chosen method => k=130
 
 #Cluster colors 
-col_clus <- colorRampPalette(brewer.pal(9,"Paired"))(length(unique(sce$cluster_130)))
+col_clus <- colorRampPalette(brewer.pal(9,"Dark2"))(length(unique(sce$cluster_130)))
 
 #By clusters for one method (here k=130)
 #1. Silhouette width [-1,1]
@@ -266,7 +266,19 @@ p4
 #   scale_color_manual(values = col_clus)
 # p5 
 ```
+## Add missing metadata 
 
+```{r}
+# Missing metadata for 10 ZTMA174 patients
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+
+meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
+
+## Add relevant metadata based on PID
+for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simple", "pN", "pN_simple", "status_OS","status_DFS", "OS_months","DFS_months")]) {
+  colData(sce)[,entry] <- meta[,entry][match(colData(sce)[,"PID"],meta[,"PID"])]
+}
+```
 
 # 2. Heatmap visualization
 
@@ -482,7 +494,7 @@ astir_anno <- astir_anno %>% group_by(cluster_130) %>% mutate(fra = Freq/sum(Fre
 astir_anno <- astir_anno %>% select(-Freq) %>% pivot_wider(id_cols = cluster_130,names_from = astir_TME,values_from = fra) %>% column_to_rownames("cluster_130")
 
 #Create colors for astir cell types 
-astir_col <- setNames(c("#2E81B9","#91C893","#5DB54B","#A29C68","#FDB056","#CAB2D6","white"),sort(unique(sce$astir_TME)))
+astir_col <- setNames(c("#7FC97F","#E1B8A8","#FDD58C","#E8EE9B","#DA2950","#666666","white"),sort(unique(sce$astir_TME)))
 
 metadata(sce)$colors$astir_col <- astir_col
 
@@ -525,8 +537,8 @@ row_order_clusters <- row_order(Heatmap(t(assay(cluster_mean_sce, "exprs")),
         clustering_method_columns = "ward.D2"))
 
 
-cluster_col <- setNames(colorRampPalette(brewer.pal(9, "Paired"))(length(unique(anno$cluster_130))), row_order_clusters)                                        
-metacluster_col <- setNames(colorRampPalette(brewer.pal(9, "Paired"))(length(unique(anno$metacluster))), sort(unique(anno$metacluster)))                                          
+cluster_col <- setNames(colorRampPalette(brewer.pal(9, "Accent"))(length(unique(anno$cluster_130))), row_order_clusters)                                        
+metacluster_col <- setNames(colorRampPalette(brewer.pal(9, "Accent"))(length(unique(anno$metacluster))), sort(unique(anno$metacluster)))                                          
 metadata(sce)$colors$cluster_130 <- cluster_col
 metadata(sce)$colors$immune_metacluster <- metacluster_col
 
@@ -583,18 +595,6 @@ lgd_meta <- Legend(title = "Immune_Metacluster", at = names(metadata(sce)$colors
               legend_gp = gpar(fill = metadata(sce)$colors$immune_metacluster))          
 # Plot
 draw(h,annotation_legend_list = list(lgd_astir, lgd_meta))
-
-
-#6.3 Cluster annotation heatmap
-h_cluster_anno <- HeatmapAnnotation(cluster_110 = anno_simple(row_order_clusters, pch = as.character(row_order_clusters),border=TRUE,col=metadata(sce)$colors$cluster_110),
-                            metacluster = anno_simple(unfactor(anno$metacluster[row_order_clusters]), 
-                                                      pch= unfactor(anno$metacluster[row_order_clusters]),border=TRUE,col=metadata(sce)$colors$metacluster),
-                            border = TRUE, 
-                            annotation_name_rot = 110,
-                            gap = unit(1,"mm"),
-                            which = "row")+NULL
-
-draw(h_cluster_anno)
 ```
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce

@@ -134,12 +134,26 @@ sce_sub <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds"
 sce_sub$cluster_combined <- sce$cluster_combined[match(sce_sub$cell_id, sce$cell_id)]
 sce_sub$metacluster_combined <- sce$metacluster_combined[match(sce_sub$cell_id, sce$cell_id)]
 
+
 #Plot TSNE
 plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_combined",shape_by = "analysis_cat")+
   scale_color_manual(values = metadata(sce)$colors$metacluster_combined)
 
 plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_combined",shape_by = "analysis_cat")+
     scale_color_manual(values = metadata(sce)$colors$cluster_combined)
+```
+## Add missing metadata 
+
+```{r}
+# Missing metadata for 10 ZTMA174 patients
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+
+meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
+
+## Add relevant metadata based on PID
+for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simple", "pN", "pN_simple", "status_OS","status_DFS", "OS_months","DFS_months")]) {
+  colData(sce)[,entry] <- meta[,entry][match(colData(sce)[,"PID"],meta[,"PID"])]
+}
 ```
 
 # 2. Image visualization
@@ -1919,6 +1933,11 @@ out <- cur_dat %>% group_by(PID, CD8Tcell_type) %>% count() %>%
 
 # Add to sce
 sce$spatial_CD8_pheno <- out$spatial_CD8_phenotype[match(sce$PID, out$PID)]
+
+sce[,is.na(sce$spatial_CD8_pheno)]$spatial_CD8_pheno <- "cold"
+
+spatial_CD8_pheno_col <- setNames(c("firebrick", "steelblue1","navy"), unique(sce$spatial_CD8_pheno)) 
+metadata(sce)$colors$spatial_CD8_pheno <- spatial_CD8_pheno_col
 ```
 
 ```{r}
@@ -1991,15 +2010,18 @@ cur_k <- cur_out %>% filter(number_immune > 500)
 set.seed(22)
 cur_k$mixing_pheno <- kmeans(cur_k$mixing_score, 2, nstart = 100)$cluster
 
-cur_k$mixing_pheno <- ifelse(cur_k$mixing_pheno == "1", "Compartmentalized", "Mixed")
+cur_k$mixing_pheno <- ifelse(cur_k$mixing_pheno == "1", "compartmentalized", "mixed")
 
 #add back
 cur_out$mixing_pheno <- cur_k$mixing_pheno[match(cur_out$PID, cur_k$PID)]
-
-cur_out$mixing_pheno[is.na(cur_out$mixing_pheno)] <- "Cold"
+cur_out$mixing_pheno[is.na(cur_out$mixing_pheno)] <- "cold"
 
 ## Add to sce
 sce$mixing_pheno <- cur_out$mixing_pheno[match(sce$PID, cur_out$PID)]
+
+## Create color scheme
+mixing_pheno_col <- setNames(c("navy","purple","steelblue1"), unique(sce$mixing_pheno))
+metadata(sce)$colors$mixing_pheno <- mixing_pheno_col
 ```
 
 ```{r}
@@ -2146,103 +2168,7 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
   labs(color = "cluster")
 ```
 
-```{r}
-### Differential abundance analysis based on edgeR
-library(edgeR)
 
-sce$spatial_CD8_pheno_merg <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(spatial_CD8_pheno) %>% 
-  mutate(spatial_CD8_pheno_merg = ifelse(spatial_CD8_pheno %in% c("cold","excluded"),"cold/excluded", spatial_CD8_pheno)) %>% pull(spatial_CD8_pheno_merg)
-
-abundances <- table(sce$metacluster_combined, sce$PID)
-abundances <- unclass(abundances) 
-head(abundances)
-
-#relevant patient metadata (Relevel so that pT 1/2 is baseline)
-meta <- colData(sce)[match(colnames(abundances), sce$PID),]
-meta$spatial_CD8_pheno_merg <- relevel(x=factor(meta$spatial_CD8_pheno_merg), ref = "cold/excluded")
-
-#filter
-meta <- meta[!is.na(meta$spatial_CD8_pheno_merg),]
-abundances <- abundances[,colnames(abundances) %in% meta$PID]
-
-#create DGEList - based on edgeR package
-y.ab <- DGEList(abundances, samples=meta, group = meta$spatial_CD8_pheno_merg)
-
-#Design matrix
-design <- model.matrix(~spatial_CD8_pheno_merg, data = y.ab$samples)
-
-#Visualize
-# logCPM of abundances per cluster
-cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
-
-Heatmap(cur_mat, 
-        col = viridis(100),
-        column_split = unfactor(meta$spatial_CD8_pheno_merg))%v%
-  columnAnnotation(spatial_CD8_pheno_merg = anno_simple(unfactor(meta$spatial_CD8_pheno_merg)))
-
-
-# Estimate NB and QL dispersion 
-y.ab <- estimateDisp(y.ab, design, trend="none")
-summary(y.ab$common.dispersion)
-plotBCV(y.ab, cex=1)
-
-fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
-summary(fit.ab$var.prior)
-plotQLDisp(fit.ab, cex=1)
-
-# Test for differential abundance of clusters between tumor stages
-res <- glmQLFTest(fit.ab, coef=ncol(design))
-
-res$coefficients
-summary(decideTests(res))
-
-DA <- res$table
-
-DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
-
-DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
-  arrange(desc(logFC))
-
-DA$cluster <- factor(DA$cluster, levels = DA$cluster)
-
-sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
-
-## Visualize
-#Barplot
-ggplot(DA, aes(cluster, y = logFC))+
-  geom_col(aes(fill=result), col = "black")+
-  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
-  ylab("logFC")+
-  xlab("Cluster")+
-  labs(fill = "FDR<0.05")+
-  ggtitle("Spatial CD8 phenotype (cold/excluded vs inflamed)")+
-  theme_classic()
-
-#Volcano plot  
-ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
-  geom_point(aes(col=cluster, size = -log10(FDR)))+
-  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
-  xlab("logFC (cold/excluded vs inflamed)")+
-  ylab("-log10(FDR)")+
-  theme_classic()+
-  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(color = "cluster")
-
-#Abundance vs log fold change (best?)
-ggplot(DA, aes(x = logFC, y = logCPM))+
-  geom_point(aes(col= cluster, 
-                 size = -log10(FDR)))+
-  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
-  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
-  xlab("logFC (cold/excluded vs inflamed)")+
-  ylab("Abundance (logCPM)")+
-  theme_classic()+
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(color = "cluster")
-```
 
 ### For cellular neighborhoods
 
@@ -2444,105 +2370,6 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
   labs(color = "cluster")
 ```
 
-### For spatial metacommunities
-
-```{r}
-### Differential abundance analysis based on edgeR
-library(edgeR)
-
-sce$pT_merg <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(pT_simple) %>% 
-  mutate(pT_merg = ifelse(pT_simple %in% c("2","3","4"),"2/3/4", pT_simple)) %>% pull(pT_merg)
-
-abundances <- table(sce$spatial_metacommunity, sce$PID)
-abundances <- unclass(abundances) 
-head(abundances)
-
-#relevant patient metadata (Relevel so that pT 1/2 is baseline)
-meta <- colData(sce)[match(colnames(abundances), sce$PID),]
-meta$pT_merg <- relevel(x=factor(meta$pT_merg), ref = "1")
-
-#filter
-meta <- meta[!is.na(meta$pT_merg),]
-abundances <- abundances[,colnames(abundances) %in% meta$PID]
-
-#create DGEList - based on edgeR package
-y.ab <- DGEList(abundances, samples=meta, group = meta$pT_merg)
-
-#Design matrix
-design <- model.matrix(~pT_merg, data = y.ab$samples)
-
-#Visualize
-# logCPM of abundances per cluster
-cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
-
-Heatmap(cur_mat, 
-        col = viridis(100),
-        column_split = unfactor(meta$pT_merg))%v%
-  columnAnnotation(pT_merg = anno_simple(unfactor(meta$pT_merg)))
-
-
-# Estimate NB and QL dispersion 
-y.ab <- estimateDisp(y.ab, design, trend="none")
-summary(y.ab$common.dispersion)
-plotBCV(y.ab, cex=1)
-
-fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
-summary(fit.ab$var.prior)
-plotQLDisp(fit.ab, cex=1)
-
-# Test for differential abundance of clusters between tumor stages
-res <- glmQLFTest(fit.ab, coef=ncol(design))
-
-res$coefficients
-summary(decideTests(res))
-
-DA <- res$table
-
-DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
-
-DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
-  arrange(desc(logFC))
-
-DA$cluster <- factor(DA$cluster, levels = DA$cluster)
-
-sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
-
-## Visualize
-#Barplot
-ggplot(DA, aes(cluster, y = logFC))+
-  geom_col(aes(fill=result), col = "black")+
-  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
-  ylab("logFC")+
-  xlab("Cluster")+
-  labs(fill = "FDR<0.05")+
-  ggtitle("pT_stage (1 vs 2/3/4)")+
-  theme_classic()
-
-#Volcano plot  
-ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
-  geom_point(aes(col=cluster, size = -log10(FDR)))+
-  #scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
-  xlab("logFC (pT: 1 vs 2/3/4)")+
-  ylab("-log10(FDR)")+
-  theme_classic()+
-  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(color = "cluster")
-
-#Abundance vs log fold change (best?)
-ggplot(DA, aes(x = logFC, y = logCPM))+
-  geom_point(aes(col= cluster, 
-                 size = -log10(FDR)))+
-  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
-  #scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
-  xlab("logFC (pT: 1 vs 2/3/4)")+
-  ylab("Abundance (logCPM)")+
-  theme_classic()+
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(color = "cluster")
-```
 
 ## For CD8 spatial scores 
 
@@ -2861,7 +2688,7 @@ unique(sce$mixing_pheno)
 sce$mixing_pheno_merg <- colData(sce) %>% 
   as.data.frame %>% 
   select(mixing_pheno) %>% 
-  mutate(mixing_pheno_merg = ifelse(mixing_pheno %in% c("Cold","Compartmentalized"),"Cold_Compartmentalized", mixing_pheno)) %>% pull(mixing_pheno_merg)
+  mutate(mixing_pheno_merg = ifelse(mixing_pheno %in% c("cold","compartmentalized"),"cold_compartmentalized", mixing_pheno)) %>% pull(mixing_pheno_merg)
 
 abundances <- table(sce$metacluster_combined, sce$PID)
 abundances <- unclass(abundances) 
@@ -2869,7 +2696,7 @@ head(abundances)
 
 #relevant patient metadata (Relevel so that pT 1/2 is baseline)
 meta <- colData(sce)[match(colnames(abundances), sce$PID),]
-meta$mixing_pheno_merg <- relevel(x=factor(meta$mixing_pheno_merg), ref = "Cold_Compartmentalized")
+meta$mixing_pheno_merg <- relevel(x=factor(meta$mixing_pheno_merg), ref = "cold_compartmentalized")
 
 #filter
 meta <- meta[!is.na(meta$mixing_pheno_merg),]
@@ -2945,215 +2772,12 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
                  size = -log10(FDR)))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
   scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
-  xlab("logFC (cold/excluded vs inflamed)")+
+  xlab("logFC (cold/compartmentalized vs mixed)")+
   ylab("Abundance (logCPM)")+
   theme_classic()+
   geom_vline(xintercept = 0, linetype = "dashed")+
   labs(color = "cluster")
 ```
-
-### For cellular neighborhoods 
-
-```{r}
-### Differential abundance analysis based on edgeR
-library(edgeR)
-
-sce$spatial_CD8_pheno_merg <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(spatial_CD8_pheno) %>% 
-  mutate(spatial_CD8_pheno_merg = ifelse(spatial_CD8_pheno %in% c("cold","excluded"),"cold/excluded", spatial_CD8_pheno)) %>% pull(spatial_CD8_pheno_merg)
-
-abundances <- table(sce$cellular_neighborhood, sce$PID)
-abundances <- unclass(abundances) 
-head(abundances)
-
-#relevant patient metadata (Relevel so that pT 1/2 is baseline)
-meta <- colData(sce)[match(colnames(abundances), sce$PID),]
-meta$spatial_CD8_pheno_merg <- relevel(x=factor(meta$spatial_CD8_pheno_merg), ref = "cold/excluded")
-
-#filter
-meta <- meta[!is.na(meta$spatial_CD8_pheno_merg),]
-abundances <- abundances[,colnames(abundances) %in% meta$PID]
-
-#create DGEList - based on edgeR package
-y.ab <- DGEList(abundances, samples=meta, group = meta$spatial_CD8_pheno_merg)
-
-#Design matrix
-design <- model.matrix(~spatial_CD8_pheno_merg, data = y.ab$samples)
-
-#Visualize
-# logCPM of abundances per cluster
-cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
-
-Heatmap(cur_mat, 
-        col = viridis(100),
-        column_split = unfactor(meta$spatial_CD8_pheno_merg))%v%
-  columnAnnotation(spatial_CD8_pheno_merg = anno_simple(unfactor(meta$spatial_CD8_pheno_merg)))
-
-
-# Estimate NB and QL dispersion 
-y.ab <- estimateDisp(y.ab, design, trend="none")
-summary(y.ab$common.dispersion)
-plotBCV(y.ab, cex=1)
-
-fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
-summary(fit.ab$var.prior)
-plotQLDisp(fit.ab, cex=1)
-
-# Test for differential abundance of clusters between tumor stages
-res <- glmQLFTest(fit.ab, coef=ncol(design))
-
-res$coefficients
-summary(decideTests(res))
-
-DA <- res$table
-
-DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
-
-DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
-  arrange(desc(logFC))
-
-DA$cluster <- factor(DA$cluster, levels = DA$cluster)
-
-sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
-
-## Visualize
-#Barplot
-ggplot(DA, aes(cluster, y = logFC))+
-  geom_col(aes(fill=result), col = "black")+
-  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
-  ylab("logFC")+
-  xlab("Cluster")+
-  labs(fill = "FDR<0.05")+
-  ggtitle("Spatial CD8 phenotype (cold/excluded vs inflamed)")+
-  theme_classic()
-
-#Volcano plot  
-ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
-  geom_point(aes(col=cluster, size = -log10(FDR)))+
-  #scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
-  xlab("logFC (cold/excluded vs inflamed)")+
-  ylab("-log10(FDR)")+
-  theme_classic()+
-  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(color = "cluster")
-
-#Abundance vs log fold change (best?)
-ggplot(DA, aes(x = logFC, y = logCPM))+
-  geom_point(aes(col= cluster, 
-                 size = -log10(FDR)))+
-  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
-  #scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
-  xlab("logFC (cold/excluded vs inflamed)")+
-  ylab("Abundance (logCPM)")+
-  theme_classic()+
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(color = "cluster")
-```
-
-### For spatial contexts
-
-```{r}
-
-### Differential abundance analysis based on edgeR
-library(edgeR)
-
-sce$spatial_CD8_pheno_merg <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(spatial_CD8_pheno) %>% 
-  mutate(spatial_CD8_pheno_merg = ifelse(spatial_CD8_pheno %in% c("cold","excluded"),"cold/excluded", spatial_CD8_pheno)) %>% pull(spatial_CD8_pheno_merg)
-
-abundances <- table(sce$spatial_context_filtered, sce$PID)
-abundances <- unclass(abundances) 
-head(abundances)
-
-#relevant patient metadata (Relevel so that pT 1/2 is baseline)
-meta <- colData(sce)[match(colnames(abundances), sce$PID),]
-meta$spatial_CD8_pheno_merg <- relevel(x=factor(meta$spatial_CD8_pheno_merg), ref = "cold/excluded")
-
-#filter
-meta <- meta[!is.na(meta$spatial_CD8_pheno_merg),]
-abundances <- abundances[,colnames(abundances) %in% meta$PID]
-
-#create DGEList - based on edgeR package
-y.ab <- DGEList(abundances, samples=meta, group = meta$spatial_CD8_pheno_merg)
-
-#Design matrix
-design <- model.matrix(~spatial_CD8_pheno_merg, data = y.ab$samples)
-
-#Visualize
-# logCPM of abundances per cluster
-cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
-
-Heatmap(cur_mat, 
-        col = viridis(100),
-        column_split = unfactor(meta$spatial_CD8_pheno_merg))%v%
-  columnAnnotation(spatial_CD8_pheno_merg = anno_simple(unfactor(meta$spatial_CD8_pheno_merg)))
-
-
-# Estimate NB and QL dispersion 
-y.ab <- estimateDisp(y.ab, design, trend="none")
-summary(y.ab$common.dispersion)
-plotBCV(y.ab, cex=1)
-
-fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
-summary(fit.ab$var.prior)
-plotQLDisp(fit.ab, cex=1)
-
-# Test for differential abundance of clusters between tumor stages
-res <- glmQLFTest(fit.ab, coef=ncol(design))
-
-res$coefficients
-summary(decideTests(res))
-
-DA <- res$table
-
-DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
-
-DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.05, result = ifelse(DA$logFC > 0 & DA$FDR < 0.05, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.05, "DOWN", "NOTSIG"))) %>% 
-  arrange(desc(logFC))
-
-DA$cluster <- factor(DA$cluster, levels = DA$cluster)
-
-sig <- DA %>% filter(FDR<0.05) %>% pull(cluster) %>% unfactor
-
-## Visualize
-#Barplot
-ggplot(DA, aes(cluster, y = logFC))+
-  geom_col(aes(fill=result), col = "black")+
-  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
-  ylab("logFC")+
-  xlab("Cluster")+
-  labs(fill = "FDR<0.05")+
-  ggtitle("Spatial CD8 phenotype (cold/excluded vs inflamed)")+
-  theme_classic()
-
-#Volcano plot  
-ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
-  geom_point(aes(col=cluster, size = -log10(FDR)))+
-  scale_color_manual(values = metadata(sce)$colors$col_SC)+
-  xlab("logFC (cold/excluded vs inflamed)")+
-  ylab("-log10(FDR)")+
-  theme_classic()+
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed")+
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(color = "cluster")
-
-#Abundance vs log fold change (best?)
-ggplot(DA, aes(x = logFC, y = logCPM))+
-  geom_point(aes(col= cluster, 
-                 size = -log10(FDR)))+
-  geom_label_repel(data = DA %>% filter(FDR<0.05), aes(label = cluster))+
-  scale_color_manual(values = metadata(sce)$colors$col_SC)+
-  xlab("logFC (cold/excluded vs inflamed)")+
-  ylab("Abundance (logCPM)")+
-  theme_classic()+
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(color = "cluster")
-```
-
-
 
 
 

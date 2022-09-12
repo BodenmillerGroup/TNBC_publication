@@ -60,7 +60,6 @@ library(psych)
 library(batchelor)
 ```
 
-
 # Load data
 
 ```{r load combined sce}
@@ -162,7 +161,7 @@ ggsurvplot(fit,
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = "Set1",
+          #palette = "Set1",
           log.rank.weights = "n")
 ```
 
@@ -237,7 +236,7 @@ sce$PID_metagroups_density <- row_groups$PID_group[match(sce$PID,row_groups$PID)
 library(survival)
 library(survminer)
 
-cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, PID_metagroups_density, OS_months, DFS_months, status_DFS, status_OS) %>% filter(!PID_metagroups_density %in% c("1","2","12")) %>% unique()
+cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, PID_metagroups_density, OS_months, DFS_months, status_DFS, status_OS) %>% filter(!PID_metagroups_density %in% c("1")) %>% unique()
 
 #Plot survival curves
 fit <- survfit(Surv(OS_months, status_OS) ~ PID_metagroups_density, data = cur_surv)
@@ -461,13 +460,34 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/08_sce_PIDgroup.rds")
 ## Immune scores
 
 ```{r}
+# mixing pheno
 mixing_pheno <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,mixing_pheno) %>% group_by(PID_metagroups) %>% table() %>% as.data.frame
 mixing_pheno <- mixing_pheno %>% group_by(PID_metagroups) %>% mutate(fra = Freq/sum(Freq)) 
 mixing_pheno <- mixing_pheno %>% select(-Freq) %>% pivot_wider(id_cols = PID_metagroups,names_from = mixing_pheno,values_from = fra) %>% column_to_rownames("PID_metagroups")
 
+## mixing pheno per group
+mixing_group <- colData(sce) %>% as.data.frame() %>% select(PID,PID_metagroups,mixing_pheno_merg) %>% unique() %>% select(-PID) %>% group_by(mixing_pheno_merg) %>% table() %>% as.data.frame
+mixing_group <- mixing_group %>% group_by(mixing_pheno_merg) %>% mutate(fra = Freq/sum(Freq)) 
+ggplot(mixing_group, aes(x = mixing_pheno_merg, y = fra, fill = PID_metagroups))+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  ylab("Fraction of PID")+
+  scale_fill_manual(values = metadata(sce)$colors$PID_metagroups)
+
+# spatial CD8 pheno
 spatial_CD8_pheno <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,spatial_CD8_pheno) %>% group_by(PID_metagroups) %>% table() %>% as.data.frame
 spatial_CD8_pheno <- spatial_CD8_pheno %>% group_by(PID_metagroups) %>% mutate(fra = Freq/sum(Freq)) 
 spatial_CD8_pheno <- spatial_CD8_pheno %>% select(-Freq) %>% pivot_wider(id_cols = PID_metagroups,names_from = spatial_CD8_pheno,values_from = fra) %>% column_to_rownames("PID_metagroups")
+
+## spatial CD8 pheno per group
+spatial_CD8_group <- colData(sce) %>% as.data.frame() %>% select(PID,PID_metagroups,spatial_CD8_pheno_merg) %>% unique() %>% select(-PID) %>% group_by(spatial_CD8_pheno_merg) %>% table() %>% as.data.frame
+spatial_CD8_group <- spatial_CD8_group %>% group_by(spatial_CD8_pheno_merg) %>% mutate(fra = Freq/sum(Freq)) 
+ggplot(spatial_CD8_group, aes(x = spatial_CD8_pheno_merg, y = fra, fill = PID_metagroups))+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  ylab("Fraction of PID")+
+  scale_fill_manual(values = metadata(sce)$colors$PID_metagroups)
+
 ```
 
 ## Shannon diversity index
@@ -520,8 +540,6 @@ metadata(sce_cat)$cluster_codes <- data.frame(PID_metagroups = factor(sce_cat$PI
 ```
 
 ```{r CATALYST pbmds and clrDR, message=FALSE}
-rowData(sce)
-
 # MDS pseudobulk by metacluster
 pbMDS(sce_cat, by = "cluster_id", 
       features = rownames(sce_cat)[rowData(sce_cat)$use_channel], 
@@ -597,8 +615,7 @@ n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(PID_metagroups) %>% count(n
 
 
 # Define color scheme for PID groups 
-PID_metagroups_col <- setNames(colorRampPalette(brewer.pal(9, "Accent"))(length(anno$PID_metagroups)), anno$PID_metagroups)                   
-
+PID_metagroups_col <- setNames(colorRampPalette(brewer.pal(8, "Set1"))(length(anno$PID_metagroups)), anno$PID_metagroups)                   
 
 metadata(sce)$colors$PID_metagroups <- PID_metagroups_col
 
@@ -624,13 +641,7 @@ spatial_CD8_pheno
 #Shannon diversity index
 shannon_mean
 
-## Create color scheme for mixing and CD8 pheno 
-mixing_pheno_col <- setNames(c("steelblue1","purple","navy"), colnames(mixing_pheno))                   
-spatial_CD8_pheno_col <- setNames(c("steelblue1","navy","firebrick"), colnames(spatial_CD8_pheno))                   
-
-metadata(sce)$colors$mixing_pheno <- mixing_pheno_col
-metadata(sce)$colors$spatial_CD8_pheno <- spatial_CD8_pheno_col
-
+## Create color scheme for shannon
 shannon_col <- colorRamp2(c(min(shannon_mean$mean),median(shannon_mean$mean),max(shannon_mean$mean)), c(brewer.pal(3,"YlOrRd")[1],brewer.pal(3,"YlOrRd")[2],brewer.pal(3,"YlOrRd")[3]))
 metadata(sce)$colors$shannon_col <- shannon_col
 
@@ -645,9 +656,8 @@ ha_score <- HeatmapAnnotation(mixing_pheno = anno_barplot(mixing_pheno, width = 
 
 
 ha_score + NULL                            
+
 ### 3. Plot heatmap ###
-
-
 h <- Heatmap(hb,
         col = col_min_max,
         name = "MC_fraction",

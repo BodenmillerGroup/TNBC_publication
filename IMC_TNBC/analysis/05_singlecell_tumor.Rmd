@@ -64,9 +64,8 @@ library(batchelor)
 
 Here, we will perform the second single cell analysis steps, including phenotyping tumor cells.
 
-## Read in data and filter for ZTMA249
+## Read in data
 First, we will read in the `SingleCellExperiment` object containing the cleaned, spillover- and (batch-corrected) single-cell data. 
-**Important:** For now, We will filter the object for ZTMA249 samples, since we are sure that those are TNBC. 
 
 ```{r read-data-batch-correction, message=FALSE}
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
@@ -252,6 +251,19 @@ p4 <- ggplot(sil.data, aes(x=cluster, y=width, colour=closest)) +
   scale_color_manual(values = col_clus)
 p4
 
+```
+## Add missing metadata 
+
+```{r}
+# Missing metadata for 10 ZTMA174 patients
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+
+meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
+
+## Add relevant metadata based on PID
+for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simple", "pN", "pN_simple", "status_OS","status_DFS", "OS_months","DFS_months")]) {
+  colData(sce)[,entry] <- meta[,entry][match(colData(sce)[,"PID"],meta[,"PID"])]
+}
 ```
 
 # 2. Heatmap visualization
@@ -778,9 +790,6 @@ ggplot(SID_metacluster) +
   xlab("PID")+
   theme(axis.text.x = element_blank())
 
-SID_metacluster %>% filter(metacluster == "BnT_cell") %>% arrange(desc(density))
-
-
 ### For each PID
 PID_metacluster <- colData(sce) %>% as.data.frame() %>% select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 
@@ -806,7 +815,7 @@ SID_metacluster_cor$PID <- sce$PID[match(SID_metacluster_cor$sample_id,sce$sampl
 
 SID_metacluster_cor <- foreach(i = unique(colData(sce)$PID),.combine = "rbind")%do%{
 SID <- SID_metacluster_cor %>% filter(PID %in% i) %>% select(-Freq,-PID) %>% pivot_wider(id_cols = metacluster,names_from = sample_id,values_from = density) %>% column_to_rownames("metacluster")
-cor <- cor(SID,method = "spearman")
+cor <- cor(SID,method = "pearson")
 cor[2]
 }
 
@@ -821,7 +830,7 @@ SID_metacluster_dens_cor_plot <- ggplot(SID_metacluster_cor, aes(x = category, y
   scale_color_manual(values = metadata(sce)$colors$PID)+
   theme_classic(base_size = 12)+
   theme(axis.title.x = element_blank())+
-  ylab("Correlation of cluster fractions per PID (n=2-4)")+
+  ylab("Correlation of cluster densities per PID (n=2-4)")+
   ggtitle(paste("Spearman rho = ",round(median(SID_metacluster_cor$V1, na.rm = TRUE), digits = 2)))
 
 SID_metacluster_dens_cor_plot
@@ -840,7 +849,7 @@ SID_cluster_dens_cor$PID <- sce$PID[match(SID_cluster_dens_cor$sample_id,sce$sam
 
 SID_cluster_dens_cor <- foreach(i = unique(colData(sce)$PID),.combine = "rbind")%do%{
 SID <- SID_cluster_dens_cor %>% filter(PID %in% i) %>% select(-Freq,-PID,-tissue_area) %>% pivot_wider(id_cols = cluster_130,names_from = sample_id,values_from = density) %>% column_to_rownames("cluster_130")
-cor <- cor(SID,method = "pearson")
+cor <- cor(SID,method = "spearman")
 cor[2]
 }
 
@@ -856,7 +865,7 @@ SID_cluster_dens_cor_plot <- ggplot(SID_cluster_dens_cor, aes(x = category, y = 
   theme_classic(base_size = 12)+
   theme(axis.title.x = element_blank())+
   ylab("Correlation of cluster fractions per PID (n=2-4)")+
-  ggtitle(paste("Spearman rho = ",round(median(SID_cluster_cor$V1, na.rm = TRUE), digits = 3)))
+  ggtitle(paste("Spearman rho = ",round(median(SID_cluster_dens_cor$V1, na.rm = TRUE), digits = 2)))
 
 SID_cluster_dens_cor_plot
 ```
@@ -911,6 +920,7 @@ clrDR(sce_cat, dr = "PCA",
   guides(fill = "none")+
   theme_classic()
 ```
+
 ## Check correlation of markers
 
 ```{r marker correlations}
@@ -1468,7 +1478,7 @@ geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
 coord_cartesian(ylim=c(0,50))+
 geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
 scale_color_brewer(palette = "Set1")+
-xlab("Immune metaclusters")+
+xlab("Tumor metaclusters")+
 ylab("HR for mean_density")+
 theme_classic()+
 theme(axis.text.x = element_text(angle = 90))
