@@ -100,20 +100,20 @@ plot(testCL_1, legend = FALSE)
 
 library(dendextend)
 avg_dend_obj_MCP <- as.dendrogram(agnes(PID_metagroups,metric = "euclidean",method = "ward"))
-avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 8)
+avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 10)
 plot(avg_col_dend_MCP)
 
 # Print heatmap
 h_g <- Heatmap(PID_metagroups, name = "Cluster fraction", 
         col = viridis(100),
         cluster_rows = avg_col_dend_MCP,
-        row_split = 8,
+        row_split = 10,
         clustering_method_columns = "ward.D2",
         clustering_method_rows = "ward.D2")+
   Heatmap(PID_metagroups_scaled, name = "Scaled metacluster fraction", 
         col = col_scaled,
-        cluster_rows = avg_col_dend_MCP,
-        row_split = 8,
+        #cluster_rows = avg_col_dend_MCP,
+        #row_split = 8,
         clustering_method_columns = "ward.D2",
         clustering_method_rows = "ward.D2")
 
@@ -121,7 +121,7 @@ h_g <- draw(h_g)
 draw(h_g)
 
 #Retrieve PID groups (for agnes)
-row_groups <- foreach(i = 1:8, .combine = rbind) %do%{
+row_groups <- foreach(i = 1:10, .combine = rbind) %do%{
 data.frame(PID = rownames(PID_metagroups[row_order(h_g)[[i]],]), PID_group = i)
 }
 
@@ -135,7 +135,11 @@ sce$PID_metagroups <- row_groups$PID_group[match(sce$PID,row_groups$PID)]
 library(survival)
 library(survminer)
 
-cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, PID_metagroups, OS_months, DFS_months, status_DFS, status_OS) %>% filter(PID_metagroups != "1") %>% unique()
+cur_surv <- colData(sce) %>% as.data.frame() %>% 
+  select(PID, PID_metagroups, OS_months, DFS_months, status_DFS, status_OS) %>% 
+  #mutate(PID_metagroups_2 = ifelse(PID_metagroups == "6","6","Not_6")) %>% unique()
+  filter(!PID_metagroups %in% c("1")) %>% 
+  unique()
 
 #Plot survival curves
 fit <- survfit(Surv(OS_months, status_OS) ~ PID_metagroups, data = cur_surv)
@@ -149,7 +153,7 @@ ggsurvplot(fit,
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
           palette = "Set1",
-          log.rank.weights = "n")
+          log.rank.weights = "S2")
 
 fit <- survfit(Surv(DFS_months, status_DFS) ~ PID_metagroups, data = cur_surv)
 print(fit)
@@ -162,7 +166,62 @@ ggsurvplot(fit,
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
           #palette = "Set1",
-          log.rank.weights = "n")
+          log.rank.weights = "S2") 
+
+
+```
+```{r coxph dfs}
+### Multivariate cox proportional hazard model on multiple covariates (here PID groups)
+PID_metagroups <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "PID_metagroups",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("SCP",colnames(PID_metagroups))
+
+## 1. Based on SCP assignments
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -SCP1) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "), "+ SCP1"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("SCP")+
+ylab("HR for PID groups")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
 ```
 
 ## Based on metacluster densities
@@ -206,7 +265,7 @@ h_g <- Heatmap(PID_metagroups, name = "Cluster fraction",
         col = viridis(100),
         #cluster_rows = avg_col_dend_MCP,
         #row_split = 9,
-        row_km = 12,
+        row_km = 14,
         row_km_repeats = 1000,
         clustering_method_columns = "ward.D2",
         clustering_method_rows = "ward.D2",
@@ -298,16 +357,16 @@ plot(testCL_1, legend = FALSE)
 
 library(dendextend)
 avg_dend_obj_MCP <- as.dendrogram(agnes(PID_metagroups,metric = "euclidean",method = "ward"))
-avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 8)
+avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 12)
 plot(avg_col_dend_MCP)
 
 # Print heatmap
 h_g <- Heatmap(PID_metagroups, name = "Cluster fraction", 
         col = viridis(100),
-        #cluster_rows = avg_col_dend_MCP,
-        #row_split = 8,
-        row_km = 9, 
-        row_km_repeats = 1000,
+        cluster_rows = avg_col_dend_MCP,
+        row_split = 12,
+        #row_km = 9, 
+        #row_km_repeats = 1000,
         clustering_method_columns = "ward.D2",
         clustering_method_rows = "ward.D2",
         cluster_row_slices = FALSE)+
@@ -322,7 +381,7 @@ h_g <- draw(h_g)
 draw(h_g)
 
 #Retrieve PID groups
-row_groups <- foreach(i = 1:9, .combine = rbind) %do%{
+row_groups <- foreach(i = 1:12, .combine = rbind) %do%{
 data.frame(PID = rownames(PID_metagroups[row_order(h_g)[[i]],]), PID_group = i)
 }
 
@@ -335,7 +394,7 @@ sce$PID_CN_groups <- row_groups$PID_group[match(sce$PID,row_groups$PID)]
 library(survival)
 library(survminer)
 
-cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, PID_CN_groups, OS_months, DFS_months, status_DFS, status_OS) %>% filter(!PID_CN_groups %in% c("4")) %>%
+cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, PID_CN_groups, OS_months, DFS_months, status_DFS, status_OS) %>% #filter(!PID_CN_groups %in% c("4")) %>%
   unique()
 
 #Plot survival curves
@@ -350,7 +409,7 @@ ggsurvplot(fit,
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
           #palette = "Set1",
-          log.rank.weights = "n")
+          log.rank.weights = "S2")
 
 fit <- survfit(Surv(DFS_months, status_DFS) ~ PID_CN_groups, data = cur_surv)
 print(fit)
@@ -363,7 +422,60 @@ ggsurvplot(fit,
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
           #palette = "Set1",
-          log.rank.weights = "n")
+          log.rank.weights = "S2")
+```
+```{r}
+### Multivariate cox proportional hazard model on multiple covariates (here PID groups)
+PID_metagroups <- colData(sce) %>% as.data.frame() %>% select(PID_CN_groups,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "PID_CN_groups",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("SCP",colnames(PID_metagroups))
+
+## 1. Based on SCP assignments
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -SCP1) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "), "+ SCP1"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("SCP")+
+ylab("HR for PID groups")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
 ```
 
 ## Based on cellular neighborhood densities

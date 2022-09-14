@@ -251,9 +251,9 @@ ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
   ylab("Total WCSS")+
   scale_color_continuous(type = "viridis")
 
-# Select 11 clusters
+# Select 13 clusters
 set.seed(22)
-cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 11, nstart = 100)$cluster
+cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 13, nstart = 100)$cluster
 
 sce$cellular_neighborhood <- as.factor(cur_clusters)
 ```
@@ -783,7 +783,7 @@ sce <- buildSpatialGraph(sce,
                          type = "knn", 
                          name = "knn_spatialcontext_graph", 
                          k = 40,
-                         BPPARAM = MulticoreParam(progressbar = TRUE))
+                         BPPARAM = MulticoreParam(progressbar = TRUE, workers = 20))
 
 # Aggregate based on clustered_neighbors
 sce <- aggregateNeighbors(sce, 
@@ -805,9 +805,13 @@ length(unique(sce$spatial_context))
 
 ```{r}
 #Abundant SC - at least 20 PID and 500 cells
-sce <- filterSpatialContext(sce, group_by = "PID", group_threshold = 20, cells_threshold = 500)
+sce <- filterSpatialContext(sce, group_by = "PID", group_threshold = 15, cells_threshold = 1000)
 
+#20, 500
+
+dat <- metadata(sce)$filterSpatialContext
 length(unique(sce$spatial_context_filtered))
+metadata(sce)$filterSpatialContext
 
 # Define SC color scheme and add to metadata
 col_SC <- setNames(colorRampPalette(brewer.pal(8, "Accent"))(length(unique(sce$spatial_context_filtered))), 
@@ -913,8 +917,9 @@ fit <- glmnet(x, y, family="cox")
 coef(fit, s = cv.fit$lambda.min)
 
 # ## Run lasso 100 times and average error curves to be more robust
+# set.seed(22)
 # MSEs <- NULL
-# for (i in 1:100){
+# for (i in 1:10){
 #                  cv <- cv.glmnet(x, y, family="cox", type.measure = "C")
 #                  MSEs <- cbind(MSEs, cv$cvm)
 #              }
@@ -1113,7 +1118,7 @@ ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
 
 # Select 8 clusters
 set.seed(22)
-tumor_cur_clusters <- kmeans(cur_dat, centers = 8, nstart = 1000)$cluster
+tumor_cur_clusters <- kmeans(cur_dat, centers = 8, nstart = 100)$cluster
 
 tumor_sce$tumor_meta_community <- tumor_cur_clusters[match(tumor_sce$spatial_community, names(tumor_cur_clusters))]
 
@@ -1170,9 +1175,9 @@ ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
   ylab("Total WCSS")+
   scale_color_continuous(type = "viridis")
 
-# Select 8 clusters
+# Select 7 clusters
 set.seed(22)
-stroma_cur_clusters <- kmeans(cur_dat, centers = 6, nstart = 1000)$cluster
+stroma_cur_clusters <- kmeans(cur_dat, centers = 7, nstart = 1000)$cluster
 
 stroma_sce$stroma_meta_community <- stroma_cur_clusters[match(stroma_sce$spatial_community, names(stroma_cur_clusters))]
 
@@ -1233,6 +1238,7 @@ plotSpatial(sce[,sce$sample_id %in% cur_sample],
 dittoBarPlot(sce, var = "spatial_metacommunity", group.by = "PID")+
   theme(axis.text.x = element_blank())
 ```
+
 ## Survival analysis 
 
 ### For OS on community proportions
@@ -1788,26 +1794,30 @@ ggplot(test_df, aes(mean, color = metacluster_combined))+
 
 ```{r patch-milieu}
 # Milieu detection ("expanded" patch)
-sce <- patchDetection(sce,
-               patch_cells = sce$metacluster_combined == "tumor_6",
+
+library(doParallel)
+registerDoParallel(cores = 3)
+
+foreach(i = unfactor(unique(sce$metacluster_combined)))%dopar%{ 
+  
+  sce <- patchDetection(sce,
+               patch_cells = sce$metacluster_combined == i,
                colPairName = "knn_interaction_graph",
                min_patch_size = 15,
-               name = "milieu_tumor_6",
+               name = paste0("milieu_",i),
                expand_by = 30, 
                img_id = "sample_id",
-               BPPARAM = MulticoreParam(workers = 10))
-
-unique(sce$milieu_tumor_6)
-length(unique(sce$milieu_tumor_6))
+               BPPARAM = MulticoreParam(workers = 5))
+}
 
 #subset sce to 20 images with most cluster cells
-cur_sam <- colData(sce) %>% as.data.frame %>% select(sample_id, metacluster_combined) %>% filter(metacluster_combined == "tumor_6") %>% group_by(metacluster_combined) %>% count(sample_id) %>% arrange(desc(n)) %>% slice(1:10) %>% pull(sample_id)
+#cur_sam <- colData(sce) %>% as.data.frame %>% select(sample_id, metacluster_combined) %>% filter(metacluster_combined == "tumor_6") %>% group_by(metacluster_combined) %>% count(sample_id) %>% arrange(desc(n)) %>% slice(1:10) %>% pull(sample_id)
 
 #Visualize
-plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "metacluster_combined")+
-  scale_color_manual(values = metadata(sce)$colors$metacluster_combined) #Cell Types
-plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "patch_tumor_6") #Patch
-plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "milieu_tumor_6") #Milieu
+#plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "metacluster_combined")+
+#  scale_color_manual(values = metadata(sce)$colors$metacluster_combined) #Cell Types
+#plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "patch_tumor_6") #Patch
+#plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "milieu_tumor_6") #Milieu
 ```
 
 ### Milieu enrichment analysis 
@@ -1887,6 +1897,9 @@ out %>%
 # 3.6 Immune scores 
 
 ```{r}
+## Combine tumor clusters 
+sce$metacluster_tumor_combined <- ifelse(str_detect(unfactor(sce$metacluster_combined),"tumor"),"tumor",unfactor(sce$metacluster_combined))
+
 sce <- aggregateNeighbors(sce, colPairName = "neighborhood", aggregate_by = "metadata", count_by = "metacluster_tumor_combined", proportions = FALSE, name = "count_neighbors")
 ```
 
@@ -1959,7 +1972,7 @@ ggsurvplot(fit,
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = "Set1",
+          palette = c("steelblue1","navy","firebrick"),
           log.rank.weights = "n")
 
 fit <- survfit(Surv(DFS_months, status_DFS) ~ spatial_CD8_pheno, data = cur_surv)
@@ -1972,7 +1985,7 @@ ggsurvplot(fit,
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = "Set1",
+          palette = c("steelblue1","navy","firebrick"),
           log.rank.weights = "n")
 ```
 ## Immune mixing score - Keren et al., 2020
@@ -2043,7 +2056,7 @@ ggsurvplot(fit,
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = "Set1",
+          palette = c("steelblue1","purple","navy"),
           log.rank.weights = "n")
 
 fit <- survfit(Surv(DFS_months, status_DFS) ~ mixing_pheno, data = cur_surv)
@@ -2056,7 +2069,7 @@ ggsurvplot(fit,
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = "Set1",
+          palette = c("steelblue1","purple","navy"),
           log.rank.weights = "n")
 ```
 ```{r save_objects, message = FALSE, warning=FALSE}
@@ -2067,6 +2080,22 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
 # 4. Differential abundance analysis 
 
 ## For pT 
+
+```{r}
+#pT overview
+pT_simple_n <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(sample_id,pT_simple) %>% 
+  mutate(pT_simple = as.character(pT_simple)) %>%
+  unique() %>% 
+  group_by(pT_simple) %>% 
+  count()
+
+ggplot(pT_simple_n, aes(x=pT_simple,y=n,fill=pT_simple))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = metadata(sce)$colors$pT_simple)+
+  theme_classic()
+```
 
 ### For metaclusters
 
@@ -2140,7 +2169,7 @@ ggplot(DA, aes(cluster, y = logFC))+
   scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
   ylab("logFC")+
   xlab("Cluster")+
-  labs(fill = "FDR<0.05")+
+  labs(fill = "FDR<0.1")+
   ggtitle("pT_stage (1 vs 2/3/4)")+
   theme_classic()
 
@@ -2242,7 +2271,7 @@ ggplot(DA, aes(cluster, y = logFC))+
   scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
   ylab("logFC")+
   xlab("Cluster")+
-  labs(fill = "FDR<0.05")+
+  labs(fill = "FDR<0.1")+
   ggtitle("pT_stage (1 vs 2/3/4)")+
   theme_classic()
 
@@ -2328,7 +2357,7 @@ DA <- res$table
 
 DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
 
-DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.05, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
   arrange(desc(logFC))
 
 DA$cluster <- factor(DA$cluster, levels = DA$cluster)
@@ -2342,7 +2371,7 @@ ggplot(DA, aes(cluster, y = logFC))+
   scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
   ylab("logFC")+
   xlab("Cluster")+
-  labs(fill = "FDR<0.05")+
+  labs(fill = "FDR<0.1")+
   ggtitle("pT_stage (1 vs 2/3/4)")+
   theme_classic()
 
@@ -2445,7 +2474,7 @@ ggplot(DA, aes(cluster, y = logFC))+
   scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
   ylab("logFC")+
   xlab("Cluster")+
-  labs(fill = "FDR<0.05")+
+  labs(fill = "FDR<0.1")+
   ggtitle("Spatial CD8 phenotype (cold/excluded vs inflamed)")+
   theme_classic()
 
@@ -2545,7 +2574,7 @@ ggplot(DA, aes(cluster, y = logFC))+
   scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
   ylab("logFC")+
   xlab("Cluster")+
-  labs(fill = "FDR<0.05")+
+  labs(fill = "FDR<0.1")+
   ggtitle("Spatial CD8 phenotype (cold/excluded vs inflamed)")+
   theme_classic()
 
@@ -2632,12 +2661,12 @@ DA <- res$table
 
 DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
 
-DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.05, result = ifelse(DA$logFC > 0 & DA$FDR < 0.05, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.05, "DOWN", "NOTSIG"))) %>% 
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
   arrange(desc(logFC))
 
 DA$cluster <- factor(DA$cluster, levels = DA$cluster)
 
-sig <- DA %>% filter(FDR<0.05) %>% pull(cluster) %>% unfactor
+sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
 
 ## Visualize
 #Barplot
@@ -2646,7 +2675,7 @@ ggplot(DA, aes(cluster, y = logFC))+
   scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
   ylab("logFC")+
   xlab("Cluster")+
-  labs(fill = "FDR<0.05")+
+  labs(fill = "FDR<0.1")+
   ggtitle("Spatial CD8 phenotype (cold/excluded vs inflamed)")+
   theme_classic()
 
@@ -2657,7 +2686,7 @@ ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
   xlab("logFC (cold/excluded vs inflamed)")+
   ylab("-log10(FDR)")+
   theme_classic()+
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed")+
+  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
   geom_vline(xintercept = 0, linetype = "dashed")+
   labs(color = "cluster")
 
@@ -2665,7 +2694,7 @@ ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
 ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
-  geom_label_repel(data = DA %>% filter(FDR<0.05), aes(label = cluster))+
+  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
   scale_color_manual(values = metadata(sce)$colors$col_SC)+
   xlab("logFC (cold/excluded vs inflamed)")+
   ylab("Abundance (logCPM)")+
@@ -2751,7 +2780,7 @@ ggplot(DA, aes(cluster, y = logFC))+
   scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
   ylab("logFC")+
   xlab("Cluster")+
-  labs(fill = "FDR<0.05")+
+  labs(fill = "FDR<0.1")+
   ggtitle("Spatial CD8 phenotype (cold/excluded vs inflamed)")+
   theme_classic()
 

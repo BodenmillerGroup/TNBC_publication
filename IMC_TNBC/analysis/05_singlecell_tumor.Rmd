@@ -444,7 +444,7 @@ testCL_1<- clValid(t(assay(cluster_mean_sce, "exprs")),nClust = 4:20,clMethods =
 summary(testCL_1)
 plot(testCL_1, legend = TRUE)
 
-#chosen method: kmeans, k=9
+#chosen method: kmeans, k=7
 
 #retrieve row_order
 set.seed(22)
@@ -463,12 +463,24 @@ ht_kmeans <- draw(ht_kmeans)
 row_order_ht <- row_order(ht_kmeans)
 
 anno <- colData(cluster_mean_sce) %>% as.data.frame %>% select(cluster_110,ncells)
-anno$metacluster <- NA
+anno$pre_metacluster <- NA
 foreach(i = seq_along(row_order_ht))%do%{
-anno$metacluster <- as.factor((ifelse(anno$cluster_110 %in% row_order_ht[[i]], i,anno$metacluster)))
+anno$pre_metacluster <- as.factor((ifelse(anno$cluster_110 %in% row_order_ht[[i]], i,anno$pre_metacluster)))
 }
 
-#add metacluster to sce
+## pre_metacluster_1 - splitting 
+library(dendextend)
+dend_1 <- row_dend(ht_kmeans)[[1]]
+dend_1 <- color_branches(dend_1, k=3)
+plot(dend_1)
+
+anno <- anno %>% mutate(metacluster = ifelse(pre_metacluster == "1" & cluster_110 %in% c("13","6","27","29"), "8", 
+                                       ifelse(pre_metacluster == "1" & cluster_110 %in% c("4","12","15","21","8"), "9", 
+                                              ifelse(pre_metacluster == "1" & cluster_110 %in% c("34","24","11","10"), "1", pre_metacluster))))
+anno$metacluster <- factor(anno$metacluster)
+
+#add (pre) metacluster to sce
+sce$pre_metacluster <- anno$pre_metacluster[match(sce$cluster_110,anno$cluster_110)]
 sce$metacluster <- anno$metacluster[match(sce$cluster_110,anno$cluster_110)]
 
 ###2.3 Metadata features
@@ -770,7 +782,6 @@ SID_metacluster_cor_plot
 ### Densities - Visualization and correlation of cluster densities
 
 ```{r density cor}
-
 # 1. By metaclusters
 
 ## Density barplot
@@ -830,7 +841,7 @@ SID_metacluster_dens_cor_plot <- ggplot(SID_metacluster_cor, aes(x = category, y
   scale_color_manual(values = metadata(sce)$colors$PID)+
   theme_classic(base_size = 12)+
   theme(axis.title.x = element_blank())+
-  ylab("Correlation of cluster densities per PID (n=2-4)")+
+  ylab("Correlation of metacluster densities per PID (n=2-4)")+
   ggtitle(paste("Spearman rho = ",round(median(SID_metacluster_cor$V1, na.rm = TRUE), digits = 2)))
 
 SID_metacluster_dens_cor_plot
@@ -864,7 +875,7 @@ SID_cluster_dens_cor_plot <- ggplot(SID_cluster_dens_cor, aes(x = category, y = 
   scale_color_manual(values = metadata(sce)$colors$PID)+
   theme_classic(base_size = 12)+
   theme(axis.title.x = element_blank())+
-  ylab("Correlation of cluster fractions per PID (n=2-4)")+
+  ylab("Correlation of cluster densities per PID (n=2-4)")+
   ggtitle(paste("Spearman rho = ",round(median(SID_cluster_dens_cor$V1, na.rm = TRUE), digits = 2)))
 
 SID_cluster_dens_cor_plot
@@ -943,97 +954,7 @@ pairs.panels(cor_sce[,c("CK5","KRT14")],
              hist.col = "royalblue1",
              digits = 2)
 ```
-
-# 4. Differential abundance testing
-
-## Cluster fraction comparison
-
-```{r compare cluster fractions}
-library(ggpubr)
-
-#pT overview
-pT_simple_n <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(sample_id,pT_simple) %>% 
-  mutate(pT_simple = as.character(pT_simple)) %>%
-  unique() %>% 
-  group_by(pT_simple) %>% 
-  count()
-
-ggplot(pT_simple_n, aes(x=pT_simple,y=n,fill=pT_simple))+
-  geom_bar(stat = "identity", color = "black")+
-  scale_fill_manual(values = metadata(sce)$colors$pT_simple)+
-  theme_classic()
-
-#pN overview
-pN_simple_n <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(sample_id,pN_simple) %>% 
-  mutate(pN_simple = as.character(pN_simple)) %>%
-  unique() %>% 
-  group_by(pN_simple) %>% 
-  count()
-
-ggplot(pN_simple_n, aes(x=pN_simple,y=n,fill=pN_simple))+
-  geom_bar(stat = "identity", color = "black")+
-  scale_fill_manual(values = metadata(sce)$colors$pN_simple)+
-  theme_classic()
-
-## merge and add to sce
-sce$pT_merg <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(pT_simple) %>% 
-  mutate(pT_merg = ifelse(pT_simple %in% c("3","4"),"3/4", pT_simple)) %>% pull(pT_merg)
-
-sce$pN_merg <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(pN_simple) %>% 
-  mutate(pN_merg = ifelse(pN_simple %in% c("2","3"),"2/3", pN_simple)) %>% pull(pN_merg)
-
-### Metacluster fraction comparison 
-
-##1. by pT_merg
-pT_cluster <- colData(sce) %>% as.data.frame() %>% select(PID,metacluster,pT_merg) %>% filter(!is.na(pT_merg)) %>% group_by(PID,metacluster, pT_merg) %>% count()
-pT_cluster <- pT_cluster %>% group_by(PID) %>% mutate(fra = n/sum(n))
-
-#Statistical testing
-pT_cluster_kruskal <- compare_means(fra ~ pT_merg,pT_cluster, group.by = "metacluster", method = "kruskal.test", p.adjust.method = "BH")
-
-pT_cluster_wil <- compare_means(fra ~ pT_merg,pT_cluster %>% filter(pT_merg %in% c("1","2")), group.by = "metacluster", method = "wilcox.test", p.adjust.method = "BH")
-
-#Plot
-ggplot(pT_cluster, aes(x=pT_merg,y=fra))+
-  facet_wrap(~metacluster)+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = metacluster), size = 2, position=position_jitter(w=0.1,h=0.1))+
-  scale_color_manual(values = metadata(sce)$colors$metacluster)+
-  theme_classic()+
-  ylab("Patient cluster fraction")+
-  xlab("pT_merg")+
-  geom_text(pT_cluster_kruskal, mapping = aes(x = "1",y = 1, label = p.adj),inherit.aes = FALSE)
-
-##2. by pN_merg
-pN_cluster <- colData(sce) %>% as.data.frame() %>% select(PID,metacluster,pN_merg) %>% filter(!is.na(pN_merg)) %>% group_by(PID,metacluster, pN_merg) %>% count()
-pN_cluster <- pN_cluster %>% group_by(PID) %>% mutate(fra = n/sum(n))
-
-#Statistical testing
-pN_cluster_kruskal <- compare_means(fra ~ pN_merg,pN_cluster, group.by = "metacluster", method = "kruskal.test", p.adjust.method = "BH")
-
-pN_cluster_wil <- compare_means(fra ~ pN_merg,pN_cluster %>% filter(pN_merg %in% c("0","2/3")), group.by = "metacluster", method = "wilcox.test", p.adjust.method = "BH")
-
-#Plot
-ggplot(pN_cluster, aes(x=pN_merg,y=fra))+
-  facet_wrap(~metacluster)+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = metacluster), size = 2, position=position_jitter(w=0.1,h=0.1))+
-  scale_color_manual(values = metadata(sce)$colors$metacluster)+
-  theme_classic()+
-  ylab("Sample cluster fraction")+
-  xlab("pN_merg")+
-  geom_text(pN_cluster_kruskal, mapping = aes(x = "0",y = 1, label = p.adj),inherit.aes = FALSE)
-```
-
-# 5. Survival analysis 
+# 4. Survival analysis 
 
 ## Cox-proportonal hazards model for metaclusters
 
@@ -1730,7 +1651,7 @@ ggplot(lasso_df, aes(x = predictor, y = exp(coef))) +
   scale_color_manual(values = metadata(sce)$colors$cluster_110, limits = force, na.value = "black")
 ```
 
-# 6. Image visualization
+# 5. Image visualization
 
 ```{r load images, message = FALSE}
 #Load images and masks
@@ -1874,565 +1795,6 @@ plotPixels(cur_images,
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
 saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
-```
-
-# 7. OLD CODE 
-
-TO BE UPDATED
-
-## Make patientgroups based on primary tumor cluster compositions
-
-#Quality control: Filter PID with low tumor cell frequency (see previous script - when clustering was performed again)
-
-```{r n tumor cells, message = FALSE, warning=FALSE}
-low_tumor <- colData(sce) %>% as.data.frame() %>% filter(image_low_tumor == TRUE)
-```
-
-#Option 1: Based on metacluster fractions per PID
-
-```{r pgroups, eval = F}
-#kick out unclear clustering with little information (Metacluster 4)? 
-PID_groups <- PID_metacluster
-
-PID_groups <- PID_groups %>% pivot_wider(id_cols = "PID",names_from = "metacluster",values_from = "fra") %>% column_to_rownames("PID")
-
-#double-check that rowsums are 1 
-rowSums(PID_groups)
-
-#Annotation dataframes
-row_anno <- PID_groups %>% rownames_to_column(var = "PID")
-
-col_anno <- PID_metacluster %>% ungroup %>% select(metacluster) %>% distinct()
-
-### 1. Cluster-testing
-library(clValid)
-#Internal measures
-testCL<- clValid(PID_groups,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
-summary(testCL)
-plot(testCL)
-
-#Stability measures 
-testCL_1<- clValid(PID_groups,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans"),validation="stability",metric="euclidean", method = "ward")
-summary(testCL_1)
-plot(testCL_1, legend = FALSE)
-#Selected method: kmeans, 12
-
-# #kmeans clustering
-set.seed(22)
-out_k <- kmeans(PID_groups,9,nstart = 20000)
-row_anno$PID_groups <- as.factor(out_k$cluster)
-
-library(dendextend)
-avg_dend_obj_MCP <- as.dendrogram(agnes(PID_groups,metric = "euclidean",method = "ward"))
-avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 8)
-plot(avg_col_dend_MCP)
-
-# Print heatmap
-h_g <- Heatmap(PID_groups, name = "Cluster fraction", 
-        col = viridis(100),
-        row_split = 8,
-        clustering_method_columns = "ward.D2",
-        clustering_method_rows = "ward.D2")
-
-h_g <- draw(h_g)
-draw(h_g)
-
-#Retrieve PID groups (for agnes)
-row_groups <- foreach(i = 1:8, .combine = rbind) %do%{
-data.frame(PID = rownames(PID_groups[row_order(h_g)[[i]],]), PID_group = i)
-}
-
-#Add to sce
-sce$PID_groups <- row_groups$PID_group[match(sce$PID,row_groups$PID)]
-
-#Save sce
-#saveRDS(sce,"/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
-```
-
-## CLR on cluster proportions across samples/PID (PID_groups)
-
-```{r clr dr}
-#save sce in different object due to renaming of colData entries
-sce_clr
-
-##1. Metacluster proportions 
-sce_clr$sample_id <- factor(sce_clr$PID)
-sce_clr$condition <- factor(sce_clr$PID_groups) #should be sample_id specific (here by PID)
-sce_clr$cluster_id <- factor(sce_clr$metacluster)
-  
-#add metaclusters/clusters to metadata of sce_clr object
-metadata(sce_clr)$cluster_codes <- data.frame(metacluster = factor(sce_clr$metacluster))
-
-clrMeta <- clrDR(sce_clr, dr = "PCA", by = "sample_id", k = "metacluster") #returns ggplot object
-
-clrMeta <- clrMeta+
-  scale_fill_brewer(palette = "Set1", name = "PID_groups")+
-  scale_color_manual(values = col_clusters$metaclusters, name = "metacluster")+
-  theme_classic()+
-  ggtitle("Metacluster CLR")
-
-##2. Cluster proportions
-sce_clr$sample_id <- factor(sce_clr$PID)
-sce_clr$condition <- factor(sce_clr$PID_groups) #should be sample_id specific (here by PID)
-sce_clr$cluster_id <- factor(sce_clr$cluster_100)
-
-metadata(sce_clr)$cluster_codes <- data.frame(cluster_100 = sce_clr$cluster_100)
-
-clrClus <- clrDR(sce_clr, dr = "PCA", by = "sample_id", k = "cluster_100") #returns ggplot object
-
-clrClus <- clrClus+
-  scale_fill_brewer(palette = "Set1", name = "PID_groups")+
-  scale_color_manual(values = col_clusters$cluster_100, name = "cluster_100")+
-  theme_classic()+
-  ggtitle("Cluster CLR")
-
-clrMeta+clrClus
-```
-
-#Option 2: Based on cluster fractions per PID
-
-```{r pgroups, eval = F}
-#kick out unclear clustering with little information (? 
-PID_groups <- PID_cluster
-
-PID_groups <- PID_groups %>% pivot_wider(id_cols = "PID",names_from = "cluster_100",values_from = "fra") %>% column_to_rownames("PID")
-
-#double-check that rowsums are 1 
-#NOTE: need to calculate new fractions per PID if I remove cluster
-rowSums(PID_groups)
-
-#Annotation dataframes
-row_anno <- PID_groups %>% rownames_to_column(var = "PID")
-
-col_anno <- anno %>% ungroup %>% select(cluster_100,metacluster) %>% distinct()
-
-### 1. Cluster-testing
-library(clValid)
-
-#Internal measures
-testCL<- clValid(PID_groups,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
-summary(testCL)
-plot(testCL, legend = FALSE)
-
-#Stability measures 
-testCL_1<- clValid(PID_groups,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans"),validation="stability",metric="euclidean", method = "ward")
-summary(testCL_1)
-
-plot(testCL_1, legend = FALSE)
-
-#Selected method: hierarchical, 8
-
-# #kmeans clustering
-set.seed(22)
-out_k <- kmeans(PID_groups,14,nstart = 20000)
-row_anno$PID_groups <- as.factor(out_k$cluster)
-
-# library(dendextend)
-# avg_dend_obj_MCP <- as.dendrogram(agnes(PID_groups,metric = "euclidean",method = "ward"))
-# avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 16)
-# plot(avg_col_dend_MCP)
-
-#Coloring main heatmap and column anno
-col_main = viridis(100)
-
-col_cluster_groups <- col_clusters$cluster_100[names(col_clusters$cluster_100) %in% col_anno$cluster_100]
-
-col_clusters$cluster_100
-
-#Print heatmap
-h_g_clus <- Heatmap(PID_groups, name = "Cluster fraction", 
-        col = col_main,split = row_anno$PID_groups,
-        show_column_names = T, show_row_names =  F, 
-        row_title_side = c("right"),
-        #cluster_rows = avg_col_dend_MCP,
-        row_split = row_anno$PID_groups,
-        clustering_method_columns = "ward.D2",
-        #right_annotation = ha_right,
-        row_title_rot = 0)%v%
-  columnAnnotation(cluster_100 = anno_simple(unfactor(col_anno$cluster_100), pch = unfactor(col_anno$cluster_100),border=TRUE, col = col_clusters$cluster_100),annotation_name_side = "left")%v%
-  columnAnnotation(metacluster = anno_simple(col_anno$metacluster, pch = col_anno$metacluster,border=TRUE, col = col_clusters$metaclusters),annotation_name_side = "left")
-
-  
-h_g_clus <- draw(h_g_clus)
-draw(h_g_clus)
-
-# #Retrieve PID groups (for agnes)
-# row_groups <- foreach(i = 1:16, .combine = rbind) %do%{
-# data.frame(PID = rownames(PID_groups[row_order(h_g)[[i]],]), PID_group = i)
-# }
-# row_anno$PID_groups <- row_groups$PID_group[match(row_anno$PID,row_groups$PID)]
-
-#Add to sce
-sce$PID_groups <- row_anno$PID_groups[match(sce$PID,row_anno$PID)]
-#Save sce
-#saveRDS(sce,"/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_249_Tumor_CC_ClusterChannelClus_k.rds")
-```
-
-#Display rich heatmap for PID groups using mean cluster fractions 
-
-```{r averaged PID group heatmap}
-PID_groups_mean <- PID_metacluster
-PID_groups_mean$PID_groups <- row_anno$PID_groups[match(PID_groups_mean$PID,row_anno$PID)]
-
-##Heatmap body
-hb <- PID_groups_mean %>% ungroup %>% select(metacluster,PID_groups,fra) %>% group_by(PID_groups, metacluster) %>% summarize(mean = mean(fra)) %>% pivot_wider(names_from = metacluster, values_from = mean) %>% column_to_rownames("PID_groups")
-
-##Row annotation
-#PID groups and names
-anno_1 <- data.frame(PID_groups = as.factor(sort(unique(PID_groups_mean$PID_groups))))
-
-#Number of PID per PID_group
-n_PID_groups <- PID_groups_mean %>% select(PID, PID_groups) %>% distinct() %>% group_by(PID_groups) %>% count()
-
-#Proportion of grade per PID_group
-grade <- colData(sce) %>% as.data.frame() %>% select(PID_groups,grade) %>% group_by(PID_groups) %>% table() %>% as.data.frame
-grade <- grade %>% group_by(PID_groups) %>% mutate(fra = Freq/sum(Freq)) 
-grade <- grade %>% select(-Freq) %>% pivot_wider(id_cols = PID_groups,names_from = grade,values_from = fra) %>% column_to_rownames("PID_groups")
-
-#Proportion of lehmann subtype per PID_group
-subtype <- colData(sce) %>% as.data.frame() %>% select(PID_groups,lehmann_subtype) %>% group_by(PID_groups) %>% table() %>% as.data.frame
-subtype <- subtype %>% group_by(PID_groups) %>% mutate(fra = Freq/sum(Freq)) 
-subtype <- subtype %>% select(-Freq) %>% pivot_wider(id_cols = PID_groups,names_from = lehmann_subtype,values_from = fra) %>% column_to_rownames("PID_groups")
-
-##Column annotation
-ha_bottom <- HeatmapAnnotation(metacluster = anno_simple(col_anno$metacluster, pch = col_anno$metacluster,border=TRUE, col = col_cluster_groups),
-                               foo = anno_text(col_anno$names),
-                               annotation_name_side = "left") 
-#main heatmap color
-col_main = viridis(100)
-col_cluster_groups <- col_clusters$metacluster[names(col_clusters$metacluster) %in% col_anno$metacluster]
-
-col <- list(PID_groups = colorRampPalette(brewer.pal(9, "Paired"))(length(unique(anno_1$PID_groups))))
-col_PIDgroups <- col[[1]]
-names(col_PIDgroups) = sort(unique(anno_1[,names(col)[1]]))
-col_PIDgroups <- list(col_PIDgroups)
-names(col_PIDgroups) <- "PID_groups"
-
-## Plot heatmap
-h_g_rich <- Heatmap(hb, name = "Cluster fraction", 
-        col = col_main,
-        #bottom_annotation = ha_bottom,
-        show_column_names = FALSE,
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")+
-  rowAnnotation(PID_groups = anno_simple(unfactor(anno_1$PID_groups), pch = unfactor(anno_1$PID_groups),border=TRUE, col = col_PIDgroups$PID_groups))+
-  rowAnnotation(n_PID = anno_barplot(n_PID_groups$n, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)
-  #rowAnnotation(grade = anno_barplot(grade, width = unit(10, "mm"),gp = gpar(fill = c("#FFF5F0","#FB6A4A","#67000D")), col = 1),annotation_name_rot = 90)+
-  #rowAnnotation(lehmann_subtype = anno_barplot(subtype, width = unit(15, "mm"), gp = gpar(fill = col_lehmann),col = 1,show_legend = TRUE),annotation_name_rot = 90)
-
-draw(h_g_rich)
-```
-
-#Option 2: Based on center-log-ratio of cluster counts per PID
-
-```{r centerlog, message = FALSE, warning = FALSE}
-library(compositions)
-#Centered log ratio transform of cluster counts per patient
-PID_groups_clr <- PID_groups
-PID_clr <- clr(PID_groups_clr) ##Center log transformation
-PID_clr <- as.data.frame(PID_clr)
-rowSums(PID_clr) #approx 0
-
-#Annotation dataframes
-row_anno_1 <- PID_clr %>% rownames_to_column(var = "PID")
-col_anno <- anno #%>% filter(!cluster_100 %in% c("26","23","1","22","14","5","6","7","16","19","11"))
-
-### 1. Cluster-testing
-library(clValid)
-#Internal measures
-testCL_1<- clValid(PID_clr,nClust = 3:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
-summary(testCL_1)
-plot(testCL_1, legend = FALSE)
-#Selected method: agnes, 17
-
-#kmeans clustering
-set.seed(22)
-out_k <- kmeans(PID_clr,centers = 15,nstart = 10000,iter.max = 10000)
-row_anno_1$PID_groups <- out_k$cluster
-
-# #agnes clustering
-# library(dendextend)
-# avg_dend_obj_MCP <- as.dendrogram(agnes(PID_clr,metric = "euclidean",method = "ward"))
-# avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 15)
-# plot(avg_col_dend_MCP)
-
-### 2. Row annotation
-#Add grade / lehmann subtype (potentiually as bubble plot? - not yet performed)
-row_anno_1$grade <- sce$grade[match(row_anno_1$PID,sce$PID)]
-row_anno_1$lehmann_subtype <- sce$lehmann_subtype[match(row_anno_1$PID,sce$PID)]
-row_anno_1[is.na(row_anno_1)]<- "Unknown"
-
-#Coloring main heatmap and column anno
-col_main = viridis(100)
-col_cluster_groups <- col_clusters$cluster_100[names(col_clusters$cluster_100) %in% col_anno$cluster_100]
-
-#Print heatmap
-h_g_1 <- Heatmap(PID_clr, name = "CLR of cluster fraction", 
-        #col = col_main,
-        row_split = row_anno_1$PID_groups,
-        #cluster_rows = avg_col_dend_MCP,
-        #row_split = 14,
-        show_column_names = T, show_row_names =  F, 
-        row_title_side = c("right"),
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2",
-        #right_annotation = ha_right,
-        row_title_rot = 0,
-        border = TRUE)%v%
-  
-columnAnnotation(cluster_100 = anno_simple(unfactor(col_anno$cluster_100), pch = unfactor(col_anno$cluster_100),
-                                             border=TRUE, col = col_cluster_groups),annotation_name_side = "left") %v%
-columnAnnotation(foo = anno_text(col_anno$names))
-
-h_g_1 <- draw(h_g_1)
-draw(h_g_1)
-
-#Retrieve PID groups (for agnes)
-row_groups_1 <- foreach(i = 1:14, .combine = rbind) %do%{
-data.frame(PID = rownames(PID_clr[row_order(h_g_1)[[i]],]), PID_group = i)
-}
-row_anno_1$PID_groups <- row_groups_1$PID_group[match(row_anno$PID,row_groups_1$PID)]
-
-#Add to sce
-sce$PID_groups_clr <- row_anno_1$PID_groups[match(sce$PID,row_anno_1$PID)]
-```
-
-
-##Rich heatmap for clr fractions 
-
-```{r rich clr}
-#Display rich heatmap for PID groups using mean cluster fractions 
-PID_groups_clr_mean <- PID_clr %>% rownames_to_column(var = "PID") %>% pivot_longer(cols = 2:(ncol(PID_clr)+1),names_to = "cluster_100",values_to = "clr") 
-PID_groups_clr_mean$PID_groups_clr <- row_anno_1$PID_groups[match(PID_groups_mean$PID,row_anno_1$PID)]
-
-##Heatmap body
-hb <- PID_groups_clr_mean %>% ungroup %>% select(cluster_100,PID_groups_clr,clr) %>% group_by(PID_groups_clr, cluster_100) %>% summarize(mean = mean(clr)) %>% pivot_wider(names_from = cluster_100, values_from = mean) %>% column_to_rownames("PID_groups_clr")
-
-##Row annotation
-#PID groups and names
-anno_1 <- data.frame(PID_groups_clr = as.factor(sort(unique(PID_groups_clr_mean$PID_groups_clr))))
-
-#Number of PID per PID_group
-n_PID_groups <- PID_groups_clr_mean %>% select(PID, PID_groups_clr) %>% distinct() %>% group_by(PID_groups_clr) %>% count()
-
-
-##Column annotation
-ha_bottom <- HeatmapAnnotation(cluster_100 = anno_simple(unfactor(col_anno$cluster_100), pch = unfactor(col_anno$cluster_100),border=TRUE, col = col_cluster_groups),
-                               foo = anno_text(col_anno$names),
-                               annotation_name_side = "left") 
-#main heatmap color
-col_main = viridis(100)
-col_cluster_groups <- col_clusters$cluster_100[names(col_clusters$cluster_100) %in% col_anno$cluster_100]
-
-col <- list(PID_groups = colorRampPalette(brewer.pal(9, "Paired"))(length(unique(anno_1$PID_groups))))
-col_PIDgroups <- col[[1]]
-names(col_PIDgroups) = sort(unique(anno_1[,names(col)[1]]))
-col_PIDgroups <- list(col_PIDgroups)
-names(col_PIDgroups) <- "PID_groups"
-
-## Plot heatmap
-h_g_rich_clr <- Heatmap(hb, name = "Cluster fraction", 
-        bottom_annotation = ha_bottom,
-        show_column_names = FALSE,
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")+
-  rowAnnotation(PID_groups = anno_simple(unfactor(anno_1$PID_groups), pch = unfactor(anno_1$PID_groups),border=TRUE))+#col = col_PIDgroups$PID_groups))+
-  rowAnnotation(n_PID = anno_barplot(n_PID_groups$n, width = unit(10, "mm"),gp = gpar(fill = "#440154FF"), col = 1),annotation_name_rot = 90)
-  
-draw(h_g_rich_clr)
-```
-
-##Compare PID groups between fraction and clr-approach
-
-```{r compare_PIDgroups, message = FALSE, warning=FALSE}
-#all.equal(row_anno_1$PID,row_anno$PID)
-#log10(x+1) possible
-PID_group_comp <- Heatmap(table(row_anno_1$PID_groups,row_anno$PID_groups),
-        cluster_rows = FALSE,
-        cluster_columns = FALSE, 
-        col = col_main,
-        row_title = "CLR_PID_groups",
-        row_title_side = "right",
-        column_title = "Fraction_PID_groups",
-        column_title_side = "bottom",
-        name = "n_PID per group")
-draw(PID_group_comp)
-
-## Cluster fraction correlation for each patient group
-PID_groups_cor <- PID_cluster
-PID_groups_cor$PID_group <- row_anno$PID_groups[match(PID_groups_cor$PID,row_anno$PID)]
-PID_groups_cor$PID_group_clr <- row_anno_1$PID_groups[match(PID_groups_cor$PID,row_anno_1$PID)]
-
-#by fraction approach
-PID_groups_cor_1 <- foreach(i = unique(PID_groups_cor$PID_group),.combine = "rbind")%do%{
-PID <- PID_groups_cor %>% filter(PID_group == i) %>% select(-Freq,-PID_group,-PID_group_clr) %>% pivot_wider(id_cols = cluster_100,names_from = PID,values_from = fra) %>% column_to_rownames("cluster_100")
-cor <- cor(PID,method = "spearman")
-cor <- unique(as.vector(cor))
-cor <- cor[!cor == 1]
-data.frame(cor = cor, PID_group = as.character(i), category = "PID_group")
-}
-
-ggplot(PID_groups_cor_1, aes(x = category, y = cor))+
-  facet_wrap(~as.factor(PID_group))+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = PID_group), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  guides(color = "none")+
-  theme_classic(base_size = 12)+
-  theme(axis.title.x = element_blank())+
-  ylab("Cor. of cluster fractions in PID groups (fraction-based)")+
-  ggtitle(paste("Median Spearman rho = ",round(median(PID_groups_cor_1$cor, na.rm = TRUE), digits = 2)))
-
-#by clr approach
-PID_groups_cor_clr <- foreach(i = unique(PID_groups_cor$PID_group_clr),.combine = "rbind")%do%{
-PID <- PID_groups_cor %>% filter(PID_group_clr == i) %>% select(-Freq,-PID_group,-PID_group_clr) %>% pivot_wider(id_cols = cluster_100,names_from = PID,values_from = fra) %>% column_to_rownames("cluster_100")
-cor <- cor(PID,method = "spearman")
-cor <- unique(as.vector(cor))
-cor <- cor[!cor == 1]
-data.frame(cor = cor, PID_group = as.character(i), category = "PID_group")
-}
-
-ggplot(PID_groups_cor_clr, aes(x = category, y = cor))+
-  facet_wrap(~as.factor(PID_group))+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = PID_group), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  guides(color = "none")+
-  theme_classic(base_size = 12)+
-  theme(axis.title.x = element_blank())+
-  ylab("Cor. of cluster fractions in PID groups (CLR-based)")+
-  ggtitle(paste("Median Spearman rho = ",round(median(PID_groups_cor_clr$cor, na.rm = TRUE), digits = 2)))
-```
-
-## Calculate shannon diversity index for PID groups
-
-```{r shannon div, message = FALSE, warning= FALSE}
-library(vegan)
-library(ggpubr)
-
-## 1.For fraction-based
-#Calculate shannon-diversity/equitability for each patient separately
-shannon_df <- PID_groups_cor %>% pivot_wider(id_cols = PID,names_from = cluster_100, values_from = fra) %>% column_to_rownames("PID")
-diversity(shannon_df)
-
-shannon_plot <- data.frame(shannon_div = diversity(shannon_df),
-                           number = specnumber(shannon_df),
-                           shannon_equi = (diversity(shannon_df)/log(specnumber(shannon_df))),
-                           #PID = rownames(shannon_df),
-                           PID_group = as.character(PID_groups_cor$PID_group[match(rownames(shannon_df),PID_groups_cor$PID)]))
-
-kw_shannon <- compare_means(formula = shannon_equi ~ PID_group,method = "kruskal.test",p.adjust.method = "BH",shannon_plot)
-
-#Plot shannon equitability for PID groups and compare
-ggplot(shannon_plot,aes(x=reorder(PID_group,shannon_equi),y=shannon_equi,color=PID_group))+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = PID_group), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  theme_classic()+
-  xlab("PID_group")+
-  ylab("Shannon Equitability Index")+
-  ggtitle("Epithelial phenotypes", subtitle = paste("p(Kruskal-Wallis) = ",round(kw_shannon$p,4)))
-
-## Use linear model
-#NOT SURE WHAT I AM CALCULATING HERE - double-check!!!
-lm_shannon <- summary(lm(shannon_equi ~ PID_group, shannon_plot))
-lm_shannon <- as.data.frame(lm_shannon$coefficients) 
-lm_shannon$p_adj <- p.adjust(lm_shannon$`Pr(>|t|)`,"BH")
-lm_shannon <- cbind(lm_shannon,confint(lm(shannon_equi ~ PID_group, shannon_plot)))
-lm_shannon$PID_group <- rownames(lm_shannon)
-
-ggplot(lm_shannon,aes(x=PID_group,y=Estimate,color=PID_group))+
-  geom_point(aes(size = desc(p_adj)))+
-  geom_errorbar(aes(ymin = lm_shannon$`2.5 %`,
-                    ymax = lm_shannon$`97.5 %`))+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
-  geom_hline(yintercept = 0)+
-  xlab("PID_group")+
-  ylab("Association with Shannon Equitability Index")+
-  coord_cartesian(ylim = (c(-1,1)))
-  
-
-## 2.For CLR-based
-shannon_plot_1 <- data.frame(shannon_div = diversity(shannon_df),
-                           number = specnumber(shannon_df),
-                           shannon_equi = (diversity(shannon_df)/log(specnumber(shannon_df))),
-                           #PID = rownames(shannon_df),
-                           PID_group_clr = as.character(PID_groups_cor$PID_group_clr[match(rownames(shannon_df),PID_groups_cor$PID)]))
-
-kw_shannon_1 <- compare_means(formula = shannon_equi ~ PID_group_clr,method = "kruskal.test",p.adjust.method = "BH",shannon_plot_1)
-
-#Plot shannon equitability for PID groups and compare
-ggplot(shannon_plot_1,aes(x=reorder(PID_group_clr,shannon_equi),y=shannon_equi,color=PID_group_clr))+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = PID_group_clr), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  theme_classic()+
-  xlab("PID_group")+
-  ylab("Shannon Equitability Index")+
-  ggtitle("Epithelial phenotypes", subtitle = paste("p(Kruskal-Wallis) = ",round(kw_shannon_1$p,4)))
-  
-## Use linear model
-#NOT SURE WHAT I AM CALCULATING HERE - double-check!!!
-lm_shannon <- summary(lm(shannon_equi ~ PID_group_clr, shannon_plot_1))
-lm_shannon <- as.data.frame(lm_shannon$coefficients) 
-lm_shannon$p_adj <- p.adjust(lm_shannon$`Pr(>|t|)`,"BH")
-lm_shannon <- cbind(lm_shannon,confint(lm(shannon_equi ~ PID_group_clr, shannon_plot_1)))
-lm_shannon$PID_group_clr <- rownames(lm_shannon)
-
-ggplot(lm_shannon,aes(x=PID_group_clr,y=Estimate,color=PID_group_clr))+
-  geom_point(aes(size = desc(p_adj)))+
-  geom_errorbar(aes(ymin = lm_shannon$`2.5 %`,
-                    ymax = lm_shannon$`97.5 %`))+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
-  geom_hline(yintercept = 0)+
-  xlab("PID_group_clr")+
-  ylab("Association with Shannon Equitability Index")+
-  coord_cartesian(ylim = (c(-1,1)))
-```
-
-## Survival analysis for patient groups
-
-```{r kaplan-meier, message = FALSE, warning=FALSE}
-library(survival)
-library(survminer)
-
-coldata_sce <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(PID,grade,PID_groups,status_OS, OS_months, status_DFS, DFS_months) %>% 
-  distinct()
-
-#Colors for survival curves
-#col_PIDgroups_surv <- col_PIDgroups
-#names(col_PIDgroups_surv$PID_groups) <- paste0("PID_groups=",names(col_PIDgroups_surv$PID_groups))
-
-#Overall survival
-fit_OS <- survfit(Surv(OS_months, status_OS) ~ PID_groups, data = coldata_sce)
-print(fit_OS)
-
-plot_OS <- ggsurvplot(fit_OS,
-          pval = TRUE, conf.int = FALSE,
-          risk.table = FALSE, # Add risk table
-          risk.table.col = "strata", # Change risk table color by groups
-          linetype = "strata", # Change line type by groups
-          surv.median.line = "hv", # Specify median survival
-          ggtheme = theme_classic()
-          #palette = col_PIDgroups_surv$PID_groups
-          )
-
-
-#Disease free survival
-fit_DFS <- survfit(Surv(DFS_months, status_DFS) ~ PID_groups, data = coldata_sce)
-print(fit_DFS)
-
-plot_DFS <- ggsurvplot(fit_DFS,
-          pval = TRUE, conf.int = FALSE,
-          risk.table = FALSE, # Add risk table
-          risk.table.col = "strata", # Change risk table color by groups
-          linetype = "strata", # Change line type by groups
-          surv.median.line = "hv", # Specify median survival
-          ggtheme = theme_classic()# Change ggplot2 theme
-          #palette = col_PIDgroups_surv$PID_groups
-          )
-plot_OS
-plot_DFS
 ```
 
 ## Save plots as pdf
