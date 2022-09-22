@@ -108,9 +108,9 @@ plotPixels(cur_images,
 
 **HER2 cases exclusion** 
 
-First, we will exclude patients from ZTMA174 that are HER2-positive cases or have outlying HER2 expression. 
+First, we will exclude patients from ZTMA174 that are HER2-positive cases or have outlying HER2/ER expression. 
 
-```{r HER2-image-mean}
+```{r HER2/ER-image-mean}
 library(scuttle)
 library(mclust)
 
@@ -128,6 +128,7 @@ image_mean <- aggregateAcrossCells(cur_sce,
                                    statistics="mean",
                                    use.assay.type = "counts")
 
+## 1. HER2 
 dat <- dittoBoxPlot(image_mean, var = "HER2", group.by = "HER2_case", assay = "counts", data.out = TRUE)
 dat_df <- dat$data
 
@@ -151,6 +152,22 @@ dev.off()
 
 sce <- sce[,sce$HER2_case == FALSE]
 sce <- sce[,!sce$PID %in% c("B08.32458")]
+
+## 2. ER
+dat <- dittoBoxPlot(image_mean, var = "ER", group.by = "HER2_case", assay = "counts", data.out = TRUE)
+dat_df <- dat$data
+
+ggplot(dat_df, aes(x = grouping, y = var.data))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = grouping), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  scale_color_brewer(palette = "Set1")+
+  xlab("TMA")+
+  ylab("HER2 exprs (panCK+ cells)")+
+  theme_classic()
+
+## kick out 4 cases with suspiciously high ER expression
+sce <- sce[,!sce$PID %in% c("B14.59347","B07.07453","B13.30305","B08.41783")]
 sce
 ```
 

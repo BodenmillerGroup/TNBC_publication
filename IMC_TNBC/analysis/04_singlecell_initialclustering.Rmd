@@ -90,6 +90,27 @@ sce$cluster <- clust$clusters
 saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 ```
 
+
+```{r}
+library(Rphenoannoy)
+
+set.seed(22)
+
+mat <- t(assay(sce, "exprs")[rowData(sce)$use_channel==TRUE,])
+
+#k=30
+out <- Rphenoannoy(mat, k = 30)
+
+clusters <- factor(membership(out[[2]]))
+
+sce$cluster <- clusters
+
+unique(sce$cluster)
+
+#Save SCEs after clustering
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
+```
+
 ## Use GMM for panCK
 
 We will use a two component gaussian mixture model to distinguish between tumor (panCK+) and stromal (panCK-) cells. 
@@ -237,7 +258,7 @@ n_neighbors_col <- colorRamp2(c(min(spatial$n_neighbors),median(spatial$n_neighb
 metadata(sce)$colors$n_neighbors <- n_neighbors_col
 
 #Create Spatial Heatmap Annotation
-ha_spatial = HeatmapAnnotation(
+ha_spatial <- HeatmapAnnotation(
     area = spatial$area,
     eccentricity = spatial$eccentricity,
     n_neighbors = spatial$n_neighbors, 
@@ -257,19 +278,19 @@ nr_tum <- colData(sce) %>% as.data.frame %>% select(cluster, GMM_CK) %>% table()
 fr_tum <- as.data.frame(nr_tum) %>% pivot_wider(names_from = GMM_CK, values_from = Freq) %>% column_to_rownames("cluster")
 fr_tum <- fr_tum %>% transmute(fr_tum = `panCK+`/rowSums(fr_tum)) %>% as.data.frame()
 
-# #Astir
-nr_tum_2 <- colData(sce) %>% as.data.frame %>% select(cluster, astir_type) %>% table()
-fr_tum_2 <- as.data.frame(nr_tum_2) %>% pivot_wider(names_from = astir_type, values_from = Freq) %>% column_to_rownames("cluster")
-fr_tum_2 <- fr_tum_2 %>% transmute(fr_tum = `Epithelial`/rowSums(fr_tum_2)) %>% as.data.frame()
+# # #Astir
+# nr_tum_2 <- colData(sce) %>% as.data.frame %>% select(cluster, astir_type) %>% table()
+# fr_tum_2 <- as.data.frame(nr_tum_2) %>% pivot_wider(names_from = astir_type, values_from = Freq) %>% column_to_rownames("cluster")
+# fr_tum_2 <- fr_tum_2 %>% transmute(fr_tum = `Epithelial`/rowSums(fr_tum_2)) %>% as.data.frame()
 
 #GMM - Ecad
 nr_tum_3 <- colData(sce) %>% as.data.frame %>% select(cluster, GMM_Ecad) %>% table()
 fr_tum_3 <- as.data.frame(nr_tum_3) %>% pivot_wider(names_from = GMM_Ecad, values_from = Freq) %>% column_to_rownames("cluster")
 fr_tum_3 <- fr_tum_3 %>% transmute(fr_tum_3 = `Ecad+`/rowSums(fr_tum_3)) %>% as.data.frame()
 
-ha_meta = HeatmapAnnotation(GMM_CK = anno_barplot(fr_tum, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
+ha_meta <- HeatmapAnnotation(GMM_CK = anno_barplot(fr_tum, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
                             GMM_Ecad = anno_barplot(fr_tum_3, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
-                            Astir_Epi = anno_barplot(fr_tum_2, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
+                            #Astir_Epi = anno_barplot(fr_tum_2, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
                             n_cells = anno_barplot(n_cells$ncells, width = unit(10, "mm"),gp = gpar(fill = "violet", col = 1)),
                             border = TRUE, 
                             annotation_name_rot = 90,
@@ -280,7 +301,7 @@ ha_meta = HeatmapAnnotation(GMM_CK = anno_barplot(fr_tum, width = unit(10, "mm")
 
 anno_cluscat <- fr_tum %>% 
   rownames_to_column(var = "cluster") %>% 
-  mutate(cluster_category = ifelse(fr_tum >= 0.75,"Epithelial",ifelse(fr_tum < 0.75 & fr_tum > 0.2,"Mixed","Non_Epithelial")))
+  mutate(cluster_category = ifelse(fr_tum >= 0.7,"Epithelial",ifelse(fr_tum < 0.7 & fr_tum > 0.2,"Mixed","Non_Epithelial")))
 
 #Set colors for cluster_category and add to metdata
 cluster_category <- setNames(c("#1F78B4", "#A6CEE3", "#B2DF8A"),sort(unique(anno_cluscat$cluster_category)))                                                                  
@@ -319,10 +340,10 @@ h <- Heatmap(t(assay(mean_sce, "min_max")),
 draw(h)
 
 ### Add cluster_categories to sce
-sce$cluster_category <- anno_cluscat $cluster_category[match(sce$cluster,anno_cluscat $cluster)]
+sce$cluster_category <- anno_cluscat$cluster_category[match(sce$cluster,anno_cluscat $cluster)]
 
 #Save sce
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 ```
 
 ## Venn diagrams / Pie plots for categories
@@ -334,13 +355,13 @@ prop_tumor <- colData(sce) %>% as.data.frame() %>%
   select(GMM_CK,cluster_category) %>% filter(GMM_CK == "panCK+") %>% group_by(cluster_category) %>% count()
 prop_tumor <- prop_tumor %>% mutate(fr_tumor_clus = n/sum(prop_tumor$n))
 
-pie(prop_tumor$fr_tumor_clus, labels = paste0(prop_tumor$cluster_category," - ",round(prop_tumor$fr_tumor_clus,3),"%"),col=col_list_1$cluster_category, main = "panCK+")
+pie(prop_tumor$fr_tumor_clus, labels = paste0(prop_tumor$cluster_category," - ",round(prop_tumor$fr_tumor_clus,3),"%"),col=metadata(sce)$colors$cluster_category, main = "panCK+")
 
 #panCK- per cluster category
 prop_tumor_1 <- colData(sce) %>% as.data.frame() %>%
   select(GMM_CK,cluster_category) %>% filter(GMM_CK == "panCK-") %>% group_by(cluster_category) %>% count()
 prop_tumor_1 <- prop_tumor_1 %>% mutate(fr_tumor_clus = n/sum(prop_tumor_1$n))
-pie(prop_tumor_1$fr_tumor_clus, labels = paste0(prop_tumor_1$cluster_category," - ",round(prop_tumor_1$fr_tumor_clus,3),"%"),col=col_list_1$cluster_category, main = "panCK-")
+pie(prop_tumor_1$fr_tumor_clus, labels = paste0(prop_tumor_1$cluster_category," - ",round(prop_tumor_1$fr_tumor_clus,3),"%"),col=metadata(sce)$colors$cluster_category, main = "panCK-")
 
 #Tumor per GMM_CK
 prop_tumor_2 <- colData(sce) %>% as.data.frame() %>%
@@ -358,85 +379,30 @@ prop_tumor_4 <- colData(sce) %>% as.data.frame() %>%
 prop_tumor_4 <- prop_tumor_4 %>% mutate(fr_tumor_clus = n/sum(prop_tumor_4$n))
 pie(prop_tumor_4$fr_tumor_clus, labels = paste0(prop_tumor_4$GMM_CK," - ",round(prop_tumor_4$fr_tumor_clus,3),"%"), col =c("#E41A1C","#377EB8"), main = "Non_Epithelial")
 ```
+
 ## Re-analyse mixed clusters based on GMM
 
-```{r clus_mixed, message=FALSE, warning=TRUE}
-sce_mixed <- sce[,colData(sce)$cluster_category == "Mixed"] #n=28141
+```{r clus_mixed, message=FALSE, warning=FALSE, fig.width=10, fig.height=12}
+sce_mixed <- sce[,colData(sce)$cluster_category == "Mixed"] #n=60973
 
 #Select cells that are either panCK or Ecad positive based on gaussian mixture model
 sce_mixed$cluster_category_2 <- ifelse(sce_mixed$GMM_CK == "panCK+" | sce_mixed$GMM_Ecad == "Ecad+" ,"Epithelial","Non_Epithelial")
 
 sce_mixed$cluster_category_2 %>% table()
 
+spatial_mixed <- colData(sce_mixed) %>% as.data.frame %>% select(area,eccentricity,cluster_category_2,n_neighbors)
+spatial_mixed <- spatial_mixed %>% select(-cluster_category_2) %>% aggregate(by = list(cluster_category_2 = spatial_mixed$cluster_category_2), FUN = mean) %>% column_to_rownames("cluster_category_2")
+
+sce_mixed$cluster_category_2_mean_area <- as.character(round(spatial_mixed$area[match(sce_mixed$cluster_category_2, rownames(spatial_mixed))],2))
+
 #Single-cell Heatmap 
 dittoHeatmap(sce_mixed, genes = rownames(sce_mixed)[rowData(sce_mixed)$use_channel],
              assay = "exprs", cluster_cols = FALSE, order.by = c("cluster_category_2","GMM_CK","GMM_Ecad","cluster"), scale = "none",
-             heatmap.colors = viridis(100), annot.by = c("cluster","GMM_CK","GMM_Ecad","cluster_category_2"))
+             heatmap.colors = viridis(100), annot.by = c("cluster","GMM_CK","GMM_Ecad","cluster_category_2","cluster_category_2_mean_area"))
+
 
 # Add cluster_categories_2 to main sce
 sce$cluster_category_2 <- sce_mixed$cluster_category_2[match(colnames(sce),colnames(sce_mixed))]
-
-# Save sce
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
-
-# #Cluster on mixed cluster category
-# set.seed(22)
-# snn.sce_mixed <- buildSNNGraph(sce_mixed[rowData(sce_mixed)$use_channel==TRUE,], k=30, 
-#                          d = NA, 
-#                          type = "jaccard",
-#                          assay.type = "exprs",
-#                          BNPARAM=AnnoyParam(),
-#                          BPPARAM = MulticoreParam(workers = (detectCores()-2), progressbar = TRUE)
-#                          )
-# 
-# clusters <- igraph::cluster_louvain(snn.sce_mixed)
-# sce_mixed$cluster <- as.factor(clusters$membership)
-# unique(sce_mixed$cluster)
-# 
-# #Aggregrate across cells with the mean
-# mean_sce_mixed <- aggregateAcrossCells(sce_mixed, ids = sce_mixed$cluster,
-#                                  statistics = "mean",
-#                                  use.assay.type = "exprs",
-#                                  subset.row = rowData(sce_mixed)$use_channel)
-# 
-# ### 2. Select spatial features and average over clusters 
-# spatial <- colData(sce_mixed) %>% as.data.frame %>% select(area,eccentricity,cluster,n_neighbors)
-# spatial <- spatial %>% select(-cluster) %>% aggregate(by = list(cluster = spatial$cluster), FUN = mean) %>% column_to_rownames("cluster") #overall very comparable spatial features
-# 
-# ### 3. Row annotation plots with number and fraction of tumor cells
-# 
-# #GMM_panCK
-# nr_tum <- colData(sce_mixed) %>% as.data.frame %>% select(cluster, GMM_CK) %>% table()
-# fr_tum <- as.data.frame(nr_tum) %>% pivot_wider(names_from = GMM_CK, values_from = Freq) %>% column_to_rownames("cluster")
-# fr_tum <- fr_tum %>% transmute(fr_tum = `panCK+`/rowSums(fr_tum)) %>% as.data.frame()
-# 
-# #GMM_Ecad
-# #GMM - Ecad
-# nr_tum_3 <- colData(sce_mixed) %>% as.data.frame %>% select(cluster, GMM_Ecad) %>% table()
-# fr_tum_3 <- as.data.frame(nr_tum_3) %>% pivot_wider(names_from = GMM_Ecad, values_from = Freq) %>% column_to_rownames("cluster")
-# fr_tum_3 <- fr_tum_3 %>% transmute(fr_tum_3 = `Ecad+`/rowSums(fr_tum_3)) %>% as.data.frame()
-# 
-# ### 4. Define tumor and stroma cluster from mixed clusters (via image visualization and clustering results)
-# 
-# TME_cluster = c("1") #defined by heatmap and image visualization (see code below)
-# 
-# anno_tumor <- fr_tum %>% rownames_to_column(var = "cluster") 
-# anno_tumor <- anno_tumor %>% mutate(cluster_category_2 = ifelse(anno_tumor$cluster %in% TME_cluster,"Non_Epithelial","Epithelial"))
-# 
-# h_mixed <- Heatmap(t(assay(mean_sce_mixed, "exprs")),
-#         col = col_main,
-#         name= "exprs",
-#         show_row_names = T, 
-#         row_names_side = "left",
-#         show_column_names =  T, 
-#         clustering_method_rows = "ward.D2",
-#         clustering_method_columns = "ward.D2")+
-#   rowAnnotation(panCK_GMM = anno_barplot(fr_tum, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),annotation_name_rot = 90)+
-#   rowAnnotation(Ecad_GMM = anno_barplot(fr_tum_3, width = unit(10, "mm"),gp = gpar(fill = "#33A02C", col = 1)),annotation_name_rot = 90)+
-#   rowAnnotation(Number_Cells = anno_barplot(nr_tum, width = unit(10, "mm"),gp = gpar(fill = c("#E41A1C","#377EB8"), col = 1)),annotation_name_rot = 90)+
-#   rowAnnotation(cluster_category = anno_simple(anno_tumor$cluster_category_2,border=TRUE,col = col_list_1$cluster_category),annotation_name_rot = 90)
-# 
-# draw(h_mixed)
 ```
 
 ## Visualize mixed clusters on images 
@@ -446,17 +412,14 @@ sce$cluster_category_2 <- sce_mixed$cluster_category_2[match(colnames(sce),colna
 images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
 masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
 
-#subset images and masks for TMA249
-images <- images[str_detect(mcols(images)$sample_id,"ZTMA249")]
-masks <- masks[str_detect(mcols(masks)$sample_id,"ZTMA249")]
-
 ##Visualize mixed clusters on images - select 10 images for each category with highest number of cells
 mixed_epi_samples <- colData(sce_mixed) %>% as.data.frame %>% group_by(cluster_category_2) %>% filter(cluster_category_2 == "Epithelial") %>% count(sample_id) %>% arrange(desc(n)) %>% slice(1:10) %>% pull(sample_id)
+
 mixed_non_epi_samples <- colData(sce_mixed) %>% as.data.frame %>% group_by(cluster_category_2) %>% filter(cluster_category_2 == "Non_Epithelial") %>% count(sample_id) %>% arrange(desc(n)) %>% slice(1:10) %>% pull(sample_id)
 
 mixed_samples_viz <- c(mixed_epi_samples,mixed_non_epi_samples)
 
-mixed_samples_viz <- mixed_samples_viz %>% unique() #total of 13 unique images
+mixed_samples_viz <- mixed_samples_viz %>% unique() #total of 20 unique images
 
 #Prepare images
 cur_images <- images[mixed_samples_viz]
@@ -470,75 +433,39 @@ plotPixels(cur_images,
            cell_id = "ObjectNumber",
            missing_colour = "white",
            colour_by = c("panCK", "Ecad", "Vimentin", "SMA"),
-           outline_by = "analysis_cat",
+           outline_by = "cluster_category_2",
            colour = list("panCK" = c("black", "yellow"),
                          "Ecad" = c("black", "magenta"),
                          "Vimentin" = c("black", "cyan"),
                          "SMA" = c("black", "green"),
-                          "analysis_cat" = c("tumor" = "#377EB8", "non_tumor" = "#E41A1C")
+                         "cluster_category_2" = c("Epithelial" = "#377EB8", "Non_Epithelial" = "#E41A1C")
                          ),
            thick = TRUE,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/mixed_clusters_viz/cluster_mixed_epi_non_epi_byanalysiscat.png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/mixed_clusters_viz/cluster_mixed_epi_non_epi_bycluscat.png"), scale = 2)
            )
-
-
-plotPixels(cur_images,
-           mask = masks[mixed_samples_viz],
-           object = sce_mixed,
-           img_id = "sample_id",
-           cell_id = "ObjectNumber",
-           missing_colour = "white",
-           colour_by = c("panCK", "Ecad", "Vimentin", "SMA"),
-           colour = list("panCK" = c("black", "yellow"),
-                         "Ecad" = c("black", "magenta"),
-                         "Vimentin" = c("black", "cyan"),
-                         "SMA" = c("black", "green"),
-                         "GMM_CK" = c("panCK+" = "#377EB8", "panCK-" = "#E41A1C")
-                         ),
-           outline_by = "GMM_CK",
-           thick = TRUE,
-           image_title = NULL,
-           legend = list(colour_by.title.cex = 0.7,
-                         colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/mixed_clusters_viz/cluster_mixed_epi_non_epi_byGMMCK.png"), scale = 2)
-           )
-
-plotPixels(cur_images,
-           mask = masks[mixed_samples_viz],
-           object = sce_mixed,
-           img_id = "sample_id",
-           cell_id = "ObjectNumber",
-           missing_colour = "white",
-           colour_by = c("panCK", "Ecad", "Vimentin", "SMA"),
-           colour = list("panCK" = c("black", "yellow"),
-                         "Ecad" = c("black", "magenta"),
-                         "Vimentin" = c("black", "cyan"),
-                         "SMA" = c("black", "green"),
-                         "GMM_Ecad" = c("Ecad+" = "#377EB8", "Ecad-" = "#E41A1C")
-                         ),
-           outline_by = "GMM_Ecad",
-           thick = TRUE,
-           image_title = NULL,
-           legend = list(colour_by.title.cex = 0.7,
-                         colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_initial_clus/mixed_clusters_viz/cluster_mixed_epi_non_epi_byGMMEcad.png"), scale = 2)
-           )
-
 ```
 
 ## Define categories for downstream analysis
 Use all epithelial clusters and mixed clusters with panCK+/Ecad+ GMM for downstream tumor analysis.
 
 ```{r ana_cat, message = FALSE, warning=FALSE}
+library(easyalluvial)
+
 sce$analysis_cat <- colData(sce) %>% as.data.frame %>% 
   select(cluster_category, cluster_category_2) %>% 
   mutate(analysis_cat = ifelse(sce$cluster_category == "Epithelial" |(sce$cluster_category == "Mixed" & sce$cluster_category_2 == "Epithelial"),"tumor","non_tumor")) %>% 
   pull(analysis_cat)
 
+#color scheme for analysis_cat
+analysis_cat <- setNames(c("#E41A1C", "#377EB8"),sort(unique(sce$analysis_cat)))                                                                  
+metadata(sce)$colors$analysis_cat <- analysis_cat   
+
 colData(sce) %>% as.data.frame %>% select(analysis_cat) %>% group_by(analysis_cat) %>% count()
+#492712 tumor cells
+#436281 non-tumor cells
 
 #Visualize in alluvial plot 
 colData(sce) %>% as.data.frame %>% select(cluster_category, analysis_cat)
@@ -549,8 +476,6 @@ alluvial_wide(data = colData(sce) %>% as.data.frame %>% select(cluster_category,
               order_levels = c("Non_Epithelial","Epithelial","Mixed","tumor","non_tumor"))+
   theme_classic(base_size = 12, base_line_size = 0.5)
 
-#327196 tumor cells
-#327161 non-tumor cells
 
 #Intersection plot
 ## Upset plot
@@ -560,8 +485,6 @@ tumor = list(
 analysis_cat_tumor = colData(sce) %>% as.data.frame %>% filter(analysis_cat == "tumor") %>% rownames_to_column() %>% pull("rowname"),
 panCK_positive_GMM = colData(sce) %>% as.data.frame %>% filter(GMM_CK == "panCK+") %>% rownames_to_column() %>% pull("rowname"),
 Ecad_positive_GMM = colData(sce) %>% as.data.frame %>% filter(GMM_Ecad == "Ecad+") %>% rownames_to_column() %>% pull("rowname")
-#panCK_Astir = colData(sce) %>% as.data.frame %>% filter(astir_type == "Epithelial") %>% rownames_to_column() %>% pull("rowname"),
-#Epithelial_Mixed_Clus = colData(sce) %>% as.data.frame %>% filter(cluster_category %in% c("Epithelial","Mixed")) %>% rownames_to_column() %>% pull("rowname")
 )
 
 upset <- upset(fromList(tumor), order.by = "freq")
@@ -571,8 +494,6 @@ non_tumor = list(
 analysis_cat_nontumor = colData(sce) %>% as.data.frame %>% filter(analysis_cat == "non_tumor") %>% rownames_to_column() %>% pull("rowname"),
 panCK_negative_GMM = colData(sce) %>% as.data.frame %>% filter(GMM_CK == "panCK-") %>% rownames_to_column() %>% pull("rowname"),
 Ecad_negative_GMM = colData(sce) %>% as.data.frame %>% filter(GMM_Ecad == "Ecad-") %>% rownames_to_column() %>% pull("rowname")
-#panCK_Astir = colData(sce) %>% as.data.frame %>% filter(astir_type == "Epithelial") %>% rownames_to_column() %>% pull("rowname"),
-#Epithelial_Mixed_Clus = colData(sce) %>% as.data.frame %>% filter(cluster_category %in% c("Epithelial","Mixed")) %>% rownames_to_column() %>% pull("rowname")
 )
 
 upset_1 <- upset(fromList(non_tumor), order.by = "freq")
@@ -581,10 +502,10 @@ upset_1
 
 ## Visualization of results on UMAP/TSNE
 
-```{r viz_sub, message = FALSE, warning=FALSE}
+```{r viz_sub, message = FALSE, warning=FALSE, fig.width=20, fig.height=20}
 ## Subsample 10% of cells from each core 
 #to save time and not get super crowded dimensionality reduction plots
-set.seed(22011995)
+set.seed(22)
 sub <- colData(sce) %>% as.data.frame() %>% group_by("sample_id") %>% slice_sample(prop = 0.1) %>% arrange("sample_id") %>% mutate(sub_id = paste(sample_id,ObjectNumber,sep="_")) %>% pull(sub_id)
 sce_sub = sce[,sub]
 sce_sub$cluster = as.factor(sce_sub$cluster)  
@@ -597,19 +518,15 @@ sce_sub = runTSNE(sce_sub[rowData(sce_sub)$use_channel,], exprs_values = "exprs"
 #panCK and GMM_CK
 p1 <- plotReducedDim(sce_sub, dimred = "UMAP", by_exprs_values = "exprs",colour_by = "panCK")
 
-p2 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "GMM_CK")+
-  scale_color_brewer(palette="Set1")
+p2 <- plotReducedDim(sce_sub, dimred = "UMAP", by_exprs_values = "exprs",colour_by = "Ecad")
 
-#p3 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "astir_type")+
-#  scale_color_brewer(palette="Set1")
+p3 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "cluster_category")+
+  scale_color_manual(values = metadata(sce)$colors$cluster_category)
 
-p4 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "cluster_category")+
-  scale_color_manual(values = col_list_1[[2]])
+p4 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "analysis_cat")+
+  scale_color_manual(values = metadata(sce)$colors$analysis_cat)
 
-p5 <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "analysis_cat")+
-  scale_color_brewer(palette="Set1")
-
-(p1+p2)/(p4+p5)
+(p1+p2)/(p3+p4)
 
 #Visualize all marker expression
 all_plots_UMAP <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
@@ -623,21 +540,21 @@ all_plots_UMAP <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
 
 library(cowplot)
 plots_UMAP_exp <- plot_grid(plotlist = all_plots_UMAP)
-
+plots_UMAP_exp
 
 ## 2. Visualize TSNE
 #panCK and GMM_CK
-p6 <- plotReducedDim(sce_sub, dimred = "TSNE", by_exprs_values = "exprs",colour_by = "panCK")
+p5 <- plotReducedDim(sce_sub, dimred = "TSNE", by_exprs_values = "exprs",colour_by = "panCK")
 
-p7 <- plotReducedDim(sce_sub, dimred = "TSNE", by_exprs_values = "exprs", colour_by = "Ecad")
+p6 <- plotReducedDim(sce_sub, dimred = "TSNE", by_exprs_values = "exprs",colour_by = "Ecad")
 
-p8 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_category")+
-  scale_color_manual(values = col_list_1[[2]])
+p7 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_category")+
+  scale_color_manual(values = metadata(sce)$colors$cluster_category)
 
-p9 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "analysis_cat")+
-  scale_color_brewer(palette="Set1")
+p8 <- plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "analysis_cat")+
+  scale_color_manual(values = metadata(sce)$colors$analysis_cat)
 
-(p6+p7)/(p8+p9)
+(p5+p6)/(p7+p8)
 
 #Visualize all marker expression
 all_plots_TSNE <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
@@ -651,10 +568,9 @@ all_plots_TSNE <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
 
 library(cowplot)
 plots_TSNE_exp <- plot_grid(plotlist = all_plots_TSNE)
-
-#Save sce_sub
-#saveRDS(sce_sub, "/Volumes/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
+plots_TSNE_exp
 ```
+
 ## Estimate fraction of tumor cells for each sample/image
 
 ```{r tumor cell fraction}
@@ -702,11 +618,10 @@ ggplot(tumor_cell_PID_cut_off, aes(x=cut_off,y = n))+
 
 
 #Choose filter criteria
-#here total frequency of tumor cells per PID (two samples) > 30 (100?)
-PID_select_tumor_content <- tumor_cell_PID %>% filter(Freq > 30) %>% pull(PID) %>% unfactor 
+#here total frequency of tumor cells per patient > 30 (100?)
+PID_select_tumor_content <- tumor_cell_PID %>% filter(Freq < 30) %>% pull(PID) %>% unfactor 
 
-sce$PID_tumor_content <- sce$PID %in% PID_select_tumor_content
-
+sce$PID_low_tumor <- sce$PID %in% PID_select_tumor_content
 ```
 
 
@@ -714,9 +629,9 @@ sce$PID_tumor_content <- sce$PID %in% PID_select_tumor_content
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 #Save sce_sub
-saveRDS(sce_sub, "/mnt/rcc_volume/TNBC/data_analysis/sce_TNBC_Clus_249_sub.rds")
+saveRDS(sce_sub, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds")
 ```
 
 ## Optional: Save plots as pdf
