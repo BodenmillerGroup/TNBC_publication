@@ -4,7 +4,7 @@ author: "Lasse Meyer"
 date: "`r Sys.Date()`"
 output: html_document
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -329,7 +329,7 @@ cluster_PID <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood
 n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(cellular_neighborhood) %>% count(name = "n_PID") %>% column_to_rownames("cellular_neighborhood")
 
 # Define colors for cellular neighborhood 
-cn_col <- setNames(colorRampPalette(brewer.pal(9, "Accent"))(length(unique(sce$cellular_neighborhood))), sort(unique(sce$cellular_neighborhood)))         
+cn_col <- setNames(colorRampPalette(brewer.pal(9, "Set1"))(length(unique(sce$cellular_neighborhood))), sort(unique(sce$cellular_neighborhood)))         
 
 metadata(sce)$colors$cellular_neighborhood <- cn_col
 
@@ -843,20 +843,25 @@ plotSpatialContext(sce, entry = "spatial_context_filtered",
 ```{r}
 set.seed(22)
 cur_sam <- sample(unique(sce$sample_id), 6)
+cur_sam <- c("ZTMA249.2_ZTMA249_ID_183_BX7Y8_208")
+
+sce$sample_id[which(str_detect(sce$sample_id,"ZTMA249_ID_183_BX7Y8"))]
 
 # Cellular Neighborhoods
-plotSpatial(sce[,sce$sample_id %in% cur_sam], 
+p1 <- plotSpatial(sce[,sce$sample_id %in% cur_sam], 
             node_color_by = "cellular_neighborhood", 
             img_id = "sample_id", 
             node_size_fix = 0.5) +
     scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)
 
 # Spatial Contexts
-plotSpatial(sce[,sce$sample_id %in% cur_sam], 
+p2 <- plotSpatial(sce[,sce$sample_id %in% cur_sam], 
             node_color_by = "spatial_context_filtered", 
             img_id = "sample_id", 
             node_size_fix = 0.5) +
-    scale_color_manual(values = metadata(sce)$colors$col_SC)
+    scale_color_manual(values = metadata(sce)$colors$col_SC, limits = force)
+
+p1+p2
 ```
 
 ## Patient visualization
@@ -935,7 +940,7 @@ lasso_df <- tidy(coef(fit, s = cv.fit$lambda.min))
 colnames(lasso_df) <- c("predictor","column","coef")
 
 #Visualize hazard ratios
-ggplot(lasso_df, aes(x = reorder(predictor,-exp(coef)), y = exp(coef))) +
+lasso_plot <- ggplot(lasso_df, aes(x = reorder(predictor,-exp(coef)), y = exp(coef))) +
   geom_point(size = 4, aes(color = exp(coef)>1)) +
   geom_hline(yintercept = 1,color = "black")+
   scale_y_continuous(trans="log")+
@@ -946,6 +951,7 @@ ggplot(lasso_df, aes(x = reorder(predictor,-exp(coef)), y = exp(coef))) +
   ggtitle("OS")+
   scale_color_brewer(palette = "Set1")
   scale_color_manual(values = metadata(sce)$colors$cluster_110, limits = force, na.value = "black")
+  lasso_plot
 ```
 ### Lasso - DFS
 
@@ -1008,7 +1014,7 @@ lasso_df <- tidy(coef(fit, s = cv.fit$lambda.min))
 colnames(lasso_df) <- c("predictor","column","coef")
 
 #Visualize hazard ratios
-ggplot(lasso_df, aes(x = reorder(predictor,-exp(coef)), y = exp(coef))) +
+lasso_plot <- ggplot(lasso_df, aes(x = reorder(predictor,-exp(coef)), y = exp(coef))) +
   geom_point(size = 4, aes(color = exp(coef)>1)) +
   geom_hline(yintercept = 1,color = "black")+
   scale_y_continuous(trans="log")+
@@ -1019,7 +1025,7 @@ ggplot(lasso_df, aes(x = reorder(predictor,-exp(coef)), y = exp(coef))) +
   ggtitle("DFS")+
   scale_color_brewer(palette = "Set1")
   scale_color_manual(values = metadata(sce)$colors$cluster_110, limits = force, na.value = "black")
-
+lasso_plot
 ```
 
 # 3.3 Spatial communities 
@@ -1056,7 +1062,9 @@ cl_comm <- cluster_louvain(gr)
 comm_stroma <- paste0("TME_", membership(cl_comm))
 comm_stroma[membership(cl_comm) %in% which(sizes(cl_comm) < 10)] <- NA
 names(comm_stroma) <- colnames(stroma_sce)
-#length(unique(comm_tumor))
+
+length(unique(comm_tumor))
+length(unique(comm_stroma))
 
 stroma_sce$spatial_community <- comm_stroma
 
@@ -1965,7 +1973,7 @@ cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, spatial_CD8_pheno, 
 fit <- survfit(Surv(OS_months, status_OS) ~ spatial_CD8_pheno, data = cur_surv)
 print(fit)
 
-ggsurvplot(fit,
+CD8_OS <- ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
           risk.table.col = "strata", # Change risk table color by groups
@@ -1978,7 +1986,7 @@ ggsurvplot(fit,
 fit <- survfit(Surv(DFS_months, status_DFS) ~ spatial_CD8_pheno, data = cur_surv)
 print(fit)
 
-ggsurvplot(fit,
+CD8_DFS <- ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
           risk.table.col = "strata", # Change risk table color by groups
@@ -2021,9 +2029,9 @@ cur_k <- cur_out %>% filter(number_immune > 500)
 
 #kmeans
 set.seed(22)
-cur_k$mixing_pheno <- kmeans(cur_k$mixing_score, 2, nstart = 100)$cluster
+cur_k$mixing_pheno <- kmeans(cur_k$mixing_score, 2, nstart = 1000)$cluster
 
-cur_k$mixing_pheno <- ifelse(cur_k$mixing_pheno == "1", "compartmentalized", "mixed")
+cur_k$mixing_pheno <- ifelse(cur_k$mixing_pheno == "1", "mixed","compartmentalized")
 
 #add back
 cur_out$mixing_pheno <- cur_k$mixing_pheno[match(cur_out$PID, cur_k$PID)]
@@ -2033,7 +2041,7 @@ cur_out$mixing_pheno[is.na(cur_out$mixing_pheno)] <- "cold"
 sce$mixing_pheno <- cur_out$mixing_pheno[match(sce$PID, cur_out$PID)]
 
 ## Create color scheme
-mixing_pheno_col <- setNames(c("navy","purple","steelblue1"), unique(sce$mixing_pheno))
+mixing_pheno_col <- setNames(c("seagreen","purple","steelblue1"), unique(sce$mixing_pheno))
 metadata(sce)$colors$mixing_pheno <- mixing_pheno_col
 ```
 
@@ -2044,33 +2052,37 @@ library(survival)
 library(survminer)
 
 cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, mixing_pheno, OS_months, DFS_months, status_DFS, status_OS) %>% unique()
+  #filter(!mixing_pheno %in% "cold")
 
 #Plot survival curves
 fit <- survfit(Surv(OS_months, status_OS) ~ mixing_pheno, data = cur_surv)
 print(fit)
 
-ggsurvplot(fit,
+mix_OS <- ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
           risk.table.col = "strata", # Change risk table color by groups
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = c("steelblue1","purple","navy"),
+          palette = c("steelblue1","purple","seagreen"),
           log.rank.weights = "n")
 
 fit <- survfit(Surv(DFS_months, status_DFS) ~ mixing_pheno, data = cur_surv)
 print(fit)
 
-ggsurvplot(fit,
+mix_DFS <- ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
           risk.table.col = "strata", # Change risk table color by groups
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = c("steelblue1","purple","navy"),
+          palette = c("steelblue1","purple","seagreen"),
           log.rank.weights = "n")
+
+mix_OS
+mix_DFS
 ```
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
@@ -2185,7 +2197,7 @@ ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
   labs(color = "cluster")
 
 #Abundance vs log fold change (best?)
-ggplot(DA, aes(x = logFC, y = logCPM))+
+diffabun_plot <- ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
@@ -2287,7 +2299,7 @@ ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
   labs(color = "cluster")
 
 #Abundance vs log fold change (best?)
-ggplot(DA, aes(x = logFC, y = logCPM))+
+diffabun_plot_1 <- ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
@@ -2301,7 +2313,7 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
 
 ### For spatial contexts
 
-```{r}
+```{r, out.width=10, out.height=10}
 ### Differential abundance analysis based on edgeR
 library(edgeR)
 
@@ -2387,7 +2399,7 @@ ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
   labs(color = "cluster")
 
 #Abundance vs log fold change (best?)
-ggplot(DA, aes(x = logFC, y = logCPM))+
+diff.abun_SC <- ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
@@ -2397,6 +2409,7 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
   theme_classic()+
   geom_vline(xintercept = 0, linetype = "dashed")+
   labs(color = "cluster")
+
 ```
 
 
@@ -2490,7 +2503,7 @@ ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
   labs(color = "cluster")
 
 #Abundance vs log fold change (best?)
-ggplot(DA, aes(x = logFC, y = logCPM))+
+diffabun_plot_cd8_1 <- ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
@@ -2590,7 +2603,7 @@ ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
   labs(color = "cluster")
 
 #Abundance vs log fold change (best?)
-ggplot(DA, aes(x = logFC, y = logCPM))+
+diffabun_plot_cd8_2 <- ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
@@ -2691,7 +2704,7 @@ ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
   labs(color = "cluster")
 
 #Abundance vs log fold change (best?)
-ggplot(DA, aes(x = logFC, y = logCPM))+
+diffabun_plot_cd8_3 <- ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
@@ -2717,7 +2730,7 @@ unique(sce$mixing_pheno)
 sce$mixing_pheno_merg <- colData(sce) %>% 
   as.data.frame %>% 
   select(mixing_pheno) %>% 
-  mutate(mixing_pheno_merg = ifelse(mixing_pheno %in% c("cold","compartmentalized"),"cold_compartmentalized", mixing_pheno)) %>% pull(mixing_pheno_merg)
+  mutate(mixing_pheno_merg = ifelse(mixing_pheno %in% c("cold","mixed"),"cold_mixed", mixing_pheno)) %>% pull(mixing_pheno_merg)
 
 abundances <- table(sce$metacluster_combined, sce$PID)
 abundances <- unclass(abundances) 
@@ -2725,7 +2738,7 @@ head(abundances)
 
 #relevant patient metadata (Relevel so that pT 1/2 is baseline)
 meta <- colData(sce)[match(colnames(abundances), sce$PID),]
-meta$mixing_pheno_merg <- relevel(x=factor(meta$mixing_pheno_merg), ref = "cold_compartmentalized")
+meta$mixing_pheno_merg <- relevel(x=factor(meta$mixing_pheno_merg), ref = "cold_mixed")
 
 #filter
 meta <- meta[!is.na(meta$mixing_pheno_merg),]
@@ -2781,7 +2794,7 @@ ggplot(DA, aes(cluster, y = logFC))+
   ylab("logFC")+
   xlab("Cluster")+
   labs(fill = "FDR<0.1")+
-  ggtitle("Spatial CD8 phenotype (cold/excluded vs inflamed)")+
+  ggtitle("Spatial CD8 phenotype (cold/mixed vs compart)")+
   theme_classic()
 
 #Volcano plot  
@@ -2796,17 +2809,193 @@ ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
   labs(color = "cluster")
 
 #Abundance vs log fold change (best?)
-ggplot(DA, aes(x = logFC, y = logCPM))+
+diffabun_plot_mixing_1 <- ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
   scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
-  xlab("logFC (cold/compartmentalized vs mixed)")+
+  xlab("logFC (cold/mixed vs compartmentalized)")+
   ylab("Abundance (logCPM)")+
   theme_classic()+
   geom_vline(xintercept = 0, linetype = "dashed")+
   labs(color = "cluster")
+
+dev.off()
+
 ```
 
+### For cellular neighborhoods 
+
+```{r}
+### Differential abundance analysis based on edgeR
+library(edgeR)
+
+unique(sce$mixing_pheno)
+
+sce$mixing_pheno_merg <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(mixing_pheno) %>% 
+  mutate(mixing_pheno_merg = ifelse(mixing_pheno %in% c("cold","mixed"),"cold_mixed", mixing_pheno)) %>% pull(mixing_pheno_merg)
+
+abundances <- table(sce$cellular_neighborhood, sce$PID)
+abundances <- unclass(abundances) 
+head(abundances)
+
+#relevant patient metadata (Relevel so that pT 1/2 is baseline)
+meta <- colData(sce)[match(colnames(abundances), sce$PID),]
+meta$mixing_pheno_merg <- relevel(x=factor(meta$mixing_pheno_merg), ref = "cold_mixed")
+
+#filter
+meta <- meta[!is.na(meta$mixing_pheno_merg),]
+abundances <- abundances[,colnames(abundances) %in% meta$PID]
+
+#create DGEList - based on edgeR package
+y.ab <- DGEList(abundances, samples=meta, group = meta$mixing_pheno_merg)
+
+#Design matrix
+design <- model.matrix(~mixing_pheno_merg, data = y.ab$samples)
+
+#Visualize
+# logCPM of abundances per cluster
+cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
+
+Heatmap(cur_mat, 
+        col = viridis(100),
+        column_split = unfactor(meta$mixing_pheno_merg))%v%
+  columnAnnotation(mixing_pheno_merg = anno_simple(unfactor(meta$mixing_pheno_merg)))
 
 
+# Estimate NB and QL dispersion 
+y.ab <- estimateDisp(y.ab, design, trend="none")
+summary(y.ab$common.dispersion)
+plotBCV(y.ab, cex=1)
+
+fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
+summary(fit.ab$var.prior)
+plotQLDisp(fit.ab, cex=1)
+
+# Test for differential abundance of clusters between tumor stages
+res <- glmQLFTest(fit.ab, coef=ncol(design))
+
+res$coefficients
+summary(decideTests(res))
+
+DA <- res$table
+
+DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
+
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
+  arrange(desc(logFC))
+
+DA$cluster <- factor(DA$cluster, levels = DA$cluster)
+
+sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
+
+## Visualize
+#Barplot
+ggplot(DA, aes(cluster, y = logFC))+
+  geom_col(aes(fill=result), col = "black")+
+  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
+  ylab("logFC")+
+  xlab("Cluster")+
+  labs(fill = "FDR<0.1")+
+  ggtitle("Spatial CD8 phenotype (cold/mixed vs compart)")+
+  theme_classic()
+
+#Volcano plot  
+ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
+  geom_point(aes(col=cluster, size = -log10(FDR)))+
+  scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
+  xlab("logFC (cold/excluded vs inflamed)")+
+  ylab("-log10(FDR)")+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+
+#Abundance vs log fold change (best?)
+diffabun_plot_mixing_2 <- ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
+  scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
+  xlab("logFC (cold/mixed vs compartmentalized)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+diffabun_plot_mixing_2
+```
+
+## Save plots as pdf
+
+```{r save_plots}
+##IMPORTANT: change to chunk output in console for this last part 
+
+##save plots as pdf (vector graphics)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_Metacluster_pT.pdf",width = 9,height = 6)
+diffabun_plot
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_pT_dist.pdf",width = 6,height = 5)
+ggplot(pT_simple_n, aes(x=pT_simple,y=n,fill=pT_simple))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = metadata(sce)$colors$pT_simple)+
+  theme_classic()
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_CellularNeighborhood_Heatmap.pdf",width = 10,height = 6)
+h
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SpatialComm_DFS.pdf",width = 8,height = 6)
+hr_prop/
+hr_mean
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_CN_pT.pdf",width = 8,height = 6)
+diffabun_plot_1 
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SC_graph.pdf",width = 12,height = 8)
+plotSpatialContext(sce, entry = "spatial_context_filtered", 
+                   group_by = "PID", node_color_by = "n_group", node_size_by = "n_cells")+
+  scale_color_viridis()
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SC_viz.pdf",width = 5,height = 8)
+p1/p2
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SC_lasso_OS.pdf",width = 6,height = 4)
+lasso_plot
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SC_lasso_DFS.pdf",width = 6,height = 4)
+lasso_plot
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_SC_pT.pdf",width = 9,height = 6)
+diff.abun_SC
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_CD8pheno_OS.pdf",width = 6,height = 6, onefile = FALSE)
+CD8_OS
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_CD8pheno_CN.pdf",width = 9,height = 5)
+diffabun_plot_cd8_2
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_CD8pheno_SC.pdf",width = 9,height = 5)
+diffabun_plot_cd8_3
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_Mixing_DFS.pdf",width = 6,height = 6, onefile = FALSE)
+mix_DFS
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_Mixing_DiffAbun.pdf",width = 6,height = 6, onefile = FALSE)
+diffabun_plot_mixing_1
+dev.off()
+```

@@ -4,7 +4,7 @@ author: "Lasse Meyer"
 date: "`r Sys.Date()`"
 output: html_document
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -70,14 +70,14 @@ Here, we will perform the third single cell analysis steps, including phenotypin
 First, we will read in the `SingleCellExperiment` object containing the cleaned, spillover- and (batch-corrected) single-cell data. 
 
 ```{r read-data-batch-correction, message=FALSE}
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
+sce <- readRDS("/mnt/tnbc_volume/TNBC_all/data_analysis/04_sce_TNBC_Clus_com.rds")
 ```
 
 ## Filter sce for tumor cells
 Here, we will filter for TME cells based on the cluster category and GMM approach.
 
 ```{r filter sce, message=FALSE}
-#based on cluster categories (n=436281)
+#based on cluster categories (n=525537)
 sce <- sce[,colData(sce)$analysis_cat == "non_tumor"]
 sce
 ```
@@ -89,13 +89,10 @@ sce
 ```{r tumor_markers, message = FALSE, warning = FALSE}
 cluster_channel = c("SMA","CD68","CD3","CD20","CD11c","CD20","CD8a","CD4","CD31_vWF","CD15", "HLADR")
 
-other_epi_channel = c("Vimentin", "Fibronectin","panCK","Ecad","CK5","CK8_18","KRT14","cMYC","HER2","ER","PR","p53","AR","EGFR","p_mTOR","CK7","GATA3","CD45")
-
-cell_state_channel = c("pH3","H3K27me3","Bcl2", "c_Cas3_PARP","S6", "CD44","CAIX","Ki67")
+other_epi_channel = c("pH3","H3K27me3","Bcl2", "c_Cas3_PARP","S6", "CD44","CAIX","Ki67", "Vimentin","Fibronectin","panCK","Ecad","CK5","CK8_18","KRT14","cMYC","HER2","ER","PR","p53","AR","EGFR","p_mTOR","CK7","GATA3","CD45")
 
 #Add to sce
 rowData(sce)$cluster_channel <- (rowData(sce)$clean_target %in% cluster_channel)
-rowData(sce)$cell_state_channel <- (rowData(sce)$clean_target %in% cell_state_channel)
 rowData(sce)$other_epi_channel <- (rowData(sce)$clean_target %in% other_epi_channel)
 ```
 
@@ -118,7 +115,7 @@ sce$cluster_30 <- clusters
 unique(sce$cluster_30)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+saveRDS(sce, "/mnt/tnbc_volume/TNBC_all/data_analysis/06_sce_TNBC_TME_com.rds")
 
 gc()
 
@@ -132,7 +129,7 @@ sce$cluster_50 <- clusters
 unique(sce$cluster_50)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+saveRDS(sce, "/mnt/tnbc_volume/TNBC_all/data_analysis/06_sce_TNBC_TME_com.rds")
 
 gc()
 
@@ -146,7 +143,7 @@ sce$cluster_70 <- clusters
 unique(sce$cluster_70)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+saveRDS(sce, "/mnt/tnbc_volume/TNBC_all/data_analysis/06_sce_TNBC_TME_com.rds")
 
 gc()
 
@@ -160,7 +157,7 @@ sce$cluster_90 <- clusters
 unique(sce$cluster_90)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+saveRDS(sce, "/mnt/tnbc_volume/TNBC_all/data_analysis/06_sce_TNBC_TME_com.rds")
 
 gc()
 
@@ -174,7 +171,7 @@ sce$cluster_110 <- clusters
 unique(sce$cluster_110)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+saveRDS(sce, "/mnt/tnbc_volume/TNBC_all/data_analysis/06_sce_TNBC_TME_com.rds")
 
 gc()
 
@@ -188,7 +185,7 @@ sce$cluster_130 <- clusters
 unique(sce$cluster_130)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+saveRDS(sce, "/mnt/tnbc_volume/TNBC_all/data_analysis/06_sce_TNBC_TME_com.rds")
 
 gc()
 ```
@@ -197,8 +194,8 @@ gc()
 
 ```{r clustree, message = FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
-sce
+#sce <- readRDS("/mnt/tnbc_volume/TNBC_all/data_analysis/06_sce_TNBC_TME.rds")
+#sce
 
 #Pairwise rand index 
 #Agreement between two clustering approaches - ARI > 0.5 = "good" similarity
@@ -270,9 +267,9 @@ p4
 
 ```{r}
 # Missing metadata for 10 ZTMA174 patients
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+sce <- readRDS("/mnt/tnbc_volume/TNBC_all/data_analysis/06_sce_TNBC_TME.rds")
 
-meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
+meta <- read.csv("/mnt/tnbc_volume/TNBC_all/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
 
 ## Add relevant metadata based on PID
 for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simple", "pN", "pN_simple", "status_OS","status_DFS", "OS_months","DFS_months")]) {
@@ -292,17 +289,17 @@ col_min_max <- colorRamp2(c(0,0.2,0.4,0.6,0.8), c("#440154FF", "#33628DFF", "#28
 ### 1. Mean exprs counts
 #Aggregrate across cells with the mean
 
-cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_130,
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_110,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$cluster_channel)
 
-cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_130,
+cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_110,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$cell_state_channel)
 
-other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_130,
+other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_110,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$other_epi_channel)
@@ -475,13 +472,13 @@ sce$immune_metacluster <- anno$metacluster[match(sce$cluster_130, anno$cluster_1
 
 expr_astir <- assay(sce,"exprs") %>% t() %>% as.data.frame() %>% mutate(sample = sce$sample_id)
 
-write.csv(expr_astir, file = "/mnt/rcc_volume/TNBC/data_analysis/04_astir/expr_TNBC_TME_astir.csv",row.names = TRUE)
+write.csv(expr_astir, file = "/mnt/tnbc_volume/TNBC_all/data_analysis/04_astir/expr_TNBC_TME_astir.csv",row.names = TRUE)
 
 ### RUN ASTIR IN CONDA_ENVIRONMENT ###
 
 # Import Astir results 
 
-astir_type <- read_csv("/mnt/rcc_volume/TNBC/data_analysis/04_astir/cell_types_TNBC_TME.csv",col_names = c("ID","cell_type"),skip = 1)
+astir_type <- read_csv("/mnt/tnbc_volume/TNBC_all/data_analysis/04_astir/cell_types_TNBC_TME.csv",col_names = c("ID","cell_type"),skip = 1)
 
 astir_sum <- astir_type %>% group_by(cell_type) %>% count()
 
@@ -598,7 +595,7 @@ draw(h,annotation_legend_list = list(lgd_astir, lgd_meta))
 ```
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+saveRDS(sce, "/mnt/tnbc_volume/TNBC_all/data_analysis/06_sce_TNBC_TME_com.rds")
 ```
 
 
@@ -654,7 +651,7 @@ library(cowplot)
 exp_plots_TSNE <- plot_grid(plotlist = all_plots_TSNE)
 
 #Save subsampled sce
-#saveRDS(sce_sub,"/mnt/rcc_volume/TNBC/data_analysis/sce_sub_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
+#saveRDS(sce_sub,"/mnt/tnbc_volume/TNBC_all/data_analysis/sce_sub_TNBC_249_TME_CC_ClusterChannelClus_k.rds")
 ```
 
 ## Heatmap for subset of cells
@@ -696,7 +693,7 @@ dittoBarPlot(sce, var = "immune_metacluster", group.by = "sample_id")+
   scale_fill_manual(values = metadata(sce)$colors$immune_metacluster)+
   theme(axis.text.x = element_blank())
 
-dittoBarPlot(sce, var = "immune_metacluster", group.by = "PID")+
+d_PID <- dittoBarPlot(sce, var = "immune_metacluster", group.by = "PID")+
   scale_fill_manual(values = metadata(sce)$colors$immune_metacluster)+
   theme(axis.text.x = element_blank())
 
@@ -782,7 +779,7 @@ SID_immune_metacluster_cor_plot <- ggplot(SID_immune_metacluster_cor, aes(x = ca
   ylab("Correlation of immune_metacluster fractions per PID (n=2-4)")+
   ggtitle(paste("Spearman rho = ",round(median(SID_immune_metacluster_cor$V1, na.rm = TRUE), digits = 3)))
 
-SID_immune_metacluster_cor_plot
+d_PID + SID_immune_metacluster_cor_plot
 ```
 
 ### Densities - Visualization and correlation of cluster densities
@@ -817,7 +814,7 @@ PID_immune_metacluster$tissue_area <- sce$tissue_area[match(PID_immune_metaclust
 
 PID_immune_metacluster <- PID_immune_metacluster %>% mutate(density = Freq/(tissue_area/1000000))
 
-ggplot(PID_immune_metacluster) +
+d_PID_dens <- ggplot(PID_immune_metacluster) +
   geom_tile(color = "black",aes(PID, density, fill = immune_metacluster), position = "stack")+
   scale_fill_manual(values=metadata(sce)$colors$immune_metacluster) + 
   theme_classic(base_size = 15)+
@@ -887,7 +884,8 @@ SID_cluster_dens_cor_plot <- ggplot(SID_cluster_dens_cor, aes(x = category, y = 
   ylab("Correlation of cluster fractions per PID (n=2-4)")+
   ggtitle(paste("Spearman rho = ",round(median(SID_cluster_cor$V1, na.rm = TRUE), digits = 3)))
 
-SID_cluster_dens_cor_plot
+(d_PID + SID_immune_metacluster_cor_plot)/
+(d_PID_dens + SID_metacluster_dens_cor_plot)
 ```
 ## CATALYST-based visualization
 
@@ -944,6 +942,8 @@ clrDR(sce_cat, dr = "PCA",
 
 ```{r marker correlations}
 # Cluster channel marker correlation (all markers - does not show distribution which is usually recommended)
+library(corrplot)
+
 cor_sce <- as.data.frame(t(assay(sce,"exprs")[rowData(sce)$cluster_channel,]))
 
 corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, name="RdBu"),  
@@ -966,8 +966,8 @@ pairs.panels(cor_sce[,c("CD3","CD8a")],
 
 ```{r load images, message = FALSE}
 #Load images and masks
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
-masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+images <- readRDS("/mnt/tnbc_volume/TNBC_all/data_analysis/images_segtest.rds")
+masks <- readRDS("/mnt/tnbc_volume/TNBC_all/data_analysis/masks_segtest_4.rds")
 ```
 
 ## Visualize clusters on images 
@@ -1009,7 +1009,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_viz_cluster_",i,".png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/TME_clusters_viz/TME_viz_cluster_",i,".png"), scale = 2)
            )
  
   }
@@ -1052,7 +1052,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_viz_cluster_",i,".png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/TME_clusters_viz/TME_viz_cluster_",i,".png"), scale = 2)
            )
  
   }
@@ -1099,7 +1099,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_viz_immune_metacluster_",i,".png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/TME_clusters_viz/TME_viz_immune_metacluster_",i,".png"), scale = 2)
            )
  
   }
@@ -1142,7 +1142,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_viz_immune_metacluster_",i,".png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/TME_clusters_viz/TME_viz_immune_metacluster_",i,".png"), scale = 2)
            )
  
   }
@@ -1595,7 +1595,7 @@ hr_prop
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
+saveRDS(sce, "/mnt/tnbc_volume/TNBC_all/data_analysis/06_sce_TNBC_TME_com.rds")
 ```
 
 ## Save plots as pdf
@@ -1604,23 +1604,23 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME.rds")
 ##IMPORTANT: change to chunk output in console for this last part 
 
 ##save plots as pdf (vector graphics)
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ClusterTesting.pdf",width = 10,height = 5)
+pdf("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ClusterTesting.pdf",width = 10,height = 5)
 p1+p2+p3
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_Silhouette_Cluster50.pdf",width = 12,height = 10)
+pdf("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_Silhouette_Cluster50.pdf",width = 12,height = 10)
 p4
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_HeatmapCluster.pdf",width = 13,height = 7)
+pdf("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/06_TME/TNBC_249_TME_CC_HeatmapCluster.pdf",width = 13,height = 7)
 h
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_HeatmapCluster_Scales.pdf",width = 13,height = 8)
+pdf("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_HeatmapCluster_Scales.pdf",width = 13,height = 8)
 h_exprs + h_min_max
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ClusterAnno.pdf",width = 5,height = 8)
+pdf("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ClusterAnno.pdf",width = 5,height = 8)
 h_cluster_anno
 dev.off()
 
@@ -1636,7 +1636,7 @@ dittoHeatmap(sce_sub,
              annot.colors=col_clusters$cluster_50[order(as.numeric(names(col_clusters$cluster_50)))])
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ExpressionCor.pdf",width = 10,height = 8)
+pdf("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ExpressionCor.pdf",width = 10,height = 8)
 corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, name="RdBu"),  
          type="upper", order="hclust",hclust.method = "ward.D2", 
          addCoef.col = "black", addCoefasPercent = F,# Add coefficient of correlation
@@ -1648,23 +1648,23 @@ corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, n
 )
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_TSNECluster.pdf",width = 8,height = 6)
+pdf("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_TSNECluster.pdf",width = 8,height = 6)
 TSNE_clus
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_TSNEExpression.pdf",width = 12,height = 6)
+pdf("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_TSNEExpression.pdf",width = 12,height = 6)
 exp_plots_TSNE
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_UMAPExpression.pdf",width = 12,height = 6)
+pdf("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_UMAPExpression.pdf",width = 12,height = 6)
 exp_plots_UMAP
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ClusterPIDSID.pdf",width = 12,height = 6)
+pdf("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ClusterPIDSID.pdf",width = 12,height = 6)
 p_clusterPID
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_PIDCluster_ClusterCor.pdf",width = 14,height = 6)
+pdf("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_PIDCluster_ClusterCor.pdf",width = 14,height = 6)
 p_PID_cluster+SID_cluster_cor_plot
 dev.off()
 
@@ -1676,7 +1676,7 @@ pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_He
 h_g_1
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_Cluster_HR_DFS.pdf",width = 8,height = 10)
+pdf("/mnt/tnbc_volume/TNBC_all/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_Cluster_HR_DFS.pdf",width = 8,height = 10)
 hr_prop/
 hr_cat/
 hr_cat_GMM
