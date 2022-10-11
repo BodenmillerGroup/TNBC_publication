@@ -4,7 +4,7 @@ author: "Lasse Meyer"
 date: "`r Sys.Date()`"
 output: html_document
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -108,6 +108,7 @@ tumor_TME_metacluster <- rbind(tumor_metacluster, TME_metacluster)
 sce$metacluster_combined <- tumor_TME_metacluster$metacluster_combined[match(sce$cell_id, tumor_TME_metacluster$cell_id)]
 sce$metacluster_combined <- factor(sce$metacluster_combined)
 
+
 ## 3. Color mapping
 names(metadata(sce_tumor)$colors$cluster_110) <- paste0("tumor_", names(metadata(sce_tumor)$colors$cluster_110))
 names(metadata(sce_TME)$colors$cluster_130) <- paste0("TME_", names(metadata(sce_TME)$colors$cluster_130))
@@ -117,6 +118,11 @@ names(metadata(sce_tumor)$colors$metacluster) <- paste0("tumor_", names(metadata
 #Add to sce 
 metadata(sce)$colors$cluster_combined <- c(metadata(sce_tumor)$colors$cluster_110, metadata(sce_TME)$colors$cluster_130)
 metadata(sce)$colors$metacluster_combined <- c(metadata(sce_tumor)$colors$metacluster, metadata(sce_TME)$colors$immune_metacluster)
+
+
+## 4. Cluster channels 
+rowData(sce)$TME_cluster_channel <- rowData(sce_TME)$cluster_channel
+rowData(sce)$tumor_cluster_channel <- rowData(sce_tumor)$cluster_channel
 ```
 
 ```{r save_objects, message = FALSE, warning=FALSE}
@@ -216,7 +222,7 @@ colPairNames(sce) #now includes knn_interaction_graph
 
 # Aggregate across neighbors
 sce <- aggregateNeighbors(sce, colPairName = "knn_interaction_graph", 
-                          aggregate_by = "metadata", count_by = "metacluster_combined", 
+                          aggregate_by = "metadata", count_by = "cluster_combined", 
                           proportions = TRUE)
 
 head(sce$aggregatedNeighbors)
@@ -253,7 +259,7 @@ ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
 
 # Select 13 clusters
 set.seed(22)
-cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 13, nstart = 100)$cluster
+cur_clusters <- kmeans(sce$aggregatedNeighbors, centers = 13, nstart = 10)$cluster
 
 sce$cellular_neighborhood <- as.factor(cur_clusters)
 ```
@@ -2120,7 +2126,7 @@ sce$pT_merg <- colData(sce) %>%
   select(pT_simple) %>% 
   mutate(pT_merg = ifelse(pT_simple %in% c("2","3","4"),"2/3/4", pT_simple)) %>% pull(pT_merg)
 
-abundances <- table(sce$metacluster_combined, sce$PID)
+abundances <- table(sce$cluster_combined, sce$PID)
 abundances <- unclass(abundances) 
 head(abundances)
 
@@ -2197,11 +2203,11 @@ ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
   labs(color = "cluster")
 
 #Abundance vs log fold change (best?)
-diffabun_plot <- ggplot(DA, aes(x = logFC, y = logCPM))+
+ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
-  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
+  #scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
   xlab("logFC (pT: 1 vs 2/3/4)")+
   ylab("Abundance (logCPM)")+
   theme_classic()+
@@ -2412,6 +2418,122 @@ diff.abun_SC <- ggplot(DA, aes(x = logFC, y = logCPM))+
 
 ```
 
+## For pN 
+
+```{r}
+#pT overview
+pN_simple_n <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(sample_id,pN_simple) %>% 
+  mutate(pN_simple = as.character(pN_simple)) %>%
+  unique() %>% 
+  group_by(pN_simple) %>% 
+  count()
+
+ggplot(pN_simple_n, aes(x=pN_simple,y=n,fill=pN_simple))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = metadata(sce)$colors$pN_simple)+
+  theme_classic()
+```
+### For metaclusters
+
+```{r}
+### Differential abundance analysis based on edgeR
+  library(edgeR)
+
+sce$pN_merg <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(pN_simple) %>% 
+  mutate(pN_merg = ifelse(pN_simple %in% c("1","2","3"),"1/2/3", pN_simple)) %>% pull(pN_merg)
+
+abundances <- table(sce$metacluster_combined, sce$PID)
+abundances <- unclass(abundances) 
+head(abundances)
+
+#relevant patient metadata (Relevel so that pN 1/2 is baseline)
+meta <- colData(sce)[match(colnames(abundances), sce$PID),]
+meta$pN_merg <- relevel(x=factor(meta$pN_merg), ref = "0")
+
+#filter
+meta <- meta[!is.na(meta$pN_merg),]
+abundances <- abundances[,colnames(abundances) %in% meta$PID]
+
+#create DGEList - based on edgeR package
+y.ab <- DGEList(abundances, samples=meta, group = meta$pN_merg)
+
+#Design matrix
+design <- model.matrix(~pN_merg, data = y.ab$samples)
+
+#Visualize
+# logCPM of abundances per cluster
+cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
+
+Heatmap(cur_mat, 
+        col = viridis(100),
+        column_split = unfactor(meta$pN_merg))%v%
+  columnAnnotation(pN_merg = anno_simple(unfactor(meta$pN_merg)))
+
+
+# Estimate NB and QL dispersion 
+y.ab <- estimateDisp(y.ab, design, trend="none")
+summary(y.ab$common.dispersion)
+plotBCV(y.ab, cex=1)
+
+fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
+summary(fit.ab$var.prior)
+plotQLDisp(fit.ab, cex=1)
+
+# Test for differential abundance of clusters between tumor stages
+res <- glmQLFTest(fit.ab, coef=ncol(design))
+
+res$coefficients
+summary(decideTests(res))
+
+DA <- res$table
+
+DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
+
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
+  arrange(desc(logFC))
+
+DA$cluster <- factor(DA$cluster, levels = DA$cluster)
+
+sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
+
+## Visualize
+#Barplot
+ggplot(DA, aes(cluster, y = logFC))+
+  geom_col(aes(fill=result), col = "black")+
+  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
+  ylab("logFC")+
+  xlab("Cluster")+
+  labs(fill = "FDR<0.1")+
+  ggtitle("pN_stage (1 vs 2/3/4)")+
+  theme_classic()
+
+#Volcano plot  
+ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
+  geom_point(aes(col=cluster, size = -log10(FDR)))+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
+  xlab("logFC (pN: 1 vs 2/3/4)")+
+  ylab("-log10(FDR)")+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+
+#Abundance vs log fold change (best?)
+ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
+  #scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
+  xlab("logFC (pN: 1 vs 2/3/4)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+```
 
 ## For CD8 spatial scores 
 

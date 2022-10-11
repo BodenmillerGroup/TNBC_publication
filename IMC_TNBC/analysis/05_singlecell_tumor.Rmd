@@ -4,7 +4,7 @@ author: "Lasse Meyer"
 date: "`r Sys.Date()`"
 output: html_document
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -85,15 +85,15 @@ sce
 ## Define markers for clustering
 
 ```{r tumor_markers, message = FALSE, warning = FALSE}
-cluster_channel = c("CK5","CK8_18","CD15","KRT14","cMYC","HER2","ER","PR","p53","AR","GATA3","EGFR","p_mTOR","CK7","Vimentin","Ki67","HLADR")
+cluster_channel = c("CK5","CK8_18","CD15","KRT14","cMYC","HER2","ER","PR","p53","AR","GATA3","EGFR","p_mTOR","CK7","Vimentin","Ki67","HLADR", "CAIX", "S6", "c_Cas3_PARP", "pH3", "H3K27me3")
 
-cell_state_channel = c("pH3","H3K27me3","Bcl2", "c_Cas3_PARP","S6", "CD44","CAIX")
+#cell_state_channel = c()
 
-other_immune_channel = c("panCK","Ecad","SMA","Fibronectin","CD68","CD3","CD20","CD11c","CD45","CD20","CD8a","CD4","CD31_vWF")
+other_immune_channel = c("Bcl2","CD44","panCK","Ecad","SMA","Fibronectin","CD68","CD3","CD20","CD11c","CD45","CD20","CD8a","CD4","CD31_vWF")
 
 #Add to sce
 rowData(sce)$cluster_channel <- (rowData(sce)$clean_target %in% cluster_channel)
-rowData(sce)$cell_state_channel <- (rowData(sce)$clean_target %in% cell_state_channel)
+#rowData(sce)$cell_state_channel <- (rowData(sce)$clean_target %in% cell_state_channel)
 rowData(sce)$other_immune_channel <- (rowData(sce)$clean_target %in% other_immune_channel)
 ```
 
@@ -116,7 +116,7 @@ sce$cluster_30 <- clusters
 unique(sce$cluster_30)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 gc()
 
@@ -130,7 +130,7 @@ sce$cluster_50 <- clusters
 unique(sce$cluster_50)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 gc()
 
@@ -144,7 +144,7 @@ sce$cluster_70 <- clusters
 unique(sce$cluster_70)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 gc()
 
@@ -158,21 +158,21 @@ sce$cluster_90 <- clusters
 unique(sce$cluster_90)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 gc()
 
-#k=90
+#k=110
 out <- Rphenoannoy(mat, k = 110)
 
 clusters <- factor(membership(out[[2]]))
 
-sce$cluster_90 <- clusters
+sce$cluster_110 <- clusters
 
-unique(sce$cluster_90)
+unique(sce$cluster_110)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 gc()
 
@@ -186,7 +186,7 @@ sce$cluster_130 <- clusters
 unique(sce$cluster_130)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 gc()
 ```
@@ -204,8 +204,6 @@ pairwiseRand(sce$cluster_50,sce$cluster_70, mode = "index")
 pairwiseRand(sce$cluster_70,sce$cluster_90, mode = "index")
 pairwiseRand(sce$cluster_90,sce$cluster_110, mode = "index")
 pairwiseRand(sce$cluster_110,sce$cluster_130, mode = "index")
-
-sce$cluster_110_merg <- NULL 
 
 #Over different resolution parameters - Silhouette width [-1,1,max], Purity[0,1,max], Root-mean-squared difference [min]
 clusters <- colnames(colData(sce))[str_detect(colnames(colData(sce)),"cluster_[:digit:]")]
@@ -392,11 +390,6 @@ cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_110,
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$cluster_channel)
 
-cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_110,
-                                 statistics = "mean",
-                                 use.assay.type = "exprs",
-                                 subset.row = rowData(sce)$cell_state_channel)
-
 other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_110,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
@@ -407,8 +400,61 @@ col_exprs <- colorRamp2(c(0,1,2,3), c("#440154FF", "#31688EFF", "#35B779FF", "#F
 
 
 ### 2. Heatmap annotation ###
+###2.1 Metacluster 
 
-### 2.1 Spatial features
+library(clValid)
+
+#Internal measures
+testCL<- clValid(t(assay(cluster_mean_sce, "exprs")),nClust = 4:20,clMethods = c("hierarchical","agnes","kmeans","pam"),validation="internal",metric="euclidean", method = "ward")
+summary(testCL)
+plot(testCL, legend = TRUE)
+
+#Stability measures 
+testCL_1<- clValid(t(assay(cluster_mean_sce, "exprs")),nClust = 4:20,clMethods = c("hierarchical","agnes","kmeans","pam"),validation="stability",metric="euclidean", method = "ward")
+summary(testCL_1)
+plot(testCL_1, legend = TRUE)
+
+#chosen method: hierarchical, k=8
+
+#retrieve row_order
+set.seed(22)
+ht_kmeans <- Heatmap(t(assay(cluster_mean_sce, "exprs")),
+        column_title = "cluster_channels",
+        col = col_exprs,
+        name= "mean exprs exprs",
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        cluster_row_slices = FALSE,
+        row_split = 8)
+        #row_km = 8, row_km_repeats = 10000)
+  
+ht_kmeans <- draw(ht_kmeans)
+row_order_ht <- row_order(ht_kmeans)
+
+anno <- colData(cluster_mean_sce) %>% as.data.frame %>% select(cluster_110,ncells)
+anno$pre_metacluster <- NA
+foreach(i = seq_along(row_order_ht))%do%{
+anno$pre_metacluster <- as.factor((ifelse(anno$cluster_110 %in% row_order_ht[[i]], i,anno$pre_metacluster)))
+}
+
+## pre_metacluster_1 - splitting 
+library(dendextend)
+dend_1 <- row_dend(ht_kmeans)[[1]]
+dend_1 <- color_branches(dend_1, k=3)
+plot(dend_1)
+
+anno <- anno %>% mutate(metacluster = ifelse(pre_metacluster == "1" & cluster_110 %in% c("39","43","40","42"), "9", 
+                                       ifelse(pre_metacluster == "1" & cluster_110 %in% c("8","28","15","11","5","38"), "10", 
+                                              ifelse(pre_metacluster == "1" & cluster_110 %in% c("13","22","24","12","53","54"), "1", pre_metacluster))))
+anno$metacluster <- factor(anno$metacluster)
+
+#add (pre) metacluster to sce
+sce$pre_metacluster <- anno$pre_metacluster[match(sce$cluster_110,anno$cluster_110)]
+sce$metacluster <- anno$metacluster[match(sce$cluster_110,anno$cluster_110)]
+
+### 2.2 Spatial features
 
 #Add number of neighbors to sce object (saved in ColPair)
 n_neighbors <- colPair(sce) %>% as.data.frame %>% group_by(from) %>% dplyr::count() %>% arrange(desc(n))
@@ -431,59 +477,6 @@ ha_spatial <- HeatmapAnnotation(
     border = TRUE,
     which = "row")
 
-
-###2.2 Metacluster 
-
-library(clValid)
-
-#Internal measures
-#testCL<- clValid(t(assay(cluster_mean_sce, "exprs")),nClust = 4:20,clMethods = c("hierarchical","agnes","kmeans","pam"),validation="internal",metric="euclidean", method = "ward")
-summary(testCL)
-plot(testCL, legend = TRUE)
-
-#Stability measures 
-#testCL_1<- clValid(t(assay(cluster_mean_sce, "exprs")),nClust = 4:20,clMethods = c("hierarchical","agnes","kmeans","pam"),validation="stability",metric="euclidean", method = "ward")
-summary(testCL_1)
-plot(testCL_1, legend = TRUE)
-
-#chosen method: kmeans, k=7
-
-#retrieve row_order
-set.seed(22)
-ht_kmeans <- Heatmap(t(assay(cluster_mean_sce, "exprs")),
-        column_title = "cluster_channels",
-        col = col_exprs,
-        name= "mean exprs exprs",
-        show_row_names = T, 
-        show_column_names =  T, 
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2",
-        cluster_row_slices = FALSE,
-        row_km = 7, row_km_repeats = 10000)
-  
-ht_kmeans <- draw(ht_kmeans)
-row_order_ht <- row_order(ht_kmeans)
-
-anno <- colData(cluster_mean_sce) %>% as.data.frame %>% select(cluster_110,ncells)
-anno$pre_metacluster <- NA
-foreach(i = seq_along(row_order_ht))%do%{
-anno$pre_metacluster <- as.factor((ifelse(anno$cluster_110 %in% row_order_ht[[i]], i,anno$pre_metacluster)))
-}
-
-## pre_metacluster_1 - splitting 
-library(dendextend)
-dend_1 <- row_dend(ht_kmeans)[[1]]
-dend_1 <- color_branches(dend_1, k=3)
-plot(dend_1)
-
-anno <- anno %>% mutate(metacluster = ifelse(pre_metacluster == "1" & cluster_110 %in% c("13","6","27","29"), "8", 
-                                       ifelse(pre_metacluster == "1" & cluster_110 %in% c("4","12","15","21","8"), "9", 
-                                              ifelse(pre_metacluster == "1" & cluster_110 %in% c("34","24","11","10"), "1", pre_metacluster))))
-anno$metacluster <- factor(anno$metacluster)
-
-#add (pre) metacluster to sce
-sce$pre_metacluster <- anno$pre_metacluster[match(sce$cluster_110,anno$cluster_110)]
-sce$metacluster <- anno$metacluster[match(sce$cluster_110,anno$cluster_110)]
 
 ###2.3 Metadata features
 
@@ -557,14 +550,6 @@ h <- Heatmap(t(assay(cluster_mean_sce, "exprs")),
         clustering_method_columns = "ward.D2",
         row_split = anno$metacluster,
         cluster_row_slices = FALSE)+
-  Heatmap(t(assay(cellstate_mean_sce, "exprs")),
-        column_title = "state_channels",
-        col = col_exprs,
-        name= "mean exprs",
-        show_row_names = FALSE,
-        show_column_names =  TRUE,
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")+
   Heatmap(t(assay(other_mean_sce, "exprs")),
         column_title = "other_channels",
         col = col_exprs,
@@ -604,17 +589,17 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 #to save time and not get super crowded dimensionality reduction plots
 set.seed(22)
 sub <- colData(sce) %>% as.data.frame() %>% group_by("sample_id") %>% slice_sample(prop = 0.1) %>% arrange("sample_id") %>% mutate(sub_id = paste(sample_id,ObjectNumber,sep="_")) %>% pull(sub_id)
-sce_sub = sce[,sub]
+sce_sub <- sce[,sub]
 
 #Run UMAP/TSNE on cluster channels
-sce_sub = runUMAP(sce_sub[rowData(sce_sub)$cluster_channel,], n_neighbors = 100, pca = 50, exprs_values = "exprs",external_neighbors=TRUE, BPPARAM = MulticoreParam())
+sce_sub <- runUMAP(sce_sub[rowData(sce_sub)$cluster_channel,], n_neighbors = 100, pca = 50, exprs_values = "exprs",external_neighbors=TRUE, BPPARAM = MulticoreParam())
 
-sce_sub = runTSNE(sce_sub[rowData(sce_sub)$cluster_channel,], exprs_values = "exprs", external_neighbors=TRUE, BPPARAM = MulticoreParam())
+sce_sub <- runTSNE(sce_sub[rowData(sce_sub)$cluster_channel,], exprs_values = "exprs", external_neighbors=TRUE, BPPARAM = MulticoreParam())
 
 
 ## 1. Visualize UMAP and TSNE
-UMAP_clus <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "cluster_10¨10")+
-  scale_color_manual(values = metadata(sce)$colors$cluster_10¨10)
+UMAP_clus <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "cluster_110")+
+  scale_color_manual(values = metadata(sce)$colors$cluster_10)
 UMAP_metaclus <- plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "metacluster")+
   scale_color_manual(values = metadata(sce)$colors$metacluster)
 
@@ -668,6 +653,40 @@ dittoHeatmap(sce_sub,
                                       cluster_110 = metadata(sce_sub)$colors$cluster_110)
 )
              
+```
+## Heatmap for cell count per cluster/metacluster
+
+```{r PID/cluster cells viz}
+# 1. Cluster
+library(tidyverse)
+for_plot <- colData(sce) %>% as_tibble() %>%
+    group_by(PID, cluster_110) %>%
+    summarize(count = n()) %>%
+    mutate(log_count = log(count)) %>%
+    pivot_wider(id_cols = PID, names_from = cluster_110, 
+                values_from = log_count, values_fill = 0) %>%
+    ungroup() %>%
+    select(-PID)
+
+pheatmap(for_plot, #color = colorRampPalette(c("dark blue", "white", "dark red"))(100), 
+         scale = "none", show_rownames = TRUE)
+
+# 2. Metacluster
+library(tidyverse)
+for_plot_MC <- colData(sce) %>% as_tibble() %>%
+    group_by(PID, metacluster) %>%
+    summarize(count = n()) %>%
+    mutate(log_count = log(count)) %>%
+    pivot_wider(id_cols = PID, names_from = metacluster, 
+                values_from = log_count, values_fill = 0) %>%
+    ungroup() %>%
+    select(-PID)
+
+pheatmap(for_plot_MC, 
+         #color = colorRampPalette(c("dark blue", "white", "dark red"))(100), 
+         scale = "none", 
+         show_rownames = FALSE
+          )
 ```
 
 ## Violin plot visualization
