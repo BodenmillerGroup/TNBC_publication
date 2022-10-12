@@ -85,11 +85,11 @@ sce
 ## Define markers for clustering
 
 ```{r tumor_markers, message = FALSE, warning = FALSE}
-cluster_channel = c("CK5","CK8_18","CD15","KRT14","cMYC","HER2","ER","PR","p53","AR","GATA3","EGFR","p_mTOR","CK7","Vimentin","Ki67","HLADR", "CAIX", "S6", "c_Cas3_PARP", "pH3", "H3K27me3")
+cluster_channel = c("CK5","CK8_18","CD15","KRT14","cMYC","HER2","ER","PR","p53","AR","GATA3","EGFR","p_mTOR","CK7","Vimentin","Ki67","HLADR")
 
 #cell_state_channel = c()
 
-other_immune_channel = c("Bcl2","CD44","panCK","Ecad","SMA","Fibronectin","CD68","CD3","CD20","CD11c","CD45","CD20","CD8a","CD4","CD31_vWF")
+other_immune_channel = c("Bcl2","CD44","panCK","Ecad","SMA","Fibronectin","CD68","CD3","CD20","CD11c","CD45","CD20","CD8a","CD4","CD31_vWF", "CAIX", "S6","c_Cas3_PARP", "pH3", "H3K27me3")
 
 #Add to sce
 rowData(sce)$cluster_channel <- (rowData(sce)$clean_target %in% cluster_channel)
@@ -116,7 +116,7 @@ sce$cluster_30 <- clusters
 unique(sce$cluster_30)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 gc()
 
@@ -130,7 +130,7 @@ sce$cluster_50 <- clusters
 unique(sce$cluster_50)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 gc()
 
@@ -144,7 +144,7 @@ sce$cluster_70 <- clusters
 unique(sce$cluster_70)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 gc()
 
@@ -158,7 +158,7 @@ sce$cluster_90 <- clusters
 unique(sce$cluster_90)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 gc()
 
@@ -172,7 +172,7 @@ sce$cluster_110 <- clusters
 unique(sce$cluster_110)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 gc()
 
@@ -186,7 +186,7 @@ sce$cluster_130 <- clusters
 unique(sce$cluster_130)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 gc()
 ```
@@ -260,6 +260,8 @@ sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
 
+colData <- colData(sce) %>% as.data.frame() %>% select("PID","age","grade","pT", "pT_simple", "pN", "pN_simple", "status_OS","status_DFS", "OS_months","DFS_months") %>% distinct()
+
 ## Add relevant metadata based on PID
 for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simple", "pN", "pN_simple", "status_OS","status_DFS", "OS_months","DFS_months")]) {
   colData(sce)[,entry] <- meta[,entry][match(colData(sce)[,"PID"],meta[,"PID"])]
@@ -272,7 +274,7 @@ for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simpl
 
 ```{r heatmap scales, message=FALSE,warning=FALSE}
 #Read sce after clustering
-#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 #Heatmap body colors
 col_exprs <- colorRamp2(c(0,1,2,3), c("#440154FF", "#31688EFF", "#35B779FF", "#FDE725FF"))
@@ -405,6 +407,7 @@ col_exprs <- colorRamp2(c(0,1,2,3), c("#440154FF", "#31688EFF", "#35B779FF", "#F
 library(clValid)
 
 #Internal measures
+set.seed(22)
 testCL<- clValid(t(assay(cluster_mean_sce, "exprs")),nClust = 4:20,clMethods = c("hierarchical","agnes","kmeans","pam"),validation="internal",metric="euclidean", method = "ward")
 summary(testCL)
 plot(testCL, legend = TRUE)
@@ -416,19 +419,25 @@ plot(testCL_1, legend = TRUE)
 
 #chosen method: hierarchical, k=8
 
+library(dendextend)
+avg_dend_obj_MCP <- as.dendrogram(agnes(t(assay(cluster_mean_sce, "exprs")),metric = "euclidean",method = "ward"))
+avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 8)
+plot(avg_col_dend_MCP)
+
 #retrieve row_order
 set.seed(22)
 ht_kmeans <- Heatmap(t(assay(cluster_mean_sce, "exprs")),
         column_title = "cluster_channels",
         col = col_exprs,
-        name= "mean exprs exprs",
+        name= "mean exprs",
         show_row_names = T, 
         show_column_names =  T, 
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2",
-        cluster_row_slices = FALSE,
-        row_split = 8)
-        #row_km = 8, row_km_repeats = 10000)
+        #cluster_rows = avg_col_dend_MCP, 
+        row_split = 9,
+        #row_km = 8, row_km_repeats = 10000,
+        cluster_row_slices = FALSE)
   
 ht_kmeans <- draw(ht_kmeans)
 row_order_ht <- row_order(ht_kmeans)
@@ -445,8 +454,8 @@ dend_1 <- row_dend(ht_kmeans)[[1]]
 dend_1 <- color_branches(dend_1, k=3)
 plot(dend_1)
 
-anno <- anno %>% mutate(metacluster = ifelse(pre_metacluster == "1" & cluster_110 %in% c("39","43","40","42"), "9", 
-                                       ifelse(pre_metacluster == "1" & cluster_110 %in% c("8","28","15","11","5","38"), "10", 
+anno <- anno %>% mutate(metacluster = ifelse(pre_metacluster == "1" & cluster_110 %in% c("39","43","40","42"), "10", 
+                                       ifelse(pre_metacluster == "1" & cluster_110 %in% c("8","28","15","11","5","38"), "11", 
                                               ifelse(pre_metacluster == "1" & cluster_110 %in% c("13","22","24","12","53","54"), "1", pre_metacluster))))
 anno$metacluster <- factor(anno$metacluster)
 
@@ -577,7 +586,7 @@ draw(h_cluster_anno)
 
 ```{r save object}
 #Save sce after metacluster assignment
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 ```
 
 # 3. Single-cell visualization
@@ -1179,6 +1188,9 @@ arrange_ggsurvplots(list(p1,p2))
 library(survival)
 library(survminer)
 
+PID_metacluster <- colData(sce) %>% as.data.frame() %>% select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metacluster <- PID_metacluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
 ### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
 PID_metagroups <- PID_metacluster %>% pivot_wider(id_cols = "PID",names_from = "metacluster",values_from = "fra") %>% column_to_rownames("PID")
 colnames(PID_metagroups) <- paste0("MC",colnames(PID_metagroups))
@@ -1328,7 +1340,7 @@ hr_GMM
 
 ```{r OS survival_curves}
 #Plot survival curves
-fit <- survfit(Surv(DFS_months, status_DFS) ~ MC6, data = Cox_df_mean)
+fit <- survfit(Surv(DFS_months, status_DFS) ~ MC8, data = Cox_df_mean)
 print(fit)
 
 p1 <- ggsurvplot(fit,
@@ -1342,7 +1354,7 @@ p1 <- ggsurvplot(fit,
           log.rank.weights = "n")+
   ggtitle("Mean proportion")
 
-fit <- survfit(Surv(DFS_months, status_DFS) ~ MC2, data = Cox_df_mean)
+fit <- survfit(Surv(DFS_months, status_DFS) ~ MC9, data = Cox_df_mean)
 print(fit)
 
 p2 <- ggsurvplot(fit,
@@ -1558,10 +1570,10 @@ Cox_df <- PID_groups
 Cox_df$status_OS <- sce$status_OS[match(rownames(Cox_df),sce$PID)]
 Cox_df$OS_months <- sce$OS_months[match(rownames(Cox_df),sce$PID)]
 
-Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
-Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
-Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
-Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+#Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+#Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+#Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+#Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
 #Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)]) #remove from model otherwise coefficients are shrinked to 0 for all others? 
 
 ## Run lasso regularized coxph model
@@ -1571,6 +1583,7 @@ x <- data.matrix(Cox_df %>% select(-status_OS,-OS_months)) #predictor variables
 
 y <- Surv(time = Cox_df$OS_months, event = Cox_df$status_OS) #response variables
 
+## Run lasso 
 set.seed(22)
 cv.fit <- cv.glmnet(x, y, family="cox", type.measure = "C")
 plot(cv.fit)
@@ -1579,18 +1592,18 @@ fit <- glmnet(x, y, family="cox")
 
 coef(fit, s = cv.fit$lambda.min)
 
-# ## Run lasso 100 times and average error curves to be more robust
-# MSEs <- NULL
-# for (i in 1:100){
-#                  cv <- cv.glmnet(x, y, family="cox", type.measure = "C")
-#                  MSEs <- cbind(MSEs, cv$cvm)
-#              }
-# 
-# rownames(MSEs) <- cv$lambda
-# lambda.min <- as.numeric(names(which.min(rowMeans(MSEs))))
-# 
-# fit <- glmnet(x, y, family="cox")
-# coef(fit, s = lambda.min)
+## Run lasso 100 times and average error curves to be more robust
+MSEs <- NULL
+for (i in 1:10){
+                 cv <- cv.glmnet(x, y, family="cox", type.measure = "C")
+                 MSEs <- cbind(MSEs, cv$cvm)
+             }
+
+rownames(MSEs) <- cv$lambda
+lambda.min <- as.numeric(names(which.min(rowMeans(MSEs))))
+
+fit <- glmnet(x, y, family="cox")
+coef(fit, s = lambda.min)
 
 #Extract output
 lasso_df <- tidy(coef(fit, s = cv.fit$lambda.min))
@@ -1632,45 +1645,47 @@ Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
 Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
 Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
 Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
-#Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)]) #remove from model otherwise coefficients are shrinked to 0 for all others? 
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)]) #remove from model otherwise coefficients are shrinked to 0 for all others? 
 
 ## Run lasso regularized coxph model
 Cox_df <- Cox_df[complete.cases(Cox_df),] #only have complete rows as input
 
 Cox_df <- Cox_df %>% filter(DFS_months != 0)
 
-x <- data.matrix(Cox_df %>% select(-status_DFS,-DFS_months)) #predictor variables
+x <-  data.matrix(Cox_df %>% select(-status_DFS,-DFS_months)) #predictor variables
 
 y <- Surv(time = Cox_df$DFS_months, event = Cox_df$status_DFS) #response variables
 
+## Run lasso 
+require(doMC)
+registerDoMC(cores = 20)
 set.seed(22)
-cv.fit <- cv.glmnet(x, y, family="cox", type.measure = "C")
+cv.fit <- cv.glmnet(x, y, family="cox", type.measure = "C", nfolds = 50, parallel = TRUE)
 plot(cv.fit)
 
 fit <- glmnet(x, y, family="cox")
 
 coef(fit, s = cv.fit$lambda.min)
 
-# ## Run lasso 100 times and average error curves to be more robust
+# ## Run lasso 10 times (with 10 fold validation each run) and average error curves to be more robust
 # MSEs <- NULL
-# for (i in 1:100){
-#                  cv <- cv.glmnet(x, y, family="cox", type.measure = "C")
-#                  MSEs <- cbind(MSEs, cv$cvm)
-#              }
-# 
+# for (i in 1:10){
+#                   cv <- cv.glmnet(x, y, family="cox", type.measure = "C")
+#                   MSEs <- cbind(MSEs, cv$cvm)
+#                   }
+#  
 # rownames(MSEs) <- cv$lambda
 # lambda.min <- as.numeric(names(which.min(rowMeans(MSEs))))
-# 
+#  
 # fit <- glmnet(x, y, family="cox")
 # coef(fit, s = lambda.min)
-# 
 
 #Extract output
- lasso_df <- tidy(coef(fit, s = cv.fit$lambda.min))
+lasso_df <- tidy(coef(fit, s = cv.fit$lambda.min))
  colnames(lasso_df) <- c("predictor","column","coef")
 
 #Visualize hazard ratios
-ggplot(lasso_df, aes(x = predictor, y = exp(coef))) +
+ggplot(lasso_df, aes(x = reorder(predictor, coef), y = exp(coef))) +
   geom_point(size = 4, aes(color = predictor)) +
   geom_hline(yintercept = 1,color = "black")+
   scale_y_continuous(trans="log")+
@@ -1823,7 +1838,7 @@ plotPixels(cur_images,
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 ```
 
 ## Save plots as pdf
