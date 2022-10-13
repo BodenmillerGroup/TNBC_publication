@@ -2042,7 +2042,7 @@ out$adj.p <- p.adjust(out$p, method = "BH")
 
 final <- out %>% mutate(sigval = ifelse(odds > 1 & adj.p < 0.1, 1, ifelse(odds < 1 & adj.p < 0.1, -1, 0))) %>%
     group_by(milieu, metacluster_combined) %>%
-    dplyr::summarize(mean = mean(sigval)
+    dplyr::summarize(mean = mean(sigval))
 
 # Number of tested images
 out %>% 
@@ -2116,6 +2116,7 @@ library(patchwork)
 library(survival)
 library(survminer)
 
+#also possible to use spatial_CD8_pheno_merg (cold/excluded vs inflamed)
 cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, spatial_CD8_pheno, OS_months, DFS_months, status_DFS, status_OS) %>% unique()
 
 #Plot survival curves
@@ -2145,6 +2146,154 @@ ggsurvplot(fit,
           palette = c("steelblue1","navy","firebrick"),
           log.rank.weights = "n")
 ```
+
+### Test for differential interaction of CD8 T cells between conditions 
+
+Here we will use spicyR. 
+
+```{r}
+library(lisaClust)
+library(spicyR)
+
+### First comparison: CD8-T-cell interaction with tumor (phenotypes combined) between "cold/excluded" vs. "inflamed"
+
+# Generate segmentedCells object 
+cur_sce <- sce[, sce$metacluster_tumor_combined %in% c("CD8_T_cell","tumor")]
+
+cells <- data.frame(row.names = colnames(cur_sce))
+cells$x <- cur_sce$Pos_X
+cells$y <- cur_sce$Pos_Y
+cells$imageID <- cur_sce$sample_id
+cells$imageCellID <- cur_sce$ObjectNumber
+cells$cellType <- cur_sce$metacluster_tumor_combined
+
+cells_sc <- SegmentedCells(cells, cellProfiler = TRUE)
+
+# Add condition and patient id
+spatial_CD8_factor <- relevel(x=factor(cur_sce$spatial_CD8_pheno_merg), ref = "cold/excluded")
+
+imagePheno(cells_sc) <- DataFrame(imageID = cur_sce$sample_id, 
+          PID = cur_sce$PID,
+          spatial_CD8 = spatial_CD8_factor
+          )
+
+cells_sc
+
+# Run differential interaction analysis 
+spicyTest <- spicy(cells_sc, 
+      condition = "spatial_CD8", 
+      subject = "PID", 
+      BPPARAM = BiocParallel::MulticoreParam(),
+      includeZeroCells = FALSE)
+
+saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumor.rds")
+
+topPairs(spicyTest)
+
+signifPlot(spicyTest,
+           type = "heatmapbliblablub",
+           breaks=c(-3, 3, 1),
+           fdr = FALSE,
+           marksToPlot = c("tumor","CD8_T_cell"))
+
+
+### Second comparison: CD8-T-cell interaction with tumor phenotypes between "cold/excluded" vs. "inflamed"
+
+# Generate segmentedCells object 
+cur_sce <- sce[, sce$metacluster_tumor_combined %in% c("CD8_T_cell","tumor")]
+
+cells <- data.frame(row.names = colnames(cur_sce))
+cells$x <- cur_sce$Pos_X
+cells$y <- cur_sce$Pos_Y
+cells$imageID <- cur_sce$sample_id
+cells$imageCellID <- cur_sce$ObjectNumber
+cells$cellType <- cur_sce$metacluster_combined
+
+cells_sc <- SegmentedCells(cells, cellProfiler = TRUE)
+
+# Add condition and patient id
+spatial_CD8_factor <- relevel(x=factor(cur_sce$spatial_CD8_pheno_merg), ref = "cold/excluded")
+
+imagePheno(cells_sc) <- DataFrame(imageID = cur_sce$sample_id, 
+          PID = cur_sce$PID,
+          spatial_CD8 = spatial_CD8_factor
+          )
+
+cells_sc
+
+# Run differential interaction analysis 
+spicyTest <- spicy(cells_sc, 
+      condition = "spatial_CD8", 
+      subject = "PID", 
+      BPPARAM = BiocParallel::MulticoreParam(),
+      includeZeroCells = FALSE)
+
+saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumorphenotypes.rds")
+
+topPairs(spicyTest)
+
+signifPlot(spicyTest,
+           type = "heatmapbliblablub",
+           breaks=c(-3, 3, 1),
+           fdr = FALSE,
+           marksToPlot = unfactor(unique(cur_sce$metacluster_combined)))
+
+
+### Third comparison: General phenotype interaction between "cold/excluded" vs. "inflamed"
+
+# Generate segmentedCells object 
+cur_sce <- sce
+
+cells <- data.frame(row.names = colnames(cur_sce))
+cells$x <- cur_sce$Pos_X
+cells$y <- cur_sce$Pos_Y
+cells$imageID <- cur_sce$sample_id
+cells$imageCellID <- cur_sce$ObjectNumber
+cells$cellType <- cur_sce$metacluster_combined
+
+cells_sc <- SegmentedCells(cells, cellProfiler = TRUE)
+
+# Add condition and patient id
+spatial_CD8_factor <- relevel(x=factor(cur_sce$spatial_CD8_pheno_merg), ref = "cold/excluded")
+
+imagePheno(cells_sc) <- DataFrame(imageID = cur_sce$sample_id, 
+          PID = cur_sce$PID,
+          spatial_CD8 = spatial_CD8_factor
+          )
+
+cells_sc
+
+# Run differential interaction analysis 
+spicyTest <- spicy(cells_sc, 
+      condition = "spatial_CD8", 
+      subject = "PID", 
+      BPPARAM = BiocParallel::MulticoreParam(),
+      includeZeroCells = FALSE)
+
+saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_allVSall.rds")
+
+topPairs(spicyTest)
+
+signifPlot(spicyTest,
+           type = "heatmapbliblablub",
+           breaks=c(-3, 3, 1),
+           fdr = FALSE,
+           marksToPlot = unfactor(unique(cur_sce$metacluster_combined)))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## Immune mixing score - Keren et al., 2020
 
 ```{r}

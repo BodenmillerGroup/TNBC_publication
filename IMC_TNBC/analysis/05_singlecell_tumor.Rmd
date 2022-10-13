@@ -663,40 +663,6 @@ dittoHeatmap(sce_sub,
 )
              
 ```
-## Heatmap for cell count per cluster/metacluster
-
-```{r PID/cluster cells viz}
-# 1. Cluster
-library(tidyverse)
-for_plot <- colData(sce) %>% as_tibble() %>%
-    group_by(PID, cluster_110) %>%
-    summarize(count = n()) %>%
-    mutate(log_count = log(count)) %>%
-    pivot_wider(id_cols = PID, names_from = cluster_110, 
-                values_from = log_count, values_fill = 0) %>%
-    ungroup() %>%
-    select(-PID)
-
-pheatmap(for_plot, #color = colorRampPalette(c("dark blue", "white", "dark red"))(100), 
-         scale = "none", show_rownames = TRUE)
-
-# 2. Metacluster
-library(tidyverse)
-for_plot_MC <- colData(sce) %>% as_tibble() %>%
-    group_by(PID, metacluster) %>%
-    summarize(count = n()) %>%
-    mutate(log_count = log(count)) %>%
-    pivot_wider(id_cols = PID, names_from = metacluster, 
-                values_from = log_count, values_fill = 0) %>%
-    ungroup() %>%
-    select(-PID)
-
-pheatmap(for_plot_MC, 
-         #color = colorRampPalette(c("dark blue", "white", "dark red"))(100), 
-         scale = "none", 
-         show_rownames = FALSE
-          )
-```
 
 ## Violin plot visualization
 
@@ -991,7 +957,175 @@ pairs.panels(cor_sce[,c("CK5","KRT14")],
              hist.col = "royalblue1",
              digits = 2)
 ```
-# 4. Survival analysis 
+## 4. Tumor heterogeneity analysis 
+
+### Heatmap for cell count per cluster/metacluster
+
+```{r PID/cluster cells viz}
+# 1. Cluster
+library(tidyverse)
+for_plot <- colData(sce) %>% as_tibble() %>%
+    group_by(PID, cluster_110) %>%
+    summarize(count = n()) %>%
+    mutate(log_count = log(count)) %>%
+    pivot_wider(id_cols = PID, names_from = cluster_110, 
+                values_from = log_count, values_fill = 0) %>%
+    ungroup() %>%
+    select(-PID)
+
+pheatmap(for_plot, #color = colorRampPalette(c("dark blue", "white", "dark red"))(100), 
+         scale = "none", show_rownames = TRUE)
+
+# 2. Metacluster
+library(tidyverse)
+for_plot_MC <- colData(sce) %>% as_tibble() %>%
+    group_by(PID, metacluster) %>%
+    summarize(count = n()) %>%
+    mutate(log_count = log(count)) %>%
+    pivot_wider(id_cols = PID, names_from = metacluster, 
+                values_from = log_count, values_fill = 0) %>%
+    ungroup() %>%
+    select(-PID)
+
+pheatmap(for_plot_MC, 
+         #color = colorRampPalette(c("dark blue", "white", "dark red"))(100), 
+         scale = "none", 
+         show_rownames = FALSE
+          )
+```
+
+### Heterogeneity scores
+
+```{r}
+## 1. For Metaclusters
+PID_metacluster <- colData(sce) %>% as.data.frame() %>% select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_metacluster <- PID_metacluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Number of metaclusters per PID 
+PID_metacluster_p <- PID_metacluster %>% filter(Freq != 0) %>% group_by(PID) %>% count(name = "n_MC") %>% mutate(category = "PID")
+
+ggplot(PID_metacluster_p, aes(x = category, y = n_MC))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  theme_classic(base_size = 12)+
+  coord_cartesian(ylim = c(0,11))+
+  theme(axis.title.x = element_blank())+
+  ylab("Number of metaclusters per PID")
+
+
+### Calculate shannon entropy per PID
+library(vegan)
+
+shannon_df <- PID_metacluster %>% pivot_wider(id_cols = "PID",names_from = "metacluster",values_from = "Freq") %>% column_to_rownames("PID")
+
+shannon_plot <- data.frame(shannon_div = diversity(shannon_df),
+                           number = 11,
+                           shannon_equi = (diversity(shannon_df)/log(11)),
+                           PID = rownames(shannon_df), 
+                           category = "PID")
+
+shannon_plot <- shannon_plot %>% arrange(desc(shannon_equi)) %>% mutate(heterogeneity = ntile(shannon_equi,3)) %>% mutate(heterogeneity_score = ifelse(heterogeneity == 3, "High",                                                                                                                                        ifelse(heterogeneity == 2, "Medium", "Low")))
+
+ggplot(shannon_plot, aes(x = category, y = shannon_equi))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  theme_classic(base_size = 12)+
+  theme(axis.title.x = element_blank())+
+  coord_cartesian(ylim = c(0,1))+
+  ylab("Shannon entropy of tumor metaclusters per PID")
+
+### Check whether heterogeneity of metaclusters influences survival 
+
+shannon_plot$status_DFS <- sce$status_DFS[match(rownames(shannon_plot),sce$PID)]
+shannon_plot$DFS_months <- sce$DFS_months[match(rownames(shannon_plot),sce$PID)]
+
+### Plot survival curves
+fit <- survfit(Surv(DFS_months, status_DFS) ~ heterogeneity_score, data = shannon_plot)
+print(fit)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = "Set1",
+          log.rank.weights = "n")+
+  ggtitle("Metacluster heterogeneity")
+
+
+
+## 2. For clusters
+PID_cluster <- colData(sce) %>% as.data.frame() %>% select(cluster_110,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_cluster <- PID_cluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Number of clusters per PID 
+PID_cluster_p <- PID_cluster %>% filter(Freq != 0) %>% group_by(PID) %>% count(name = "n_MC") %>% mutate(category = "PID")
+
+ggplot(PID_cluster_p, aes(x = category, y = n_MC))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  theme_classic(base_size = 12)+
+  coord_cartesian(ylim = c(0,60))+
+  theme(axis.title.x = element_blank())+
+  ylab("Number of clusters per PID")
+
+
+### Calculate shannon entropy per PID
+library(vegan)
+
+shannon_df <- PID_cluster %>% pivot_wider(id_cols = "PID",names_from = "cluster_110",values_from = "Freq") %>% column_to_rownames("PID")
+
+shannon_plot <- data.frame(shannon_div = diversity(shannon_df),
+                           number = 11,
+                           shannon_equi = (diversity(shannon_df)/log(11)),
+                           PID = rownames(shannon_df), 
+                           category = "PID")
+
+shannon_plot <- shannon_plot %>% arrange(desc(shannon_equi)) %>% mutate(heterogeneity = ntile(shannon_equi,3)) %>% mutate(heterogeneity_score = ifelse(heterogeneity == 3, "High",                                                                                                                                        ifelse(heterogeneity == 2, "Medium", "Low")))
+
+ggplot(shannon_plot, aes(x = category, y = shannon_equi))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  theme_classic(base_size = 12)+
+  theme(axis.title.x = element_blank())+
+  coord_cartesian(ylim = c(0,1))+
+  ylab("Shannon entropy of tumor clusters per PID")
+
+### Check whether heterogeneity of clusters influences survival 
+
+shannon_plot$status_DFS <- sce$status_DFS[match(rownames(shannon_plot),sce$PID)]
+shannon_plot$DFS_months <- sce$DFS_months[match(rownames(shannon_plot),sce$PID)]
+
+### Plot survival curves
+fit <- survfit(Surv(DFS_months, status_DFS) ~ heterogeneity_score, data = shannon_plot)
+print(fit)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = "Set1",
+          log.rank.weights = "n")+
+  ggtitle("Cluster heterogeneity")
+```
+
+
+# 5. Survival analysis 
 
 ## Cox-proportonal hazards model for metaclusters
 
@@ -1695,7 +1829,7 @@ ggplot(lasso_df, aes(x = reorder(predictor, coef), y = exp(coef))) +
   scale_color_manual(values = metadata(sce)$colors$cluster_110, limits = force, na.value = "black")
 ```
 
-# 5. Image visualization
+# 6. Image visualization
 
 ```{r load images, message = FALSE}
 #Load images and masks
@@ -1833,6 +1967,18 @@ plotPixels(cur_images,
  
   }
 ```
+
+
+
+
+
+
+
+
+
+
+
+
 
 ## Save sce objects
 
