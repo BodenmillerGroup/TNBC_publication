@@ -1806,7 +1806,7 @@ sce$metacluster_tumor_combined <- ifelse(str_detect(unfactor(sce$metacluster_com
 sce <- patchDetection(sce,
                patch_cells = sce$metacluster_tumor_combined == "tumor",
                colPairName = "knn_interaction_graph",
-               min_patch_size = 15,
+               min_patch_size = 10,
                name = "patch_tumor",
                expand_by = 0, 
                img_id = "sample_id", 
@@ -2184,16 +2184,16 @@ spicyTest <- spicy(cells_sc,
       condition = "spatial_CD8", 
       subject = "PID", 
       BPPARAM = BiocParallel::MulticoreParam(),
-      includeZeroCells = FALSE)
+      includeZeroCells = TRUE)
 
-saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumor.rds")
+saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumor_withzero.rds")
 
 topPairs(spicyTest)
 
 signifPlot(spicyTest,
            type = "heatmapbliblablub",
            breaks=c(-3, 3, 1),
-           fdr = FALSE,
+           fdr = TRUE,
            marksToPlot = c("tumor","CD8_T_cell"))
 
 
@@ -2226,16 +2226,16 @@ spicyTest <- spicy(cells_sc,
       condition = "spatial_CD8", 
       subject = "PID", 
       BPPARAM = BiocParallel::MulticoreParam(),
-      includeZeroCells = FALSE)
+      includeZeroCells = TRUE)
 
-saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumorphenotypes.rds")
+saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumorphenotypes_withzero.rds")
 
 topPairs(spicyTest)
 
 signifPlot(spicyTest,
            type = "heatmapbliblablub",
            breaks=c(-3, 3, 1),
-           fdr = FALSE,
+           fdr = TRUE,
            marksToPlot = unfactor(unique(cur_sce$metacluster_combined)))
 
 
@@ -2268,19 +2268,80 @@ spicyTest <- spicy(cells_sc,
       condition = "spatial_CD8", 
       subject = "PID", 
       BPPARAM = BiocParallel::MulticoreParam(),
-      includeZeroCells = FALSE)
+      includeZeroCells = TRUE)
 
-saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_allVSall.rds")
+saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_allVSall_withzero.rds")
 
 topPairs(spicyTest)
 
 signifPlot(spicyTest,
            type = "heatmapbliblablub",
            breaks=c(-3, 3, 1),
-           fdr = FALSE,
+           fdr = TRUE,
            marksToPlot = unfactor(unique(cur_sce$metacluster_combined)))
 ```
 
+```{r}
+## Patch detection
+sce <- patchDetection(sce,
+               patch_cells = sce$metacluster_tumor_combined == "B_cell",
+               colPairName = "knn_interaction_graph",
+               min_patch_size = 10,
+               name = "patch_B_cell",
+               expand_by = 0, 
+               img_id = "sample_id", 
+               BPPARAM = MulticoreParam(workers = 20))
+
+## More B cell patches in 
+## Average number of patches per PID 
+n_Bpatch_PID <- colData(sce) %>% as.data.frame %>% select(PID, spatial_CD8_pheno_merg, patch_B_cell) %>% 
+  filter(!is.na(patch_B_cell)) %>% 
+  unique() %>% 
+  group_by(spatial_CD8_pheno_merg, PID) %>% 
+  count()
+
+plot_df <- colData(sce) %>% as.data.frame %>% select(PID, spatial_CD8_pheno_merg) %>% 
+  unique() 
+
+plot_df$n_Bpatch <- n_Bpatch_PID$n[match(plot_df$PID, n_Bpatch_PID$PID)]
+
+plot_df$n_Bpatch[is.na(plot_df$n_Bpatch)] <- 0
+
+ggplot(plot_df, aes(x = spatial_CD8_pheno_merg, y = n_Bpatch))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  theme_classic(base_size = 12)+
+  coord_cartesian(ylim = c(0,15))+
+  theme(axis.title.x = element_blank())+
+  ylab("Number of B cell patches")
+  
+wilcox.test()
+ 
+?wilcox.test 
+
+
+
+## 
+colData(sce) %>% as.data.frame %>% select(PID, spatial_CD8_pheno_merg, patch_B_cell) %>% unique() %>% 
+  
+  
+  group_by(spatial_CD8_pheno_merg) %>% 
+  summarise(patch_inflamed = sum(metacluster_combined == "inflamed" & !is.na(patch_B_cell)),
+            patch_cold = sum(metacluster_combined == "cold/excluded" & !is.na(patch_B_cell)),
+            nopatch_inflamed = sum(metacluster_combined == "inflamed" & is.na(patch_B_cell)),
+            nopatch_cold = sum(metacluster_combined == "cold/excluded" & is.na(patch_B_cell)))
+
+      group_by(sample_id) %>%
+      summarise(inside = sum(metacluster_combined == j & !is.na(.data[[i]])),
+            outside = sum(metacluster_combined == j & is.na(.data[[i]])),
+            other_inside = sum(metacluster_combined != j & !is.na(.data[[i]])),
+            other_outside = sum(metacluster_combined != j & is.na(.data[[i]])))
+
+
+
+```
 
 
 
