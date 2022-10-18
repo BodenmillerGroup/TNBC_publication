@@ -4,7 +4,7 @@ author: "Lasse Meyer"
 date: "`r Sys.Date()`"
 output: html_document
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -69,10 +69,12 @@ sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
 
 # 1. Patient grouping 
 
-## Based on metacluster fractions (tumor+immune)
+## Based on metacluster fractions (tumor)
 
 ```{r pgroups, eval = F}
-PID_metacluster_combined <- colData(sce) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+#sce_tumor$metacluster_combined <- unfactor(sce_tumor$metacluster_combined)
+
+PID_metacluster_combined <- colData(sce_tumor) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 PID_metacluster_combined <- PID_metacluster_combined %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
 PID_metagroups <- PID_metacluster_combined %>% pivot_wider(id_cols = "PID",names_from = "metacluster_combined",values_from = "fra") %>% column_to_rownames("PID")
@@ -100,7 +102,7 @@ plot(testCL_1, legend = FALSE)
 
 library(dendextend)
 avg_dend_obj_MCP <- as.dendrogram(agnes(PID_metagroups,metric = "euclidean",method = "ward"))
-avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 10)
+avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 11)
 plot(avg_col_dend_MCP)
 
 # Print heatmap
@@ -121,7 +123,7 @@ h_g <- draw(h_g)
 draw(h_g)
 
 #Retrieve PID groups (for agnes)
-row_groups <- foreach(i = 1:10, .combine = rbind) %do%{
+row_groups <- foreach(i = 1:11, .combine = rbind) %do%{
 data.frame(PID = rownames(PID_metagroups[row_order(h_g)[[i]],]), PID_group = i)
 }
 
@@ -329,10 +331,13 @@ ggsurvplot(fit,
 ## Based on cellular neigborhood fractions
 
 ```{r pgroups, eval = F}
-PID_cellular_neighborhood <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+#sce_tumor$spatial_metacommunity
+PID_cellular_neighborhood <- colData(tumor_sce) %>% as.data.frame() %>% select(spatial_metacommunity,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 PID_cellular_neighborhood <- PID_cellular_neighborhood %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
-PID_metagroups <- PID_cellular_neighborhood %>% pivot_wider(id_cols = "PID",names_from = "cellular_neighborhood",values_from = "fra") %>% column_to_rownames("PID")
+PID_metagroups <- PID_cellular_neighborhood %>% pivot_wider(id_cols = "PID",names_from = "spatial_metacommunity",values_from = "fra") %>% column_to_rownames("PID")
+
+PID_metagroups <- PID_metagroups[complete.cases(PID_metagroups),]
 
 #double-check that rowsums are 1 
 rowSums(PID_metagroups)
@@ -358,15 +363,15 @@ plot(testCL_1, legend = FALSE)
 
 library(dendextend)
 avg_dend_obj_MCP <- as.dendrogram(agnes(PID_metagroups,metric = "euclidean",method = "ward"))
-avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 12)
+avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 11)
 plot(avg_col_dend_MCP)
 
 # Print heatmap
 h_g <- Heatmap(PID_metagroups, name = "Cluster fraction", 
         col = viridis(100),
         cluster_rows = avg_col_dend_MCP,
-        row_split = 12,
-        #row_km = 9, 
+        row_split = 11,
+        #row_km = 11, 
         #row_km_repeats = 1000,
         clustering_method_columns = "ward.D2",
         clustering_method_rows = "ward.D2",
@@ -382,12 +387,12 @@ h_g <- draw(h_g)
 draw(h_g)
 
 #Retrieve PID groups
-row_groups <- foreach(i = 1:12, .combine = rbind) %do%{
+row_groups <- foreach(i = 1:11, .combine = rbind) %do%{
 data.frame(PID = rownames(PID_metagroups[row_order(h_g)[[i]],]), PID_group = i)
 }
 
 #Add to sce
-sce$PID_CN_groups <- row_groups$PID_group[match(sce$PID,row_groups$PID)]
+sce$PID_SC_groups <- row_groups$PID_group[match(sce$PID,row_groups$PID)]
 ```
 
 ```{r}
@@ -395,11 +400,12 @@ sce$PID_CN_groups <- row_groups$PID_group[match(sce$PID,row_groups$PID)]
 library(survival)
 library(survminer)
 
-cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, PID_CN_groups, OS_months, DFS_months, status_DFS, status_OS) %>% filter(!PID_CN_groups %in% c("8")) %>%
+cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, PID_SC_groups, OS_months, DFS_months, status_DFS, status_OS) %>% #filter(!PID_SC_groups %in% c("4","10")) %>%
   unique()
 
+
 #Plot survival curves
-fit <- survfit(Surv(OS_months, status_OS) ~ PID_CN_groups, data = cur_surv)
+fit <- survfit(Surv(OS_months, status_OS) ~ PID_SC_groups, data = cur_surv)
 print(fit)
 
 ggsurvplot(fit,
@@ -412,7 +418,7 @@ ggsurvplot(fit,
           #palette = "Set1",
           log.rank.weights = "S2")
 
-fit <- survfit(Surv(DFS_months, status_DFS) ~ PID_CN_groups, data = cur_surv)
+fit <- survfit(Surv(DFS_months, status_DFS) ~ PID_SC_groups, data = cur_surv)
 print(fit)
 
 ggsurvplot(fit,
@@ -427,11 +433,11 @@ ggsurvplot(fit,
 ```
 ```{r}
 ### Multivariate cox proportional hazard model on multiple covariates (here PID groups)
-PID_metagroups <- colData(sce) %>% as.data.frame() %>% select(PID_CN_groups,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metagroups <- colData(sce) %>% as.data.frame() %>% select(PID_SC_groups,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 
 PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
-PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "PID_CN_groups",values_from = "fra") %>% column_to_rownames("PID")
+PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "PID_SC_groups",values_from = "fra") %>% column_to_rownames("PID")
 colnames(PID_metagroups) <- paste0("SCP",colnames(PID_metagroups))
 
 ## 1. Based on SCP assignments
@@ -448,9 +454,9 @@ Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
 Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
 
 #Based on proportions
-covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -SCP8) %>% colnames
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -SCP1) %>% colnames
 
-multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "), "+ SCP8"))
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "), "+ SCP1"))
 
 #multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~" paste(covariates, collapse = " + "), "+ SCP8"))
 
@@ -685,11 +691,14 @@ clrDR(sce_cat, dr = "PCA",
 ```{r heatmap sce_1, message=FALSE, warning=FALSE}
 ### 1. Heatmap body ###
 
-PID_metacluster_combined <- colData(sce) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
-PID_metacluster_combined <- PID_metacluster_combined %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
-PID_metacluster_combined$PID_metagroups <- sce$PID_metagroups[match(PID_metacluster_combined$PID, sce$PID)]
+PID_spatial_metacommunity <- colData(sce) %>% as.data.frame() %>% select(spatial_metacommunity,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_spatial_metacommunity <- PID_spatial_metacommunity %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_spatial_metacommunity$PID_SC_groups <- sce$PID_SC_groups[match(PID_spatial_metacommunity$PID, sce$PID)]
 
-hb <- PID_metacluster_combined %>% ungroup %>% select(metacluster_combined,PID_metagroups,fra) %>% group_by(PID_metagroups, metacluster_combined) %>% summarize(mean = mean(fra)) %>% pivot_wider(names_from = metacluster_combined, values_from = mean) %>% column_to_rownames("PID_metagroups")
+PID_spatial_metacommunity <- PID_spatial_metacommunity[!is.na(PID_spatial_metacommunity$PID_SC_groups),]
+  
+  
+hb <- PID_spatial_metacommunity %>% ungroup %>% select(spatial_metacommunity,PID_SC_groups,fra) %>% group_by(PID_SC_groups, spatial_metacommunity) %>% summarize(mean = mean(fra)) %>% pivot_wider(names_from = spatial_metacommunity, values_from = mean) %>% column_to_rownames("PID_SC_groups")
 
 hb_scaled <- scale(as.matrix(hb))
 
@@ -703,39 +712,39 @@ col_scaled <- colorRamp2(c(-1, 0, 2, 3), c("#A278FAFF", "#F1E9E7FF", "#FF8061FF"
 ###2.1 Row - Metadata features
 
 # Annotation dataframe 
-anno <- colData(sce) %>% as.data.frame %>% select(PID_metagroups) %>% unique()
+anno <- colData(sce) %>% as.data.frame %>% select(PID_SC_groups) %>% unique() %>% filter(!is.na(PID_SC_groups))
 
-rownames(anno) <- anno$PID_metagroups
+rownames(anno) <- anno$PID_SC_groups
 
-anno$PID_metagroups <- factor(sort(anno$PID_metagroups))
+anno$PID_SC_groups <- factor(sort(anno$PID_SC_groups))
   
 # Proportion of grade per cluster
-grade <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,grade) %>% group_by(PID_metagroups) %>% table() %>% as.data.frame
-grade <- grade %>% group_by(PID_metagroups) %>% mutate(fra = Freq/sum(Freq)) 
-grade <- grade %>% select(-Freq) %>% pivot_wider(id_cols = PID_metagroups,names_from = grade,values_from = fra) %>% column_to_rownames("PID_metagroups")
+grade <- colData(sce) %>% as.data.frame() %>% select(PID_SC_groups,grade) %>% group_by(PID_SC_groups) %>% table() %>% as.data.frame
+grade <- grade %>% group_by(PID_SC_groups) %>% mutate(fra = Freq/sum(Freq)) 
+grade <- grade %>% select(-Freq) %>% pivot_wider(id_cols = PID_SC_groups,names_from = grade,values_from = fra) %>% column_to_rownames("PID_SC_groups")
 
 # Proportion of pT stage per cluster
-pT <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,pT_simple) %>% group_by(PID_metagroups) %>% table() %>% as.data.frame
-pT <- pT %>% group_by(PID_metagroups) %>% mutate(fra = Freq/sum(Freq)) 
-pT <- pT %>% select(-Freq) %>% pivot_wider(id_cols = PID_metagroups,names_from = pT_simple,values_from = fra) %>% column_to_rownames("PID_metagroups")
+pT <- colData(sce) %>% as.data.frame() %>% select(PID_SC_groups,pT_simple) %>% group_by(PID_SC_groups) %>% table() %>% as.data.frame
+pT <- pT %>% group_by(PID_SC_groups) %>% mutate(fra = Freq/sum(Freq)) 
+pT <- pT %>% select(-Freq) %>% pivot_wider(id_cols = PID_SC_groups,names_from = pT_simple,values_from = fra) %>% column_to_rownames("PID_SC_groups")
 
 # Proportion of pN stage per cluster
-pN <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,pN_simple) %>% group_by(PID_metagroups) %>% table() %>% as.data.frame
-pN <- pN %>% group_by(PID_metagroups) %>% mutate(fra = Freq/sum(Freq)) 
-pN <- pN %>% select(-Freq) %>% pivot_wider(id_cols = PID_metagroups,names_from = pN_simple,values_from = fra) %>% column_to_rownames("PID_metagroups")
+pN <- colData(sce) %>% as.data.frame() %>% select(PID_SC_groups,pN_simple) %>% group_by(PID_SC_groups) %>% table() %>% as.data.frame
+pN <- pN %>% group_by(PID_SC_groups) %>% mutate(fra = Freq/sum(Freq)) 
+pN <- pN %>% select(-Freq) %>% pivot_wider(id_cols = PID_SC_groups,names_from = pN_simple,values_from = fra) %>% column_to_rownames("PID_SC_groups")
 
 # Number of contributing patients
-cluster_PID <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,PID) %>% group_by(PID_metagroups) %>% table() %>% as.data.frame
-n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(PID_metagroups) %>% count(name = "n_PID") %>% column_to_rownames("PID_metagroups")
+cluster_PID <- colData(sce) %>% as.data.frame() %>% select(PID_SC_groups,PID) %>% group_by(PID_SC_groups) %>% table() %>% as.data.frame
+n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(PID_SC_groups) %>% count(name = "n_PID") %>% column_to_rownames("PID_SC_groups")
 
 
 # Define color scheme for PID groups 
-PID_metagroups_col <- setNames(colorRampPalette(brewer.pal(8, "Set1"))(length(anno$PID_metagroups)), anno$PID_metagroups)                   
+PID_SC_groups_col <- setNames(colorRampPalette(brewer.pal(8, "Set1"))(length(anno$PID_SC_groups)), anno$PID_SC_groups)                   
 
-metadata(sce)$colors$PID_metagroups <- PID_metagroups_col
+metadata(sce)$colors$PID_SC_groups <- PID_SC_groups_col
 
 # Metadata annotation
-ha_meta <- HeatmapAnnotation(PID_metagroups = anno_simple(unfactor(anno$PID_metagroups), pch = unfactor(anno$PID_metagroups),border=TRUE,col=metadata(sce)$colors$PID_metagroups),
+ha_meta <- HeatmapAnnotation(PID_SC_groups = anno_simple(unfactor(anno$PID_SC_groups), pch = unfactor(anno$PID_SC_groups),border=TRUE,col=metadata(sce)$colors$PID_SC_groups),
                             n_PID = anno_barplot(n_PID, width = unit(10, "mm"),gp = gpar(fill = "#440154FF")),
                             grade = anno_barplot(grade, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$grade)),
                             pT = anno_barplot(pT, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$pT_simple)),
@@ -747,32 +756,32 @@ ha_meta <- HeatmapAnnotation(PID_metagroups = anno_simple(unfactor(anno$PID_meta
 
 ###2.2 Row - Score features
 
-#Proportion of mixing_pheno
-mixing_pheno
-
-#Proportion of spatial CD8 pheno
-spatial_CD8_pheno
-  
-#Shannon diversity index
-shannon_mean
-shannon_mean[rownames(mixing_pheno)]
-
-shannon_mean <- shannon_mean %>% arrange(as.numeric(PID_group))
-
-## Create color scheme for shannon
-shannon_col <- colorRamp2(c(min(shannon_mean$mean),median(shannon_mean$mean),max(shannon_mean$mean)), c(brewer.pal(3,"YlOrRd")[1],brewer.pal(3,"YlOrRd")[2],brewer.pal(3,"YlOrRd")[3]))
-metadata(sce)$colors$shannon_col <- shannon_col
-
-# Score annotation
-ha_score <- HeatmapAnnotation(mixing_pheno = anno_barplot(mixing_pheno, width = unit(15, "mm"),gp = gpar(fill = metadata(sce)$colors$mixing_pheno)),
-                              spatial_CD8_pheno = anno_barplot(spatial_CD8_pheno, width = unit(15, "mm"),gp = gpar(fill = metadata(sce)$colors$spatial_CD8_pheno)),
-                              shannon_mean = anno_simple(shannon_mean$mean, border = TRUE, col=metadata(sce)$colors$shannon_col),
-                            border = TRUE, 
-                            annotation_name_rot = 90,
-                            gap = unit(1,"mm"),
-                            which = "row")
-
-ha_score + NULL                            
+# #Proportion of mixing_pheno
+# mixing_pheno
+# 
+# #Proportion of spatial CD8 pheno
+# spatial_CD8_pheno
+#   
+# #Shannon diversity index
+# shannon_mean
+# shannon_mean[rownames(mixing_pheno)]
+# 
+# shannon_mean <- shannon_mean %>% arrange(as.numeric(PID_group))
+# 
+# ## Create color scheme for shannon
+# shannon_col <- colorRamp2(c(min(shannon_mean$mean),median(shannon_mean$mean),max(shannon_mean$mean)), c(brewer.pal(3,"YlOrRd")[1],brewer.pal(3,"YlOrRd")[2],brewer.pal(3,"YlOrRd")[3]))
+# metadata(sce)$colors$shannon_col <- shannon_col
+# 
+# # Score annotation
+# ha_score <- HeatmapAnnotation(mixing_pheno = anno_barplot(mixing_pheno, width = unit(15, "mm"),gp = gpar(fill = metadata(sce)$colors$mixing_pheno)),
+#                               spatial_CD8_pheno = anno_barplot(spatial_CD8_pheno, width = unit(15, "mm"),gp = gpar(fill = metadata(sce)$colors$spatial_CD8_pheno)),
+#                               shannon_mean = anno_simple(shannon_mean$mean, border = TRUE, col=metadata(sce)$colors$shannon_col),
+#                             border = TRUE, 
+#                             annotation_name_rot = 90,
+#                             gap = unit(1,"mm"),
+#                             which = "row")
+# 
+# ha_score + NULL                            
 
 ### 3. Plot heatmap ###
 h <- Heatmap(hb,
@@ -782,28 +791,30 @@ h <- Heatmap(hb,
         show_column_names =  TRUE, 
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2",
-        row_split = anno$PID_metagroups,
+        row_split = anno$PID_SC_groups,
         cluster_row_slices = FALSE)+
   Heatmap(hb_scaled,
         name = "scaled_MC_fraction",
         col = col_scaled,
         show_row_names = FALSE,
         show_column_names =  TRUE)+
-  ha_meta+
-  ha_score
+  ha_meta
+  #ha_score
+
+draw(h)
 
 #Create legends for annotation 
 
-lgd <- Legend(title = "mixing_pheno", at = colnames(mixing_pheno), 
-              legend_gp = gpar(fill = metadata(sce)$colors$mixing_pheno))
+#lgd <- Legend(title = "mixing_pheno", at = colnames(mixing_pheno), 
+#              legend_gp = gpar(fill = metadata(sce)$colors$mixing_pheno))
 
-lgd_1 <- Legend(title = "spatial_CD8_pheno", at = colnames(spatial_CD8_pheno), 
-              legend_gp = gpar(fill = metadata(sce)$colors$spatial_CD8_pheno))
+#lgd_1 <- Legend(title = "spatial_CD8_pheno", at = colnames(spatial_CD8_pheno), 
+#              legend_gp = gpar(fill = metadata(sce)$colors$spatial_CD8_pheno))
 
-lgd_2 <- Legend(col_fun = shannon_col, title = "shannon equitability")
+#lgd_2 <- Legend(col_fun = shannon_col, title = "shannon equitability")
 
 # Draw heatmap 
-draw(h,annotation_legend_list = list(lgd,lgd_1,lgd_2))
+#draw(h,annotation_legend_list = list(lgd,lgd_1,lgd_2))
 ```
 
 # 3. Image visualization

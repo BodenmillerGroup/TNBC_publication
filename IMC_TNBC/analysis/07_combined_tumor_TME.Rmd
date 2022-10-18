@@ -4,7 +4,7 @@ author: "Lasse Meyer"
 date: "`r Sys.Date()`"
 output: html_document
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -1223,6 +1223,19 @@ comm <- c(comm_tumor, comm_stroma)
 sce$spatial_community <- comm[colnames(sce)]
 ```
 
+```{r}
+set.seed(22)
+sce <- detectCommunity(sce, 
+                colPairName = "neighborhood", 
+                size_threshold = 10, 
+                group_by = "analysis_cat", 
+                name = "spatial_community", 
+                BPPARAM = MulticoreParam(workers = 20, RNGseed = 123)
+                )
+
+length(unique(sce$spatial_community))
+```
+
 ## Detect recurrent Spatial Communities
 
 1. For Tumor communities 
@@ -1230,6 +1243,8 @@ sce$spatial_community <- comm[colnames(sce)]
 ```{r filter tumor communities}
 library(pheatmap)
 library(viridis)
+
+tumor_sce <- sce[,sce$analysis_cat == "tumor"]
 
 tumor_sce$metacluster_combined <- unfactor(tumor_sce$metacluster_combined)
 
@@ -1273,7 +1288,7 @@ ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
   ylab("Total WCSS")+
   scale_color_continuous(type = "viridis")
 
-# Select 8 clusters
+# Select 10 clusters
 set.seed(22)
 tumor_cur_clusters <- kmeans(cur_dat, centers = 10, nstart = 100)$cluster
 
@@ -1289,6 +1304,7 @@ pheatmap(for_plot, show_rownames = TRUE, scale = "column")
 2. For Stroma communities 
 
 ```{r filter stroma communities}
+stroma_sce <- sce[,sce$analysis_cat == "non_tumor"]
 
 stroma_sce$metacluster_combined <- unfactor(stroma_sce$metacluster_combined)
 
@@ -1332,7 +1348,7 @@ ggplot(data.frame(k = 2:20,wss = unlist(lapply(clust_list, `[[`, 1))))+
   ylab("Total WCSS")+
   scale_color_continuous(type = "viridis")
 
-# Select 7 clusters
+# Select 6 clusters
 set.seed(22)
 stroma_cur_clusters <- kmeans(cur_dat, centers = 6, nstart = 100)$cluster
 
@@ -2382,7 +2398,7 @@ plot <- plot_df %>%
   ungroup()
 
 ggplot(plot) + 
-  geom_col(aes(y=spatial_CD8_pheno, x=fraction, fill=B_cell_score)) +
+  geom_col(aes(y=spatial_CD8_pheno, x=fraction, fill=B_cell_score), color = "black") +
   theme_classic() + 
   xlab("Fraction of PID") +
   ylab("")
@@ -2391,13 +2407,97 @@ ggplot(plot) +
 ## 4. Add to sce
 sce$B_cell_score <- plot_df$B_cell_score[match(sce$PID, plot_df$PID)]
 ```
-Patch distance analysis 
+### B patch distance analysis 
 
 ```{r}
-sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_B_cell), BPPARAM = MulticoreParam(workers = 10, stop.on.error = FALSE))
+sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_B_cell), BPPARAM = MulticoreParam(workers = 10, stop.on.error = FALSE), name = "distToPatchB") 
+
+## Visualize
+
+library(wesanderson)
+pal <- wes_palette("Zissou1", 100, type = "continuous")
+
+#subset sce to 5 images with large B cell patches
+cur_sam <- colData(sce) %>% as.data.frame %>% select(sample_id, patch_B_cell) %>% filter(!is.na(patch_B_cell)) %>% group_by(sample_id) %>% count() %>% arrange(desc(n)) %>% filter(n > 1300) %>% pull(sample_id)
+
+plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "patch_B_cell") #Patch
+plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "distToPatchB")+
+  scale_color_gradientn(colors = pal) # DistToPatch
+plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "metacluster_combined")+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined) # Metacluster
 ```
 
-### Tumor compartment analysis 
+
+```{r}
+library(ggpubr)
+dist_df <- colData(sce) %>% as.data.frame %>% filter(!is.na(distToPatchB) & metacluster_tumor_combined != "B_cell") %>% select(sample_id, metacluster_tumor_combined, distToPatchB) %>% group_by(sample_id, metacluster_tumor_combined) %>% summarize(mean = mean(distToPatchB))
+
+dist_df$B_cell_score <- sce$B_cell_score[match(dist_df$sample_id, sce$sample_id)]
+
+# 1. Difference of cell phenotype distances to B cell patches
+# Density plot 
+ggplot(dist_df, aes(mean, color = metacluster_tumor_combined))+
+  geom_density(size = 0.8)+
+  geom_rug()+
+  #facet_wrap(~B_cell_score)+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
+  xlab("Mean distance to B cell patch (per image)")+
+  theme_classic()
+# Boxplot 
+ggplot(dist_df, aes(x = reorder(metacluster_tumor_combined, mean), y = mean))+
+  geom_boxplot()+
+  geom_jitter(aes(color = metacluster_tumor_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90), axis.title.x = element_blank())+
+  ylab("Mean distance to B cell patch (per image)")+
+  guides(fill = "none")+
+  stat_compare_means(method = "kruskal.test")
+
+# 2. Difference of cell phenotype distances to B cell patches BETWEEN B cell scores
+ggplot(dist_df, aes(mean, color = metacluster_tumor_combined))+
+  geom_density(size = 0.8)+
+  geom_rug()+
+  facet_wrap(~B_cell_score)+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
+  xlab("Mean distance to B cell patch (per image)")+
+  theme_classic()
+
+ggplot(dist_df, aes(mean, color = B_cell_score))+
+  geom_density(size = 0.8)+
+  geom_rug()+
+  facet_wrap(~metacluster_tumor_combined)+
+  #scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
+  xlab("Mean distance to B cell patch (per image)")+
+  theme_classic()
+
+ggplot(dist_df, aes(x = B_cell_score, y = mean))+
+  geom_boxplot()+
+  geom_jitter(aes(color = B_cell_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  facet_wrap(~metacluster_tumor_combined)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90), axis.title.x = element_blank())+
+  ylab("Mean distance to B cell patch (per image)")+
+  guides(fill = "none")
+
+# 3. Difference of tumor phenotype distances to B cell patches
+
+dist_tumor_df <- colData(sce) %>% as.data.frame %>% filter(!is.na(distToPatchB) & metacluster_tumor_combined != "B_cell" & metacluster_tumor_combined == "tumor") %>% select(sample_id, metacluster_combined, distToPatchB) %>% group_by(sample_id, metacluster_combined) %>% summarize(mean = mean(distToPatchB))
+
+dist_tumor_df$B_cell_score <- sce$B_cell_score[match(dist_tumor_df$sample_id, sce$sample_id)]
+
+ggplot(dist_df, aes(x = reorder(metacluster_combined, mean), y = mean))+
+  geom_boxplot()+
+  geom_jitter(aes(color = metacluster_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90), axis.title.x = element_blank())+
+  ylab("Mean distance to B cell patch (per image)")+
+  guides(fill = "none")+
+  stat_compare_means(method = "kruskal.test")
+```
+
+### Tumor expression analysis 
 
 ```{r}
 ## Analyse tumor compartment expression 
@@ -2454,6 +2554,194 @@ plotExpression(spatialpheno_mean_PID,
     theme(axis.text.x =  element_text(angle = 90))+
     scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno)
 ```
+
+### Tumor patch analysis 
+
+```{r}
+## Tumor patch detection
+sce <- patchDetection(sce,
+               patch_cells = sce$metacluster_tumor_combined == "tumor",
+               colPairName = "knn_interaction_graph",
+               min_patch_size = 10,
+               name = "patch_tumor",
+               expand_by = 0, 
+               img_id = "sample_id", 
+               BPPARAM = MulticoreParam(workers = 10))
+
+
+sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_tumor), BPPARAM = MulticoreParam(workers = 10, stop.on.error = FALSE))
+sce$distToTumor <- sce$distToCells
+#sce$distToCells <- NULL
+```
+
+```{r}
+dist_CD8_df <- colData(sce) %>% as.data.frame %>% filter(!is.na(distToTumor) & metacluster_combined == "CD8_T_cell") %>% select(sample_id, metacluster_combined, distToTumor) %>% group_by(sample_id, metacluster_combined) %>% summarize(mean = mean(distToTumor)) 
+
+dist_CD8_df$spatial_CD8_pheno <- sce$spatial_CD8_pheno[match(dist_df$sample_id, sce$sample_id)]
+
+dist_CD8_df <- dist_CD8_df %>% group_by(spatial_CD8_pheno) %>% mutate(mean_dist = mean(mean), median_dist = median(mean))
+
+
+# 1. Difference of CD8 T cell distances to tumor cell patches
+# Density plot 
+ggplot(dist_CD8_df, aes(mean, color = spatial_CD8_pheno))+
+  geom_density(size = 0.8)+
+  geom_rug()+
+  facet_wrap(~spatial_CD8_pheno)+
+  scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno, limits = force)+
+  xlab("Mean distance to tumor patch (per image)")+
+  theme_classic()
+  #geom_vline(aes(xintercept = median_dist),color = "black", linetype = "dashed") #red
+
+
+# Boxplot 
+ggplot(dist_CD8_df, aes(x = reorder(spatial_CD8_pheno, mean), y = mean))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = spatial_CD8_pheno), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno, limits = force)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90), axis.title.x = element_blank())+
+  ylab("Mean distance to tumor patch (per image)")+
+  guides(fill = "none")+
+  ggtitle("CD8_T_cells")+
+  stat_compare_means(method = "kruskal.test")
+
+
+# 2. Difference of TME cell distances to tumor cell patches
+dist_df <- colData(sce) %>% as.data.frame %>% filter(!is.na(distToTumor) & metacluster_tumor_combined != "tumor") %>% select(sample_id, metacluster_combined, distToTumor) %>% group_by(sample_id, metacluster_combined) %>% summarize(mean = mean(distToTumor)) 
+
+dist_df$spatial_CD8_pheno <- sce$spatial_CD8_pheno[match(dist_df$sample_id, sce$sample_id)]
+
+dist_df <- dist_df %>% group_by(spatial_CD8_pheno, metacluster_combined) %>% mutate(mean_dist = mean(mean), median_dist = median(mean))
+
+
+ggplot(dist_df, aes(mean, color = spatial_CD8_pheno))+
+  geom_density(size = 0.8)+
+  geom_rug()+
+  facet_wrap(~metacluster_combined)+
+  scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno, limits = force)+
+  xlab("Mean distance to tumor patch (per image)")+
+  theme_classic()
+  #geom_vline(aes(xintercept = median_dist),color = "black", linetype = "dashed") #red
+
+ggplot(dist_df, aes(x = reorder(spatial_CD8_pheno, mean), y = mean))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = spatial_CD8_pheno), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  facet_wrap(~metacluster_combined)+
+  stat_compare_means(method = "kruskal.test")+
+  scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno, limits = force)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90), axis.title.x = element_blank())+
+  ylab("Mean distance to tumor patch (per image)")+
+  guides(fill = "none")+
+  ggtitle("CD8_T_cells")+
+  stat_compare_means(method = "kruskal.test")
+```
+### HLADR Tumor analysis 
+
+```{r}
+## Tumor 7 Milieu detection 
+sce <- patchDetection(sce,
+               patch_cells = sce$metacluster_combined == "tumor_7",
+               colPairName = "knn_interaction_graph",
+               min_patch_size = 10,
+               name = "milieu_MC7",
+               expand_by = 30, 
+               img_id = "sample_id", 
+               BPPARAM = MulticoreParam(workers = 10))
+
+gc()
+
+## Tumor 7 Patch detection 
+sce <- patchDetection(sce,
+               patch_cells = sce$metacluster_combined == "tumor_7",
+               colPairName = "knn_interaction_graph",
+               min_patch_size = 10,
+               name = "patch_MC7",
+               expand_by = 0, 
+               img_id = "sample_id", 
+               BPPARAM = MulticoreParam(workers = 10))
+
+gc()
+```
+
+```{r}
+#Number of milieus per image
+milieu_image <- colData(sce) %>% as.data.frame %>% select(sample_id, milieu_MC7) %>% filter(!is.na(milieu_MC7)) %>% group_by(sample_id) %>% unique() %>% count()
+milieu_PID <- colData(sce) %>% as.data.frame %>% select(PID, milieu_MC7) %>% filter(!is.na(milieu_MC7)) %>% group_by(PID) %>% unique() %>% count()
+
+## Milieu enrichment analysis
+## Code adopted from Science Immunology paper
+
+cur_res_list <- list()
+cur_df <- colData(sce)
+
+# Set thresholds
+#perc_cells <- 0
+
+for (i in c("milieu_MC7")){
+  
+  cur_images <- cur_df %>% 
+    as.data.frame %>% 
+    select(sample_id, as.name(i)) %>% 
+    filter(complete.cases(.)) %>% #remove images with no milieu - also possible to use a threshold
+    group_by(sample_id) %>% 
+    unique() %>% 
+    count()
+  
+  for (j in unique(cur_df$metacluster_combined)) {
+  z <- str_split(i,"u_", simplify = TRUE)[,2]
+    cur_res <- cur_df %>% 
+      as.data.frame() %>%
+      select(sample_id, metacluster_combined, as.name(i)) %>% 
+      filter(sample_id %in% cur_images$sample_id) %>%
+      filter(metacluster_combined != z) %>%
+      group_by(sample_id) %>%
+      summarise(inside = sum(metacluster_combined == j & !is.na(.data[[i]])),
+            outside = sum(metacluster_combined == j & is.na(.data[[i]])),
+            other_inside = sum(metacluster_combined != j & !is.na(.data[[i]])),
+            other_outside = sum(metacluster_combined != j & is.na(.data[[i]])))
+    
+    out_dat <- foreach(x = seq_along(rownames(cur_res)), .combine = "rbind")%do%{
+    cur_mat <- matrix(as.numeric(as.vector(cur_res[x,2:5])),ncol = 2, nrow = 2, byrow = FALSE)
+    rownames(cur_mat) <- c("cluster", "other_cluster")
+    colnames(cur_mat) <- c("inside", "outside")
+    cur_test <- fisher.test(cur_mat)
+   
+    out_dat <- data.frame(
+      sample = as.character(as.vector(cur_res[x,1])),
+      milieu = i,
+      metacluster_combined = j,
+      p = cur_test$p.value,
+      odds = cur_test$estimate,
+      row.names = NULL)
+    }
+      
+cur_res_list[[paste0(i, "_", j)]] <- out_dat
+
+  }   
+}
+
+# Final output - Can be interpreted as "Fraction of images with significant enrichment or depletion of cell types within milieus"
+out <- do.call("rbind", cur_res_list)
+out$adj.p <- p.adjust(out$p, method = "BH")
+
+final <- out %>% mutate(sigval = ifelse(odds > 1 & adj.p < 0.1, 1, ifelse(odds < 1 & adj.p < 0.1, -1, 0))) %>%
+    group_by(milieu, metacluster_combined) %>%
+    dplyr::summarize(mean = mean(sigval))
+
+# Number of tested images
+out %>% 
+  group_by(milieu, metacluster_combined) %>% 
+  dplyr::summarize(count = n()) %>% 
+  as.data.frame()
+
+final_heatmap <- final %>% pivot_wider(id_cols = milieu, names_from = metacluster_combined, values_from = mean) %>% column_to_rownames("milieu")
+
+Heatmap(final_heatmap, 
+        name = "Enrichment score")
+```
+
 
 ## Immune mixing score - Keren et al., 2020
 
@@ -2549,7 +2837,6 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 
-
 ## 3.7 Node positivity analysis
 
 ```{r}
@@ -2600,7 +2887,42 @@ ggsurvplot(fit,
 library(lisaClust)
 library(spicyR)
 
-### First comparison: Differential interaction of tumor vs microenvironment between "node negative" vs. "node positive"
+### First comparison: Differential interaction of tumor phenotypes between "node negative" vs. "node positive"
+
+# Generate segmentedCells object 
+cur_sce <- sce[,sce$metacluster_tumor_combined == "tumor"]
+
+cells <- data.frame(row.names = colnames(cur_sce))
+cells$x <- cur_sce$Pos_X
+cells$y <- cur_sce$Pos_Y
+cells$imageID <- cur_sce$sample_id
+cells$imageCellID <- cur_sce$ObjectNumber
+cells$cellType <- cur_sce$metacluster_combined
+
+cells_sc <- SegmentedCells(cells, cellProfiler = TRUE)
+
+# Add condition and patient id
+node_factor <- relevel(x=factor(cur_sce$pN_merg), ref = "0")
+
+imagePheno(cells_sc) <- DataFrame(imageID = cur_sce$sample_id, 
+          PID = cur_sce$PID,
+          node = node_factor
+          )
+
+cells_sc
+
+# Run differential interaction analysis 
+spicyTest <- spicy(cells_sc, 
+      condition = "node", 
+      subject = "PID", 
+      BPPARAM = BiocParallel::MulticoreParam(workers = 10),
+      includeZeroCells = TRUE)
+
+saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_tumor_withzero.rds")
+
+topPairs(spicyTest)
+
+### Second comparison: Differential interaction of tumor vs microenvironment between "node negative" vs. "node positive"
 
 # Generate segmentedCells object 
 cur_sce <- sce
@@ -2635,11 +2957,13 @@ saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvol
 
 topPairs(spicyTest)
 
-signifPlot(spicyTest,
+spicy1 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_tumorvsTME_withzero.rds")
+topPairs(spicy1)
+signifPlot(spicy1,
            type = "heatmapbliblablub",
            breaks=c(-3, 3, 1),
            fdr = TRUE,
-           marksToPlot = unfactor(unique(cur_sce$metacluster_tumor_combined)))
+           marksToPlot =unique(cur_sce$metacluster_tumor_combined))
 
 
 ### Second comparison: Differential interaction of all phenotypes between "node negative" vs. "node positive"
@@ -2675,14 +2999,15 @@ spicyTest <- spicy(cells_sc,
 
 saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_AllVSAll_withzero.rds")
 
-topPairs(spicyTest)
+spicy2 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_AllVSAll_withzero.rds")
 
-signifPlot(spicyTest,
+topPairs(spicy2)
+
+signifPlot(spicy2,
            type = "heatmapbliblablub",
-           breaks=c(-3, 3, 1),
+           breaks=c(-3, 3, 0.5),
            fdr = TRUE,
-           marksToPlot = unfactor(unique(cur_sce$metacluster_combined)))
-
+           marksToPlot = unique(sce$metacluster_combined))
 ```
 
 
@@ -2711,11 +3036,146 @@ sce <- patchDetection(sce,
 gc()
 
 ## Distance to patchAnalysis 
-sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_B_cell), BPPARAM = MulticoreParam(workers = 10, stop.on.error = FALSE)) ## Add to B cell patch analysis part 
-
-gc()
 sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_MC8), BPPARAM = MulticoreParam(workers = 10, stop.on.error = FALSE))
 ```
+
+### Patch distance analysis 
+
+```{r}
+dist_df <- colData(sce) %>% as.data.frame %>% filter(!is.na(distToPatchMC8) & metacluster_combined != "tumor_8") %>% select(sample_id, metacluster_combined, distToPatchMC8) %>% group_by(sample_id, metacluster_combined) %>% summarize(mean = mean(distToPatchMC8))
+
+dist_df$pN_merg <- sce$pN_merg[match(dist_df$sample_id, sce$sample_id)]
+
+# 1. Difference of cell phenotype distances to B cell patches
+test_dist <- compare_means(mean ~ metacluster_combined, data = dist_df, method = "kruskal.test")$p
+
+# Density plot 
+ggplot(dist_df, aes(mean, color = metacluster_combined))+
+  geom_density(size = 0.8)+
+  geom_rug()+
+  #facet_wrap(~B_cell_score)+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
+  xlab("Mean distance to MC8 cell patch (per image)")+
+  theme_classic()+
+  ggtitle(paste("p =",round(test_dist, 4),"(kruskal-wallis)"))
+
+# Boxplot 
+ggplot(dist_df, aes(x = reorder(metacluster_combined, mean), y = mean))+
+  geom_boxplot()+
+  geom_jitter(aes(color = metacluster_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90), axis.title.x = element_blank())+
+  ylab("Mean distance to MC8 cell patch (per image)")+
+  guides(fill = "none")+
+  stat_compare_means(method = "kruskal.test")
+
+# 1. Difference of cell phenotype distances to B cell patches BETWEEN nodal status
+ggplot(dist_df, aes(mean, color = metacluster_combined))+
+  geom_density(size = 0.8)+
+  geom_rug()+
+  facet_wrap(~pN_merg)+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
+  xlab("Mean distance to MC8 cell patch (per image)")+
+  theme_classic()
+
+ggplot(dist_df, aes(x = reorder(pN_merg, mean), y = mean))+
+  geom_boxplot()+
+  geom_jitter(aes(color = pN_merg), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  facet_wrap(~metacluster_combined)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90), axis.title.x = element_blank())+
+  ylab("Mean distance to MC8 cell patch (per image)")+
+  guides(fill = "none")+
+  stat_compare_means(method = "wilcox.test")
+```
+
+
+### Milieu enrichment analysis 
+
+```{r milieu enrich}
+#Number of milieus per image
+milieu_image <- colData(sce) %>% as.data.frame %>% select(sample_id, milieu_MC8) %>% filter(!is.na(milieu_MC8)) %>% group_by(sample_id) %>% unique() %>% count()
+milieu_PID <- colData(sce) %>% as.data.frame %>% select(PID, milieu_MC8) %>% filter(!is.na(milieu_MC8)) %>% group_by(PID) %>% unique() %>% count()
+
+## Milieu enrichment analysis
+## Code adopted from Science Immunology paper
+
+cur_res_list <- list()
+cur_df <- colData(sce)
+
+# Set thresholds
+#perc_cells <- 0
+
+for (i in c("milieu_MC8")){
+  
+  cur_images <- cur_df %>% 
+    as.data.frame %>% 
+    select(sample_id, as.name(i)) %>% 
+    filter(complete.cases(.)) %>% #remove images with no milieu - also possible to use a threshold
+    group_by(sample_id) %>% 
+    unique() %>% 
+    count()
+  
+  for (j in unique(cur_df$metacluster_combined)) {
+  z <- str_split(i,"u_", simplify = TRUE)[,2]
+    cur_res <- cur_df %>% 
+      as.data.frame() %>%
+      select(sample_id, metacluster_combined, as.name(i)) %>% 
+      filter(sample_id %in% cur_images$sample_id) %>%
+      filter(metacluster_combined != z) %>%
+      group_by(sample_id) %>%
+      summarise(inside = sum(metacluster_combined == j & !is.na(.data[[i]])),
+            outside = sum(metacluster_combined == j & is.na(.data[[i]])),
+            other_inside = sum(metacluster_combined != j & !is.na(.data[[i]])),
+            other_outside = sum(metacluster_combined != j & is.na(.data[[i]])))
+    
+    out_dat <- foreach(x = seq_along(rownames(cur_res)), .combine = "rbind")%do%{
+    cur_mat <- matrix(as.numeric(as.vector(cur_res[x,2:5])),ncol = 2, nrow = 2, byrow = FALSE)
+    rownames(cur_mat) <- c("cluster", "other_cluster")
+    colnames(cur_mat) <- c("inside", "outside")
+    cur_test <- fisher.test(cur_mat)
+   
+    out_dat <- data.frame(
+      sample = as.character(as.vector(cur_res[x,1])),
+      milieu = i,
+      metacluster_combined = j,
+      p = cur_test$p.value,
+      odds = cur_test$estimate,
+      row.names = NULL)
+    }
+      
+cur_res_list[[paste0(i, "_", j)]] <- out_dat
+
+  }   
+}
+
+# Final output - Can be interpreted as "Fraction of images with significant enrichment or depletion of cell types within milieus"
+out <- do.call("rbind", cur_res_list)
+out$adj.p <- p.adjust(out$p, method = "BH")
+
+final <- out %>% mutate(sigval = ifelse(odds > 1 & adj.p < 0.1, 1, ifelse(odds < 1 & adj.p < 0.1, -1, 0))) %>%
+    group_by(milieu, metacluster_combined) %>%
+    dplyr::summarize(mean = mean(sigval))
+
+# Number of tested images
+out %>% 
+  group_by(milieu, metacluster_combined) %>% 
+  dplyr::summarize(count = n()) %>% 
+  as.data.frame()
+```
+
+```{r}
+final_heatmap <- final %>% pivot_wider(id_cols = milieu, names_from = metacluster_combined, values_from = mean) %>% column_to_rownames("milieu")
+
+Heatmap(final_heatmap, 
+        name = "Enrichment score")
+```
+
+
+
+
+
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
@@ -2754,13 +3214,14 @@ sce$pT_merg_2 <- colData(sce) %>%
   select(pT_simple) %>% 
   mutate(pT_merg = ifelse(pT_simple %in% c("3","4"),"3/4", pT_simple)) %>% pull(pT_merg)
 
-sce$p
+sce$pT_merg
 
 #also possible to use spatial_CD8_pheno_merg (cold/excluded vs inflamed)
-cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, pT_merg_2, pN_merg, pT_simple, pM_simple,OS_months, DFS_months, status_DFS, status_OS) %>% unique()
+cur_surv <- colData(sce) %>% as.data.frame() %>% filter(pT_merg_2 != "2") %>% 
+  select(PID, pT_merg_2,OS_months, DFS_months, status_DFS, status_OS) %>% unique()
 
 #Plot survival curves
-fit <- survfit(Surv(OS_months, status_OS) ~ pN_merg, data = cur_surv)
+fit <- survfit(Surv(OS_months, status_OS) ~ pT_merg_2, data = cur_surv)
 print(fit)
 
 ggsurvplot(fit,
@@ -2773,7 +3234,7 @@ ggsurvplot(fit,
           #palette = c("steelblue1","navy","firebrick"),
           log.rank.weights = "n")
 
-fit <- survfit(Surv(DFS_months, status_DFS) ~ pM_simple, data = cur_surv)
+fit <- survfit(Surv(DFS_months, status_DFS) ~ pT_merg_2, data = cur_surv)
 print(fit)
 
 ggsurvplot(fit,
@@ -2798,32 +3259,32 @@ sce$pT_merg <- colData(sce) %>%
   select(pT_simple) %>% 
   mutate(pT_merg = ifelse(pT_simple %in% c("2","3","4"),"2/3/4", pT_simple)) %>% pull(pT_merg)
 
-abundances <- table(sce$cluster_combined, sce$PID)
+abundances <- table(unfactor(sce$metacluster_combined), sce$PID)
 abundances <- unclass(abundances) 
 head(abundances)
 
 #relevant patient metadata (Relevel so that pT 1/2 is baseline)
 meta <- colData(sce)[match(colnames(abundances), sce$PID),]
-meta$pT_merg <- relevel(x=factor(meta$pT_merg), ref = "1")
+meta$pT_merg_2 <- relevel(x=factor(meta$pT_merg_2), ref = "1")
 
 #filter
-meta <- meta[!is.na(meta$pT_merg),]
+meta <- meta[!is.na(meta$pT_merg_2),]
 abundances <- abundances[,colnames(abundances) %in% meta$PID]
 
 #create DGEList - based on edgeR package
-y.ab <- DGEList(abundances, samples=meta, group = meta$pT_merg)
+y.ab <- DGEList(abundances, samples=meta, group = meta$pT_merg_2)
 
 #Design matrix
-design <- model.matrix(~pT_merg, data = y.ab$samples)
+design <- model.matrix(~pT_merg_2, data = y.ab$samples)
 
 #Visualize
 # logCPM of abundances per cluster
 cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
 
-Heatmap(cur_mat, 
-        col = viridis(100),
-        column_split = unfactor(meta$pT_merg))%v%
-  columnAnnotation(pT_merg = anno_simple(unfactor(meta$pT_merg)))
+#Heatmap(cur_mat, 
+##        col = viridis(100),
+ #       column_split = unfactor(meta$pT_merg_2))%v%
+#  columnAnnotation(pT_merg_2 = anno_simple(unfactor(meta$pT_merg_2)))
 
 
 # Estimate NB and QL dispersion 
@@ -3510,217 +3971,6 @@ diffabun_plot_cd8_3 <- ggplot(DA, aes(x = logFC, y = logCPM))+
   theme_classic()+
   geom_vline(xintercept = 0, linetype = "dashed")+
   labs(color = "cluster")
-```
-
-
-## For Immune mixing score
-
-### For metaclusters
-
-```{r}
-### Differential abundance analysis based on edgeR
-library(edgeR)
-
-unique(sce$mixing_pheno)
-
-sce$mixing_pheno_merg <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(mixing_pheno) %>% 
-  mutate(mixing_pheno_merg = ifelse(mixing_pheno %in% c("cold","mixed"),"cold_mixed", mixing_pheno)) %>% pull(mixing_pheno_merg)
-
-abundances <- table(sce$metacluster_combined, sce$PID)
-abundances <- unclass(abundances) 
-head(abundances)
-
-#relevant patient metadata (Relevel so that pT 1/2 is baseline)
-meta <- colData(sce)[match(colnames(abundances), sce$PID),]
-meta$mixing_pheno_merg <- relevel(x=factor(meta$mixing_pheno_merg), ref = "cold_mixed")
-
-#filter
-meta <- meta[!is.na(meta$mixing_pheno_merg),]
-abundances <- abundances[,colnames(abundances) %in% meta$PID]
-
-#create DGEList - based on edgeR package
-y.ab <- DGEList(abundances, samples=meta, group = meta$mixing_pheno_merg)
-
-#Design matrix
-design <- model.matrix(~mixing_pheno_merg, data = y.ab$samples)
-
-#Visualize
-# logCPM of abundances per cluster
-cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
-
-Heatmap(cur_mat, 
-        col = viridis(100),
-        column_split = unfactor(meta$mixing_pheno_merg))%v%
-  columnAnnotation(mixing_pheno_merg = anno_simple(unfactor(meta$mixing_pheno_merg)))
-
-
-# Estimate NB and QL dispersion 
-y.ab <- estimateDisp(y.ab, design, trend="none")
-summary(y.ab$common.dispersion)
-plotBCV(y.ab, cex=1)
-
-fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
-summary(fit.ab$var.prior)
-plotQLDisp(fit.ab, cex=1)
-
-# Test for differential abundance of clusters between tumor stages
-res <- glmQLFTest(fit.ab, coef=ncol(design))
-
-res$coefficients
-summary(decideTests(res))
-
-DA <- res$table
-
-DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
-
-DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
-  arrange(desc(logFC))
-
-DA$cluster <- factor(DA$cluster, levels = DA$cluster)
-
-sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
-
-## Visualize
-#Barplot
-ggplot(DA, aes(cluster, y = logFC))+
-  geom_col(aes(fill=result), col = "black")+
-  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
-  ylab("logFC")+
-  xlab("Cluster")+
-  labs(fill = "FDR<0.1")+
-  ggtitle("Spatial CD8 phenotype (cold/mixed vs compart)")+
-  theme_classic()
-
-#Volcano plot  
-ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
-  geom_point(aes(col=cluster, size = -log10(FDR)))+
-  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
-  xlab("logFC (cold/excluded vs inflamed)")+
-  ylab("-log10(FDR)")+
-  theme_classic()+
-  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(color = "cluster")
-
-#Abundance vs log fold change (best?)
-diffabun_plot_mixing_1 <- ggplot(DA, aes(x = logFC, y = logCPM))+
-  geom_point(aes(col= cluster, 
-                 size = -log10(FDR)))+
-  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
-  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
-  xlab("logFC (cold/mixed vs compartmentalized)")+
-  ylab("Abundance (logCPM)")+
-  theme_classic()+
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(color = "cluster")
-
-dev.off()
-
-```
-
-### For cellular neighborhoods 
-
-```{r}
-### Differential abundance analysis based on edgeR
-library(edgeR)
-
-unique(sce$mixing_pheno)
-
-sce$mixing_pheno_merg <- colData(sce) %>% 
-  as.data.frame %>% 
-  select(mixing_pheno) %>% 
-  mutate(mixing_pheno_merg = ifelse(mixing_pheno %in% c("cold","mixed"),"cold_mixed", mixing_pheno)) %>% pull(mixing_pheno_merg)
-
-abundances <- table(sce$cellular_neighborhood, sce$PID)
-abundances <- unclass(abundances) 
-head(abundances)
-
-#relevant patient metadata (Relevel so that pT 1/2 is baseline)
-meta <- colData(sce)[match(colnames(abundances), sce$PID),]
-meta$mixing_pheno_merg <- relevel(x=factor(meta$mixing_pheno_merg), ref = "cold_mixed")
-
-#filter
-meta <- meta[!is.na(meta$mixing_pheno_merg),]
-abundances <- abundances[,colnames(abundances) %in% meta$PID]
-
-#create DGEList - based on edgeR package
-y.ab <- DGEList(abundances, samples=meta, group = meta$mixing_pheno_merg)
-
-#Design matrix
-design <- model.matrix(~mixing_pheno_merg, data = y.ab$samples)
-
-#Visualize
-# logCPM of abundances per cluster
-cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
-
-Heatmap(cur_mat, 
-        col = viridis(100),
-        column_split = unfactor(meta$mixing_pheno_merg))%v%
-  columnAnnotation(mixing_pheno_merg = anno_simple(unfactor(meta$mixing_pheno_merg)))
-
-
-# Estimate NB and QL dispersion 
-y.ab <- estimateDisp(y.ab, design, trend="none")
-summary(y.ab$common.dispersion)
-plotBCV(y.ab, cex=1)
-
-fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
-summary(fit.ab$var.prior)
-plotQLDisp(fit.ab, cex=1)
-
-# Test for differential abundance of clusters between tumor stages
-res <- glmQLFTest(fit.ab, coef=ncol(design))
-
-res$coefficients
-summary(decideTests(res))
-
-DA <- res$table
-
-DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
-
-DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
-  arrange(desc(logFC))
-
-DA$cluster <- factor(DA$cluster, levels = DA$cluster)
-
-sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
-
-## Visualize
-#Barplot
-ggplot(DA, aes(cluster, y = logFC))+
-  geom_col(aes(fill=result), col = "black")+
-  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
-  ylab("logFC")+
-  xlab("Cluster")+
-  labs(fill = "FDR<0.1")+
-  ggtitle("Spatial CD8 phenotype (cold/mixed vs compart)")+
-  theme_classic()
-
-#Volcano plot  
-ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
-  geom_point(aes(col=cluster, size = -log10(FDR)))+
-  scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
-  xlab("logFC (cold/excluded vs inflamed)")+
-  ylab("-log10(FDR)")+
-  theme_classic()+
-  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(color = "cluster")
-
-#Abundance vs log fold change (best?)
-diffabun_plot_mixing_2 <- ggplot(DA, aes(x = logFC, y = logCPM))+
-  geom_point(aes(col= cluster, 
-                 size = -log10(FDR)))+
-  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
-  scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
-  xlab("logFC (cold/mixed vs compartmentalized)")+
-  ylab("Abundance (logCPM)")+
-  theme_classic()+
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(color = "cluster")
-diffabun_plot_mixing_2
 ```
 
 ## Save plots as pdf
