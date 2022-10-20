@@ -220,17 +220,25 @@ data.frame(num_clus = num_clus,
 }
 
 
-p1 <- ggplot(df, aes(x=k, y=num_clus))+ 
-  geom_line(lwd = 2,color = "#377EB8")+
-  theme_classic()
-p2 <- ggplot(df, aes(x=k, y=sil))+ 
-  geom_line(lwd = 2,color = "#377EB8")+
-  theme_classic()
-p3 <- ggplot(df, aes(x=k, y=rmsd))+ 
-  geom_line(lwd = 2,color = "#377EB8")+
-  theme_classic()
+p1 <- ggplot(df, aes(x=k, y=num_clus))+
+  geom_point(aes(k, num_clus, col = num_clus))+
+  geom_line(aes(k, num_clus,col=num_clus))+
+  theme_classic()+
+  scale_color_continuous(type = "viridis")
 
-p1+p3+p2 
+p2 <- ggplot(df, aes(x=k, y=rmsd))+
+  geom_point(aes(k, rmsd, col = rmsd))+
+  geom_line(aes(k, rmsd,col=rmsd))+
+  theme_classic()+
+  scale_color_continuous(type = "viridis")
+
+p3 <- ggplot(df, aes(x=k, y=sil))+
+  geom_point(aes(k, sil, col = sil))+
+  geom_line(aes(k, sil,col=sil))+
+  theme_classic()+
+  scale_color_continuous(type = "viridis")
+  
+p1+p2+p3 
 
 #Chosen method => k=130
 
@@ -263,6 +271,7 @@ p4
 #   scale_color_manual(values = col_clus)
 # p5 
 ```
+
 ## Add missing metadata 
 
 ```{r}
@@ -405,11 +414,6 @@ cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_130,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
                                  subset.row = rowData(sce)$cluster_channel)
-
-cellstate_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_130,
-                                 statistics = "mean",
-                                 use.assay.type = "exprs",
-                                 subset.row = rowData(sce)$cell_state_channel)
 
 other_mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_130,
                                  statistics = "mean",
@@ -564,14 +568,6 @@ h <- Heatmap(t(assay(cluster_mean_sce, "exprs")),
         clustering_method_columns = "ward.D2",
         row_split = anno$metacluster,
         cluster_row_slices = FALSE)+
-  Heatmap(t(assay(cellstate_mean_sce, "exprs")),
-        column_title = "state_channels",
-        col = col_exprs,
-        name= "mean exprs",
-        show_row_names = FALSE,
-        show_column_names =  TRUE,
-        clustering_method_rows = "ward.D2",
-        clustering_method_columns = "ward.D2")+
   Heatmap(t(assay(other_mean_sce, "exprs")),
         column_title = "other_channels",
         col = col_exprs,
@@ -593,6 +589,7 @@ lgd_meta <- Legend(title = "Immune_Metacluster", at = names(metadata(sce)$colors
 # Plot
 draw(h,annotation_legend_list = list(lgd_astir, lgd_meta))
 ```
+
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
 #saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME_com.rds")
@@ -777,7 +774,7 @@ SID_immune_metacluster_cor_plot <- ggplot(SID_immune_metacluster_cor, aes(x = ca
   theme_classic(base_size = 12)+
   theme(axis.title.x = element_blank())+
   ylab("Correlation of immune_metacluster fractions per PID (n=2-4)")+
-  ggtitle(paste("Spearman rho = ",round(median(SID_immune_metacluster_cor$V1, na.rm = TRUE), digits = 3)))
+  ggtitle(paste("Spearman rho = ",round(median(SID_immune_metacluster_cor$V1, na.rm = TRUE), digits = 2)))
 
 d_PID + SID_immune_metacluster_cor_plot
 ```
@@ -803,8 +800,6 @@ ggplot(SID_immune_metacluster) +
   ylab("Density")+
   xlab("PID")+
   theme(axis.text.x = element_blank())
-
-SID_immune_metacluster %>% filter(immune_metacluster == "BnT_cell") %>% arrange(desc(density))
 
 
 ### For each PID
@@ -887,6 +882,7 @@ SID_cluster_dens_cor_plot <- ggplot(SID_cluster_dens_cor, aes(x = category, y = 
 (d_PID + SID_immune_metacluster_cor_plot)/
 (d_PID_dens + SID_metacluster_dens_cor_plot)
 ```
+
 ## CATALYST-based visualization
 
 We will first convert the sce into a CATALYST-compatible format.
@@ -958,10 +954,10 @@ corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, n
 )
 
 # For specific markers of interest (also shows the value distribution which is recommended)
-pairs.panels(cor_sce[,c("CD3","CD8a")],
-             method = "spearman",
-             hist.col = "royalblue1",
-             digits = 2)
+#pairs.panels(cor_sce[,c("CD3","CD8a")],
+#             method = "spearman",
+#             hist.col = "royalblue1",
+#             digits = 2)
 ```
 # 4. Image visualization
 
@@ -1490,6 +1486,7 @@ hr_prop/
 hr_mean/
 hr_GMM
 ```
+
 ### Plot proportion density curves for all metaclusters
 
 Add lines for mean and GMM division.
@@ -1605,28 +1602,28 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME_new.rds")
 ##IMPORTANT: change to chunk output in console for this last part 
 
 ##save plots as pdf (vector graphics)
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ClusterTesting.pdf",width = 10,height = 5)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_ClusterTesting.pdf",width = 10,height = 5)
 p1+p2+p3
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_Silhouette_Cluster50.pdf",width = 12,height = 10)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_Silhouette_Cluster130.pdf",width = 12,height = 10)
 p4
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_249_TME_CC_HeatmapCluster.pdf",width = 13,height = 7)
-h
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_HeatmapCluster.pdf",width = 13,height = 7)
+draw(h,annotation_legend_list = list(lgd_astir, lgd_meta))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_HeatmapCluster_Scales.pdf",width = 13,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_HeatmapCluster_Scales.pdf",width = 13,height = 8)
 h_exprs + h_min_max
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ClusterAnno.pdf",width = 5,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_ClusterAnno.pdf",width = 5,height = 8)
 h_cluster_anno
 dev.off()
 
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_HeatmapCluster_subcells.pdf",width = 10,height = 8)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_HeatmapCluster_subcells.pdf",width = 10,height = 8)
 dittoHeatmap(sce_sub, 
              genes = rownames(sce_sub)[rowData(sce_sub)$cluster_channel],
              assay = "min_max", 
@@ -1637,7 +1634,7 @@ dittoHeatmap(sce_sub,
              annot.colors=col_clusters$cluster_50[order(as.numeric(names(col_clusters$cluster_50)))])
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ExpressionCor.pdf",width = 10,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_ExpressionCor.pdf",width = 10,height = 8)
 corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, name="RdBu"),  
          type="upper", order="hclust",hclust.method = "ward.D2", 
          addCoef.col = "black", addCoefasPercent = F,# Add coefficient of correlation
@@ -1649,35 +1646,36 @@ corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, n
 )
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_TSNECluster.pdf",width = 8,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_TSNECluster.pdf",width = 8,height = 6)
 TSNE_clus
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_TSNEExpression.pdf",width = 12,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_TSNEExpression.pdf",width = 12,height = 6)
 exp_plots_TSNE
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_UMAPExpression.pdf",width = 12,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_UMAPExpression.pdf",width = 12,height = 6)
 exp_plots_UMAP
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_ClusterPIDSID.pdf",width = 12,height = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_ClusterPIDSID.pdf",width = 12,height = 6)
 p_clusterPID
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_PIDCluster_ClusterCor.pdf",width = 14,height = 6)
-p_PID_cluster+SID_cluster_cor_plot
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_PIDCluster_ClusterCor.pdf",width = 14,height = 6)
+(d_PID + SID_immune_metacluster_cor_plot)/
+(d_PID_dens + SID_metacluster_dens_cor_plot)
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_HeatmapPIDgroups.pdf",width = 11,height = 7)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_HeatmapPIDgroups.pdf",width = 11,height = 7)
 h_g
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_HeatmapPIDgroupsCLR.pdf",width = 11,height = 7)
+pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_HeatmapPIDgroupsCLR.pdf",width = 11,height = 7)
 h_g_1
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_TME/TNBC_249_TME_CC_Cluster_HR_DFS.pdf",width = 8,height = 10)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_Cluster_HR_DFS.pdf",width = 8,height = 10)
 hr_prop/
 hr_cat/
 hr_cat_GMM

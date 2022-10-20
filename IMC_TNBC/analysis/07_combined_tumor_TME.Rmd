@@ -1250,7 +1250,7 @@ tumor_sce$metacluster_combined <- unfactor(tumor_sce$metacluster_combined)
 
 for_plot <- prop.table(table(tumor_sce$spatial_community, tumor_sce$metacluster_combined), margin = 1)
 
-pheatmap(for_plot, color = viridis(100), show_rownames = FALSE)
+pheatmap(for_plot, color = viridis(100), show_rownames = FALSE, name = "Fraction per community")
 
 ## Identify recurrent spatial communities 
 
@@ -1295,10 +1295,13 @@ tumor_cur_clusters <- kmeans(cur_dat, centers = 10, nstart = 100)$cluster
 tumor_sce$tumor_meta_community <- tumor_cur_clusters[match(tumor_sce$spatial_community, names(tumor_cur_clusters))]
 
 # Visualize 
-for_plot <- prop.table(table(tumor_sce$tumor_meta_community, tumor_sce$metacluster_combined), margin = 1)
-rownames(for_plot) <- paste0("tumor_SMC_",rownames(for_plot))
+for_plot <- prop.table(table(tumor_sce$spatial_metacommunity, tumor_sce$metacluster_combined), margin = 1)
+#rownames(for_plot) <- paste0("tumor_SMC_",rownames(for_plot))
 
-pheatmap(for_plot, show_rownames = TRUE, scale = "column")
+scale(for_plot)
+
+pheatmap(for_plot, show_rownames = TRUE, scale = "column", name = "scaled fraction")
+
 ```
 
 2. For Stroma communities 
@@ -1310,7 +1313,7 @@ stroma_sce$metacluster_combined <- unfactor(stroma_sce$metacluster_combined)
 
 for_plot <- prop.table(table(stroma_sce$spatial_community, stroma_sce$metacluster_combined), margin = 1)
 
-pheatmap(for_plot, color = viridis(100), show_rownames = FALSE)
+pheatmap(for_plot, color = viridis(100), show_rownames = FALSE, name = "Fraction per community")
 
 ## Identify recurrent spatial communities 
 
@@ -1356,10 +1359,10 @@ stroma_sce$stroma_meta_community <- stroma_cur_clusters[match(stroma_sce$spatial
 
 
 # Visualize 
-for_plot <- prop.table(table(stroma_sce$stroma_meta_community, stroma_sce$metacluster_combined), margin = 1)
-rownames(for_plot) <- paste0("TME_SMC_",rownames(for_plot))
+for_plot <- prop.table(table(stroma_sce$spatial_metacommunity, stroma_sce$metacluster_combined), margin = 1)
+#rownames(for_plot) <- paste0("TME_SMC_",rownames(for_plot))
 
-pheatmap(for_plot, show_rownames = TRUE, scale = "column")
+pheatmap(for_plot, show_rownames = TRUE, scale = "column", name = "scaled fraction")
 ```
 
 Add to sce
@@ -1562,8 +1565,9 @@ theme_classic()+
 theme(axis.text.x = element_text(angle = 90))
 
 hr_prop/
-hr_mean/
-hr_GMM
+hr_mean
+#/
+#hr_GMM
 ```
 
 ### For DFS on community proportions
@@ -1976,7 +1980,7 @@ foreach(i = unfactor(unique(sce$metacluster_combined)))%dopar%{
   sce <- patchDetection(sce,
                patch_cells = sce$metacluster_combined == i,
                colPairName = "knn_interaction_graph",
-               min_patch_size = 15,
+               min_patch_size = 10,
                name = paste0("milieu_",i),
                expand_by = 30, 
                img_id = "sample_id",
@@ -2204,11 +2208,12 @@ spicyTest <- spicy(cells_sc,
 
 saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumor_withzero.rds")
 
+spicyTest <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumor_withzero.rds")
 topPairs(spicyTest)
 
 signifPlot(spicyTest,
            type = "heatmapbliblablub",
-           breaks=c(-3, 3, 1),
+           breaks=c(-3, 3, 0.5),
            fdr = TRUE,
            marksToPlot = c("tumor","CD8_T_cell"))
 
@@ -2245,12 +2250,13 @@ spicyTest <- spicy(cells_sc,
       includeZeroCells = TRUE)
 
 saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumorphenotypes_withzero.rds")
+spicyTest2 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumorphenotypes_withzero.rds")
 
-topPairs(spicyTest)
+topPairs(spicyTest2)
 
-signifPlot(spicyTest,
+signifPlot(spicyTest2,
            type = "heatmapbliblablub",
-           breaks=c(-3, 3, 1),
+           breaks=c(-3, 3, 0.5),
            fdr = TRUE,
            marksToPlot = unfactor(unique(cur_sce$metacluster_combined)))
 
@@ -2288,13 +2294,14 @@ spicyTest <- spicy(cells_sc,
 
 saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_allVSall_withzero.rds")
 
-topPairs(spicyTest)
+spicyTest3 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_allVSall_withzero.rds")
+topPairs(spicyTest3)
 
-signifPlot(spicyTest,
+signifPlot(spicyTest3,
            type = "heatmapbliblablub",
-           breaks=c(-3, 3, 1),
+           breaks=c(-3, 3, 0.5),
            fdr = TRUE,
-           marksToPlot = unfactor(unique(cur_sce$metacluster_combined)))
+           marksToPlot = unfactor(unique(sce$metacluster_combined)))
 ```
 ### B cell patch analysis 
 
@@ -2486,7 +2493,7 @@ dist_tumor_df <- colData(sce) %>% as.data.frame %>% filter(!is.na(distToPatchB) 
 
 dist_tumor_df$B_cell_score <- sce$B_cell_score[match(dist_tumor_df$sample_id, sce$sample_id)]
 
-ggplot(dist_df, aes(x = reorder(metacluster_combined, mean), y = mean))+
+ggplot(dist_tumor_df, aes(x = reorder(metacluster_combined, mean), y = mean))+
   geom_boxplot()+
   geom_jitter(aes(color = metacluster_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
   scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
@@ -2495,6 +2502,41 @@ ggplot(dist_df, aes(x = reorder(metacluster_combined, mean), y = mean))+
   ylab("Mean distance to B cell patch (per image)")+
   guides(fill = "none")+
   stat_compare_means(method = "kruskal.test")
+```
+### T cell expression analysis 
+
+```{r}
+# Focus on Ki67 
+
+# Subset to CD8_T_cells
+cur_sce <- sce[,sce$metacluster_combined == "CD8_T_cell"]
+
+# Violin plot
+cur_dat <- t(assay(cur_sce, "exprs")) %>% as.data.frame
+cur_dat$CD8Tcell_type <- sce$CD8Tcell_type[match(rownames(cur_dat),colnames(sce))]
+cur_dat$CD8Tcell_type <- factor(cur_dat$CD8Tcell_type, levels = c("ignored","bystanding","infiltrating"))
+ 
+ggplot(cur_dat, aes(x = CD8Tcell_type, y = Ki67))+
+  geom_boxplot()+
+  stat_compare_means(method = "kruskal.test")+
+  theme_classic()+
+  ylab("Ki67 expression")
+  
+# Aggregate expression per PID 
+T_mean_PID <- aggregateAcrossCells(cur_sce, ids = cur_sce$PID,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(cur_sce)$use_channel)
+
+plotExpression(T_mean_PID, 
+               features = c("Ki67"),
+               x = "spatial_CD8_pheno", exprs_values = "exprs", 
+               colour_by = "spatial_CD8_pheno") +
+    theme(axis.text.x =  element_text(angle = 90))+
+    scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno)+
+  stat_compare_means(method = "kruskal.test")
+
+### Could use GMM to divide between Ki67+ and negative and then compare?
 ```
 
 ### Tumor expression analysis 
@@ -2542,7 +2584,7 @@ mat_scaled<- t(scale(t(assay(spatialpheno_mean_sce, "exprs"))))
 ## Visualize 
 
 # Heatmap 
-Heatmap(assay(spatialpheno_mean_sce, "exprs"), col = col_exprs, name = "exprs", cluster_columns = FALSE, row_names_side = "left", show_row_dend = FALSE)+
+Heatmap(assay(spatialpheno_mean_sce, "exprs"), col = viridis(100), name = "exprs", cluster_columns = FALSE, row_names_side = "left", show_row_dend = FALSE)+
   Heatmap(mat_scaled, name = "scaled exprs", cluster_columns = FALSE)+
   rowAnnotation(test = anno_text(test_result$psignif.adj))
 
@@ -2554,7 +2596,6 @@ plotExpression(spatialpheno_mean_PID,
     theme(axis.text.x =  element_text(angle = 90))+
     scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno)
 ```
-
 ### Tumor patch analysis 
 
 ```{r}
@@ -2577,7 +2618,7 @@ sce$distToTumor <- sce$distToCells
 ```{r}
 dist_CD8_df <- colData(sce) %>% as.data.frame %>% filter(!is.na(distToTumor) & metacluster_combined == "CD8_T_cell") %>% select(sample_id, metacluster_combined, distToTumor) %>% group_by(sample_id, metacluster_combined) %>% summarize(mean = mean(distToTumor)) 
 
-dist_CD8_df$spatial_CD8_pheno <- sce$spatial_CD8_pheno[match(dist_df$sample_id, sce$sample_id)]
+dist_CD8_df$spatial_CD8_pheno <- sce$spatial_CD8_pheno[match(dist_CD8_df$sample_id, sce$sample_id)]
 
 dist_CD8_df <- dist_CD8_df %>% group_by(spatial_CD8_pheno) %>% mutate(mean_dist = mean(mean), median_dist = median(mean))
 
@@ -2588,10 +2629,11 @@ ggplot(dist_CD8_df, aes(mean, color = spatial_CD8_pheno))+
   geom_density(size = 0.8)+
   geom_rug()+
   facet_wrap(~spatial_CD8_pheno)+
+  geom_vline(aes(xintercept = mean_dist, color = spatial_CD8_pheno), linetype = "dashed")+
   scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno, limits = force)+
   xlab("Mean distance to tumor patch (per image)")+
-  theme_classic()
-  #geom_vline(aes(xintercept = median_dist),color = "black", linetype = "dashed") #red
+  theme_classic()+
+  ggtitle("Kruskal-Wallis, p = 0.00012")
 
 
 # Boxplot 
@@ -3042,6 +3084,7 @@ sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_MC8)
 ### Patch distance analysis 
 
 ```{r}
+library(ggpubr)
 dist_df <- colData(sce) %>% as.data.frame %>% filter(!is.na(distToPatchMC8) & metacluster_combined != "tumor_8") %>% select(sample_id, metacluster_combined, distToPatchMC8) %>% group_by(sample_id, metacluster_combined) %>% summarize(mean = mean(distToPatchMC8))
 
 dist_df$pN_merg <- sce$pN_merg[match(dist_df$sample_id, sce$sample_id)]
@@ -3172,9 +3215,24 @@ Heatmap(final_heatmap,
         name = "Enrichment score")
 ```
 
+```{r}
+#What kind of tumor cells dominate the tumors where basal-like luminal cells are present? 
 
+#PID with at least 5 basoluminal cells 
+cur_sample <- colData(sce) %>% as.data.frame %>% filter(metacluster_combined == "tumor_8") %>% group_by(PID) %>% count() %>% filter(n>5) %>% pull(PID)
 
+cur_sce <- sce[,sce$PID %in% cur_sample]
 
+cur_sce <- cur_sce[,cur_sce$analysis_cat == "tumor"]
+
+dittoBarPlot(cur_sce, var = "metacluster_combined", group.by = "PID")+
+  scale_fill_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
+  theme(axis.text.x = element_blank())
+
+dittoBarPlot(cur_sce, var = "spatial_metacommunity", group.by = "PID")+
+  #scale_fill_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
+  theme(axis.text.x = element_blank())
+```
 
 
 ```{r save_objects, message = FALSE, warning=FALSE}
@@ -3217,11 +3275,11 @@ sce$pT_merg_2 <- colData(sce) %>%
 sce$pT_merg
 
 #also possible to use spatial_CD8_pheno_merg (cold/excluded vs inflamed)
-cur_surv <- colData(sce) %>% as.data.frame() %>% filter(pT_merg_2 != "2") %>% 
-  select(PID, pT_merg_2,OS_months, DFS_months, status_DFS, status_OS) %>% unique()
+cur_surv <- colData(sce) %>% as.data.frame() %>% 
+  select(PID, pM_simple,OS_months, DFS_months, status_DFS, status_OS) %>% unique()
 
 #Plot survival curves
-fit <- survfit(Surv(OS_months, status_OS) ~ pT_merg_2, data = cur_surv)
+fit <- survfit(Surv(OS_months, status_OS) ~ pM_simple, data = cur_surv)
 print(fit)
 
 ggsurvplot(fit,
@@ -3234,7 +3292,7 @@ ggsurvplot(fit,
           #palette = c("steelblue1","navy","firebrick"),
           log.rank.weights = "n")
 
-fit <- survfit(Surv(DFS_months, status_DFS) ~ pT_merg_2, data = cur_surv)
+fit <- survfit(Surv(DFS_months, status_DFS) ~ pM_simple, data = cur_surv)
 print(fit)
 
 ggsurvplot(fit,
@@ -3254,10 +3312,14 @@ ggsurvplot(fit,
 ### Differential abundance analysis based on edgeR
 library(edgeR)
 
+sce <- sce[,sce$analysis_cat == "tumor"]
+
 sce$pT_merg <- colData(sce) %>% 
   as.data.frame %>% 
   select(pT_simple) %>% 
-  mutate(pT_merg = ifelse(pT_simple %in% c("2","3","4"),"2/3/4", pT_simple)) %>% pull(pT_merg)
+  mutate(pT_merg = ifelse(pT_simple %in% c("3","4"),"3/4", pT_simple)) %>% pull(pT_merg)
+
+sce <- sce[,sce$analysis_cat == "tumor"]
 
 abundances <- table(unfactor(sce$metacluster_combined), sce$PID)
 abundances <- unclass(abundances) 
@@ -3281,10 +3343,10 @@ design <- model.matrix(~pT_merg_2, data = y.ab$samples)
 # logCPM of abundances per cluster
 cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
 
-#Heatmap(cur_mat, 
-##        col = viridis(100),
- #       column_split = unfactor(meta$pT_merg_2))%v%
-#  columnAnnotation(pT_merg_2 = anno_simple(unfactor(meta$pT_merg_2)))
+Heatmap(cur_mat, 
+        col = viridis(100),
+        column_split = unfactor(meta$pT_merg_2))%v%
+  columnAnnotation(pT_merg_2 = anno_simple(unfactor(meta$pT_merg_2)))
 
 
 # Estimate NB and QL dispersion 
@@ -3568,6 +3630,47 @@ ggplot(pN_simple_n, aes(x=pN_simple,y=n,fill=pN_simple))+
   scale_fill_manual(values = metadata(sce)$colors$pN_simple)+
   theme_classic()
 ```
+
+```{r}
+#Assess survival impact 
+library(patchwork)
+library(survival)
+library(survminer)
+
+
+#also possible to use spatial_CD8_pheno_merg (cold/excluded vs inflamed)
+cur_surv <- colData(sce) %>% as.data.frame() %>% 
+  select(PID, pN_merg,OS_months, DFS_months, status_DFS, status_OS) %>% unique()
+
+#Plot survival curves
+fit <- survfit(Surv(OS_months, status_OS) ~ pN_merg, data = cur_surv)
+print(fit)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          #palette = c("steelblue1","navy","firebrick"),
+          log.rank.weights = "n")
+
+fit <- survfit(Surv(DFS_months, status_DFS) ~ pN_merg, data = cur_surv)
+print(fit)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          #palette = c("steelblue1","navy","firebrick"),
+          log.rank.weights = "n")
+```
+
+
 ### For metaclusters
 
 ```{r}
@@ -3579,6 +3682,7 @@ sce_tumor$pN_merg <- colData(sce_tumor) %>%
   select(pN_simple) %>% 
   mutate(pN_merg = ifelse(pN_simple %in% c("1","2","3"),"1/2/3", pN_simple)) %>% pull(pN_merg)
 
+sce_tumor <- sce
 abundances <- table(unfactor(sce_tumor$metacluster_combined), sce_tumor$PID)
 abundances <- unclass(abundances) 
 head(abundances)
@@ -3681,25 +3785,25 @@ sce$spatial_CD8_pheno_merg <- colData(sce) %>%
   select(spatial_CD8_pheno) %>% 
   mutate(spatial_CD8_pheno_merg = ifelse(spatial_CD8_pheno %in% c("cold","excluded"),"cold/excluded", spatial_CD8_pheno)) %>% pull(spatial_CD8_pheno_merg)
 
-test_sce <- sce[,sce$spatial_CD8_pheno %in% c("cold","inflamed")]
+#test_sce <- sce[,sce$spatial_CD8_pheno %in% c("cold","inflamed")]
 
-abundances <- table(test_sce$metacluster_combined, test_sce$PID)
+abundances <- table(sce$metacluster_combined, sce$PID)
 abundances <- unclass(abundances) 
 head(abundances)
 
 #relevant patient metadata (Relevel so that pT 1/2 is baseline)
-meta <- colData(test_sce)[match(colnames(abundances), test_sce$PID),]
-meta$spatial_CD8_pheno <- relevel(x=factor(meta$spatial_CD8_pheno), ref = "cold")
+meta <- colData(sce)[match(colnames(abundances), sce$PID),]
+meta$spatial_CD8_pheno_merg <- relevel(x=factor(meta$spatial_CD8_pheno_merg), ref = "cold/excluded")
 
 #filter
-meta <- meta[!is.na(meta$spatial_CD8_pheno),]
+meta <- meta[!is.na(meta$spatial_CD8_pheno_merg),]
 abundances <- abundances[,colnames(abundances) %in% meta$PID]
 
 #create DGEList - based on edgeR package
-y.ab <- DGEList(abundances, samples=meta, group = meta$spatial_CD8_pheno)
+y.ab <- DGEList(abundances, samples=meta, group = meta$spatial_CD8_pheno_merg)
 
 #Design matrix
-design <- model.matrix(~spatial_CD8_pheno, data = y.ab$samples)
+design <- model.matrix(~spatial_CD8_pheno_merg, data = y.ab$samples)
 
 #Visualize
 # logCPM of abundances per cluster
@@ -3707,8 +3811,8 @@ cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
 
 Heatmap(cur_mat, 
         col = viridis(100),
-        column_split = unfactor(meta$spatial_CD8_pheno))%v%
-  columnAnnotation(spatial_CD8_pheno_merg = anno_simple(unfactor(meta$spatial_CD8_pheno)))
+        column_split = unfactor(meta$spatial_CD8_pheno_merg))%v%
+  columnAnnotation(spatial_CD8_pheno_merg_merg = anno_simple(unfactor(meta$spatial_CD8_pheno_merg)))
 
 
 # Estimate NB and QL dispersion 
@@ -3765,7 +3869,106 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
                  size = -log10(FDR)))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
   scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
-  xlab("logFC (cold vs inflamed)")+
+  xlab("logFC (cold/excluded vs inflamed)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+```
+### For spatial communities
+
+```{r}
+### Differential abundance analysis based on edgeR
+library(edgeR)
+
+sce$spatial_CD8_pheno_merg <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(spatial_CD8_pheno) %>% 
+  mutate(spatial_CD8_pheno_merg = ifelse(spatial_CD8_pheno %in% c("cold","excluded"),"cold/excluded", spatial_CD8_pheno)) %>% pull(spatial_CD8_pheno_merg)
+
+abundances <- table(sce$spatial_metacommunity, sce$PID)
+abundances <- unclass(abundances) 
+head(abundances)
+
+#relevant patient metadata (Relevel so that pT 1/2 is baseline)
+meta <- colData(sce)[match(colnames(abundances), sce$PID),]
+meta$spatial_CD8_pheno_merg <- relevel(x=factor(meta$spatial_CD8_pheno_merg), ref = "cold/excluded")
+
+#filter
+meta <- meta[!is.na(meta$spatial_CD8_pheno_merg),]
+abundances <- abundances[,colnames(abundances) %in% meta$PID]
+
+#create DGEList - based on edgeR package
+y.ab <- DGEList(abundances, samples=meta, group = meta$spatial_CD8_pheno_merg)
+
+#Design matrix
+design <- model.matrix(~spatial_CD8_pheno_merg, data = y.ab$samples)
+
+#Visualize
+# logCPM of abundances per cluster
+cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
+
+Heatmap(cur_mat, 
+        col = viridis(100),
+        column_split = unfactor(meta$spatial_CD8_pheno_merg))%v%
+  columnAnnotation(spatial_CD8_pheno_merg = anno_simple(unfactor(meta$spatial_CD8_pheno_merg)))
+
+
+# Estimate NB and QL dispersion 
+y.ab <- estimateDisp(y.ab, design, trend="none")
+summary(y.ab$common.dispersion)
+plotBCV(y.ab, cex=1)
+
+fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
+summary(fit.ab$var.prior)
+plotQLDisp(fit.ab, cex=1)
+
+# Test for differential abundance of clusters between tumor stages
+res <- glmQLFTest(fit.ab, coef=ncol(design))
+
+res$coefficients
+summary(decideTests(res))
+
+DA <- res$table
+
+DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
+
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
+  arrange(desc(logFC))
+
+DA$cluster <- factor(DA$cluster, levels = DA$cluster)
+
+sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
+
+## Visualize
+#Barplot
+ggplot(DA, aes(cluster, y = logFC))+
+  geom_col(aes(fill=result), col = "black")+
+  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
+  ylab("logFC")+
+  xlab("Cluster")+
+  labs(fill = "FDR<0.1")+
+  ggtitle("Spatial CD8 phenotype (cold/excluded vs inflamed)")+
+  theme_classic()
+
+#Volcano plot  
+ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
+  geom_point(aes(col=cluster, size = -log10(FDR)))+
+  #scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
+  xlab("logFC (cold/excluded vs inflamed)")+
+  ylab("-log10(FDR)")+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+
+#Abundance vs log fold change (best?)
+ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
+  #scale_color_manual(values = metadata(sce)$colors$cellular_neighborhood)+
+  xlab("logFC (cold/excluded vs inflamed)")+
   ylab("Abundance (logCPM)")+
   theme_classic()+
   geom_vline(xintercept = 0, linetype = "dashed")+

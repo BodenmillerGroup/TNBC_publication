@@ -4,7 +4,7 @@ author: "Lasse Meyer"
 date: "`r Sys.Date()`"
 output: html_document
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -195,7 +195,7 @@ gc()
 
 ```{r clustree, message = FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 #Pairwise rand index 
 #Agreement between two clustering approaches - ARI > 0.5 = "good" similarity
@@ -219,18 +219,25 @@ data.frame(num_clus = num_clus,
            rmsd = sum(rmsd))
 }
 
+p1 <- ggplot(df, aes(x=k, y=num_clus))+
+  geom_point(aes(k, num_clus, col = num_clus))+
+  geom_line(aes(k, num_clus,col=num_clus))+
+  theme_classic()+
+  scale_color_continuous(type = "viridis")
 
-p1 <- ggplot(df, aes(x=k, y=num_clus))+ 
-  geom_line(lwd = 2,color = "#377EB8")+
-  theme_classic()
-p2 <- ggplot(df, aes(x=k, y=sil))+ 
-  geom_line(lwd = 2,color = "#377EB8")+
-  theme_classic()
-p3 <- ggplot(df, aes(x=k, y=rmsd))+ 
-  geom_line(lwd = 2,color = "#377EB8")+
-  theme_classic()
+p2 <- ggplot(df, aes(x=k, y=rmsd))+
+  geom_point(aes(k, rmsd, col = rmsd))+
+  geom_line(aes(k, rmsd,col=rmsd))+
+  theme_classic()+
+  scale_color_continuous(type = "viridis")
 
-p1+p3+p2 
+p3 <- ggplot(df, aes(x=k, y=sil))+
+  geom_point(aes(k, sil, col = sil))+
+  geom_line(aes(k, sil,col=sil))+
+  theme_classic()+
+  scale_color_continuous(type = "viridis")
+  
+p1+p2+p3 
 
 #Chosen method => k=110
 
@@ -410,12 +417,12 @@ library(clValid)
 set.seed(22)
 testCL<- clValid(t(assay(cluster_mean_sce, "exprs")),nClust = 4:20,clMethods = c("hierarchical","agnes","kmeans","pam"),validation="internal",metric="euclidean", method = "ward")
 summary(testCL)
-plot(testCL, legend = TRUE)
+plot(testCL, legend = FALSE)
 
 #Stability measures 
 testCL_1<- clValid(t(assay(cluster_mean_sce, "exprs")),nClust = 4:20,clMethods = c("hierarchical","agnes","kmeans","pam"),validation="stability",metric="euclidean", method = "ward")
 summary(testCL_1)
-plot(testCL_1, legend = TRUE)
+plot(testCL_1, legend = FALSE)
 
 #chosen method: hierarchical, k=8
 
@@ -883,6 +890,23 @@ SID_cluster_dens_cor_plot
 (d_dens_PID+SID_metacluster_dens_cor_plot)
 
 ```
+## Scatter-plot visualization 
+
+```{r}
+# Focus on basoluminal cells
+cur_dat <- t(assay(sce[,sce$metacluster == "8"],"exprs")) %>% as.data.frame %>% select("CK5","CK7","CK8_18")
+
+dim(cur_dat)
+ggplot(cur_dat, aes(x=CK7, y=CK5)) +
+  geom_point(alpha = 0.5)+
+  stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "count")+
+  theme_classic()
+
+ggplot(cur_dat, aes(x=CK8_18, y=CK5)) +
+  geom_point(alpha = 0.5)+
+  stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "count")+
+  theme_classic()
+```
 
 ## CATALYST-based visualization
 
@@ -952,10 +976,10 @@ corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, n
 )
 
 # For specific markers of interest (also shows the value distribution which is recommended)
-pairs.panels(cor_sce[,c("CK5","KRT14")],
-             method = "spearman",
-             hist.col = "royalblue1",
-             digits = 2)
+#pairs.panels(cor_sce[,c("CK5","KRT14")],
+#             method = "spearman",
+#             hist.col = "royalblue1",
+#             digits = 2)
 ```
 ## 4. Tumor heterogeneity analysis 
 
@@ -987,11 +1011,10 @@ for_plot_MC <- colData(sce) %>% as_tibble() %>%
     ungroup() %>%
     select(-PID)
 
-pheatmap(for_plot_MC, 
-         #color = colorRampPalette(c("dark blue", "white", "dark red"))(100), 
-         scale = "none", 
-         show_rownames = FALSE
-          )
+Heatmap(for_plot_MC, 
+        name = "log(cell_count)",
+        col = viridis(100)
+        )
 ```
 
 ### Heterogeneity scores
@@ -1005,7 +1028,7 @@ PID_metacluster <- PID_metacluster %>% group_by(PID) %>% mutate(fra = Freq/sum(F
 ### Number of metaclusters per PID 
 PID_metacluster_p <- PID_metacluster %>% filter(Freq != 0) %>% group_by(PID) %>% count(name = "n_MC") %>% mutate(category = "PID")
 
-ggplot(PID_metacluster_p, aes(x = category, y = n_MC))+
+n_MC_PID <- ggplot(PID_metacluster_p, aes(x = category, y = n_MC))+
   geom_boxplot(outlier.colour = NA)+
   geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
   guides(color = "none")+
@@ -1013,7 +1036,7 @@ ggplot(PID_metacluster_p, aes(x = category, y = n_MC))+
   theme_classic(base_size = 12)+
   coord_cartesian(ylim = c(0,11))+
   theme(axis.title.x = element_blank())+
-  ylab("Number of metaclusters per PID")
+  ylab("Number of tumor metaclusters per PID")
 
 
 ### Calculate shannon entropy per PID
@@ -1029,7 +1052,7 @@ shannon_plot <- data.frame(shannon_div = diversity(shannon_df),
 
 shannon_plot <- shannon_plot %>% arrange(desc(shannon_equi)) %>% mutate(heterogeneity = ntile(shannon_equi,3)) %>% mutate(heterogeneity_score = ifelse(heterogeneity == 3, "High",                                                                                                                                        ifelse(heterogeneity == 2, "Medium", "Low")))
 
-ggplot(shannon_plot, aes(x = category, y = shannon_equi))+
+shannon_MC_PID <- ggplot(shannon_plot, aes(x = category, y = shannon_equi))+
   geom_boxplot(outlier.colour = NA)+
   geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
   guides(color = "none")+
@@ -1037,7 +1060,9 @@ ggplot(shannon_plot, aes(x = category, y = shannon_equi))+
   theme_classic(base_size = 12)+
   theme(axis.title.x = element_blank())+
   coord_cartesian(ylim = c(0,1))+
-  ylab("Shannon entropy of tumor metaclusters per PID")
+  ylab("Shannon Equitability Index of tumor metaclusters per PID")
+
+n_MC_PID/shannon_MC_PID
 
 ### Check whether heterogeneity of metaclusters influences survival 
 
@@ -1503,6 +1528,7 @@ p2 <- ggsurvplot(fit,
   ggtitle("GMM proportion")
 
 arrange_ggsurvplots(list(p1,p2))
+p1
 ```
 
 ### For OS on metacluster density 
@@ -1827,6 +1853,19 @@ ggplot(lasso_df, aes(x = reorder(predictor, coef), y = exp(coef))) +
   ggtitle("DFS")+
   theme_classic()+
   scale_color_manual(values = metadata(sce)$colors$cluster_110, limits = force, na.value = "black")
+
+lasso_plot <- ggplot(lasso_df, aes(x = reorder(predictor,-exp(coef)), y = exp(coef))) +
+  geom_point(size = 4, aes(color = exp(coef)>1)) +
+  geom_hline(yintercept = 1,color = "black")+
+  scale_y_continuous(trans="log")+
+  ylab("Lasso HR")+
+  xlab("Predictors")+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ggtitle("DFS")+
+  scale_color_brewer(palette = "Set1")
+  scale_color_manual(values = metadata(sce)$colors$cluster_110, limits = force, na.value = "black")
+lasso_plot
 ```
 
 # 6. Image visualization
@@ -1993,11 +2032,11 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 ##IMPORTANT: change to chunk output in console for this last part 
 
 ##save plots as pdf (vector graphics)
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_ClusterTesting.pdf",width = 10,height = 5)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CC_ClusterTesting.pdf",width = 10,height = 5)
 p1+p2+p3
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_Silhouette_Cluster100.pdf",width = 12,height = 10)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CC_Silhouette_Cluster110.pdf",width = 12,height = 10)
 p4
 dev.off()
 
@@ -2005,59 +2044,23 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_C
 h
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_HeatmapCluster_Scales.pdf",width = 20,height = 8)
-h_exprs+h_min_max
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CC_PIDMetaCluster_ClusterCor.pdf",width = 12,height = 10)
+(d_PID+SID_metacluster_cor_plot)/
+(d_dens_PID+SID_metacluster_dens_cor_plot)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_ClusterAnno.pdf",width = 5,height = 8)
-h_cluster_anno
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CC_PIDMetaCluster_CountHeatmap.pdf",width = 8,height = 6)
+Heatmap(for_plot_MC, 
+        name = "log(cell_count)",
+        col = viridis(100)
+        )
 dev.off()
 
-pdf("/Volumes/rcc_volume/TNBC/data_analysis/01_figures/06_tumor//TNBC_249_Tumor_CC_HeatmapCluster_subcells.pdf",width = 10,height = 8)
-dittoHeatmap(sce_sub, 
-             genes = rownames(sce_sub)[rowData(sce_sub)$cluster_channel],
-             assay = "min_max", 
-             scale = "none", 
-             order.by = "cluster_100", 
-             heatmap.colors = viridis(100), 
-             annot.by = c("cluster_100"),
-             annot.colors=col_clusters$cluster_100[order(as.numeric(names(col_clusters$cluster_100)))])
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CC_PIDMetaClusterVSShannon.pdf",width = 4,height = 8)
+n_MC_PID/shannon_MC_PID
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_ExpressionCor.pdf",width = 10,height = 8)
-corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, name="RdBu"),  
-         type="upper", order="hclust",hclust.method = "ward.D2", 
-         addCoef.col = "black", addCoefasPercent = F,# Add coefficient of correlation
-         tl.col="black", tl.srt=40, #Text label color and rotation
-         # Combine with significance
-         #p.mat = p.mat, sig.level = 0.01, insig = "blank", 
-         # hide correlation coefficient on the principal diagonal
-         diag=F
-)
-dev.off()
-
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_TSNECluster_Metacluster.pdf",width = 12,height = 6)
-TSNE_clus+TSNE_metaclus
-dev.off()
-
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_TSNEExpression.pdf",width = 12,height = 6)
-exp_plots_TSNE
-dev.off()
-
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_UMAPExpression.pdf",width = 12,height = 6)
-exp_plots_UMAP
-dev.off()
-
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_MetaClusterPID.pdf",width = 10,height = 10)
-p_clusterPID/p_metaclusterPID
-dev.off()
-
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_PIDMetaCluster_ClusterCor.pdf",width = 12,height = 10)
-(p_PID_cluster+SID_cluster_cor_plot)/
-(p_PID_metacluster + SID_metacluster_cor_plot)
-dev.off()
-
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Meta_HR_OS.pdf",width = 8,height = 7)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Meta_HR_DFS.pdf",width = 8,height = 7)
 hr_prop/
 hr_mean
 dev.off()
@@ -2067,37 +2070,37 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_MC4_Kapla
 p1
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_ClusterMeta_HR_DFS.pdf",width = 10,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_ClusterMeta_HR_DFS.pdf",width = 8,height = 6)
 hr_prop/
 hr_cat/
 hr_cat_GMM
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_Heatmap_metaClus_PIDgroups.pdf",width = 8,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_Heatmap_metaClus_PIDgroups.pdf",width = 8,height = 8)
 h_g_meta
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_Heatmap_Clus_PIDgroups.pdf",width = 8,height = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_Heatmap_Clus_PIDgroups.pdf",width = 8,height = 8)
 h_g_clus
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_HeatmapPIDgroups_mean.pdf",width = 11,height = 7)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_HeatmapPIDgroups_mean.pdf",width = 11,height = 7)
 h_g_rich
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_HeatmapPIDgroupsCLR.pdf",width = 11,height = 7)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_HeatmapPIDgroupsCLR.pdf",width = 11,height = 7)
 h_g_1
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_HeatmapPIDgroupsCLR_mean.pdf",width = 11,height = 7)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_HeatmapPIDgroupsCLR_mean.pdf",width = 11,height = 7)
 h_g_rich_clr
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_PIDgroups_Clus_OS.pdf",width = 8,height = 5)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_PIDgroups_Clus_OS.pdf",width = 8,height = 5)
 plot_OS
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_249_Tumor_CC_PIDgroups_Clus_DFS.pdf",width = 8,height = 5)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_PIDgroups_Clus_DFS.pdf",width = 8,height = 5)
 plot_DFS
 dev.off()
 
