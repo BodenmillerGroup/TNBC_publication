@@ -67,8 +67,7 @@ Data from GSE161529 - 8 TNBC patients (4 BRCA-/+) - Pal et al. (2021, EMBO Journ
 ```{r}
 library(DropletUtils)
 
-dir_data <- list.files("/mnt/tnbc_volume/GSE161529", full.names = TRUE)[1:8]
-
+dir_data <- list.files("/mnt/tnbc_volume/GSE161529", full.names = TRUE)[2:9]
 
 sce <- read10xCounts(dir_data)
 sce
@@ -134,16 +133,16 @@ sce <- addPerCellQCMetrics(sce, subsets=list(Mito=is.mito))
 qc_detected <- df$detected < 500
 qc_mito <- df$subsets_Mito_percent > 20
 
-# Overview
-DataFrame(qc_mito =sum(qc_mito), qc_detected = sum(qc_detected),Total=sum(discard))
-
 # Adaptive thresholds (based on median absolute deviations)
 reasons <- perCellQCFilters(df, 
     sub.fields=c("subsets_Mito_percent"))
 
-discard <- qc_sum | qc_mito | reasons$discard
+discard <- qc_detected | qc_mito | reasons$discard
 
 summary(discard)
+
+# Overview
+DataFrame(qc_mito =sum(qc_mito), qc_detected = sum(qc_detected),Total=sum(discard))
 
 # Subset sce
 sce <- sce[,!discard]
@@ -188,8 +187,7 @@ library(scater)
 set.seed(22)
 
 #Use 30 PCs for denoising 
-sce <- runPCA(sce, ncomponents=30, subset_row=hvg_sce)
-sce <- runPCA(sce, ncomponents=30, subset_row=hvg_sce)
+sce <- runPCA(sce, ncomponents=30, subset_row=hvg_sce)<
 
 #Run UMAP and TSNE on selected PCs
 sce <- runUMAP(sce, subset_row = hvg_sce, n_neighbors = 30, dimred = "PCA", exprs_values = "logcounts", external_neighbors=TRUE, BPPARAM = MulticoreParam())
@@ -218,88 +216,171 @@ reducedDim(sce, "fastMNN") <- reducedDim(out, "corrected")
 
 # Visualize 
 sce <- runTSNE(sce, subset_row = rowData(sce)$HVG, dimred = "fastMNN", name = "TSNE_MNN",BPPARAM = MulticoreParam())
-plotReducedDim(sce, dimred="TSNE_MNN", colour_by="cluster_70")
+plotReducedDim(sce, dimred="TSNE_MNN", colour_by="PID")
 ```
 
-# 7. Graph-based clustering 
+# 7. Distinguish epithelial and non-epithelial cells 
 
-## First step: Distinguish tumor and non-tumor cells 
+## Clustering
 
-# Clustering 
 ```{r}
-graph_clust <- clusterCells(x = sce, use.dimred = "TSNE_MNN",
+graph_clust <- clusterCells(x = sce, use.dimred = "fastMNN",
                       BLUSPARAM = NNGraphParam(k=30,
                                                cluster.fun ="louvain",
                                                type="jaccard",
                                                BPPARAM=MulticoreParam(workers = 20)))
 sce$cluster_30 <- graph_clust                   
+length(unique(sce$cluster_30))
 
-graph_clust <- clusterCells(x = sce, use.dimred = "TSNE_MNN",
-                      BLUSPARAM = NNGraphParam(k=50,
-                                               cluster.fun ="louvain",
-                                               type="jaccard",
-                                               BPPARAM=MulticoreParam(workers = 20)))
-                      
-sce$cluster_50 <- graph_clust
-
-graph_clust <- clusterCells(x = sce, use.dimred = "TSNE_MNN",
-                      BLUSPARAM = NNGraphParam(k=70,
-                                               cluster.fun ="louvain",
-                                               type="jaccard",
-                                               BPPARAM=MulticoreParam(workers = 20)))
-                      
-sce$cluster_70 <- graph_clust
+plotReducedDim(sce, dimred="TSNE_MNN", colour_by="cluster_30", text_by = "cluster_30")
 ```
 
-# GMM for EPCAM
+## GMM for EPCAM/KRT5/KRT8
+
+We will use a two component gaussian mixture model to distinguish between tumor (EPCAM+) and stromal (EPCAM-) cells. 
+
+```{r GMM_CK, message=FALSE,warning=FALSE}
+## Gaussian mixture model to distinguish tumor/stroma based on EPCAM expression
+GMM_epi <- Mclust(assay(sce, "logcounts")["EPCAM",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_epi$classification == 2, #& GMM_epi$uncertainty == 0, 
+                                        "EPCAM+",
+                                        "EPCAM-"), 
+                     EPCAM_exprs = assay(sce, "logcounts")["EPCAM",],
+                     uncertainty = GMM_epi$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = EPCAM_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_EPCAM <- GMM_df$class_epi
+
+plotReducedDim(sce, dimred="TSNE_MNN", colour_by="GMM_EPCAM")
+
+## Gaussian mixture model to distinguish tumor/stroma based on KRT5 (basal) expression
+GMM_epi <- Mclust(assay(sce, "logcounts")["KRT5",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_epi$classification == 2, #& GMM_epi$uncertainty == 0, 
+                                        "KRT5+",
+                                        "KRT5-"), 
+                     KRT5_exprs = assay(sce, "logcounts")["KRT5",],
+                     uncertainty = GMM_epi$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT5_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_KRT5 <- GMM_df$class_epi
+
+plotReducedDim(sce, dimred="TSNE_MNN", colour_by="GMM_KRT5")
+
+## Gaussian mixture model to distinguish tumor/stroma based on KRT8 (luminal) expression
+GMM_epi <- Mclust(assay(sce, "logcounts")["KRT8",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_epi$classification == 2, #& GMM_epi$uncertainty == 0, 
+                                        "KRT8+",
+                                        "KRT8-"), 
+                     KRT8_exprs = assay(sce, "logcounts")["KRT8",],
+                     uncertainty = GMM_epi$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT8_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_KRT8 <- GMM_df$class_epi
+
+plotReducedDim(sce, dimred="TSNE_MNN", colour_by="GMM_KRT8")
+
+```
+
+## Define and visualize analysis categories 
+
+Heatmap with clustering and GMM information 
 
 ```{r}
-saveRDS(sce, "/mnt/tnbc_volume/GSE161529/data_analysis/sce_scRNA_clus.rds")
+### 1. Heatmap body ###
+
+# Min-Max [0,1] normalization of arcsinh-transformed counts
+assay(sce, "min_max") <- assay(sce, "logcounts") - rowMins(assay(sce, "logcounts"))
+assay(sce, "min_max") <- assay(sce, "min_max") / (rowMaxs(assay(sce, "logcounts")) - rowMins(assay(sce, "logcounts")))
+
+# Aggregrate across cells with the mean
+mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_30,
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rowData(sce)$Symbol %in% c("EPCAM","KRT5","KRT8","KRT7","KRT18"))
+
+# Heatmap body color 
+col_exprs <- colorRamp2(c(0,1,2,3), c("#440154FF", "#31688EFF", "#35B779FF", "#FDE725FF"))
+
+
+### 2. Heatmap annotation ###
+
+### 2.1 Metadata features
+
+#Number of cells per cluster 
+n_cells <- colData(mean_sce) %>% as.data.frame %>% select(cluster_30, ncells)
+
+#Define analysis categories based on GMM 
+nr_EPCAM <- colData(sce) %>% as.data.frame %>% select(cluster_30, GMM_EPCAM) %>% table()
+fr_EPCAM <- as.data.frame(nr_EPCAM) %>% pivot_wider(names_from = GMM_EPCAM, values_from = Freq) %>% column_to_rownames("cluster_30")
+fr_EPCAM <- fr_EPCAM %>% transmute(fr_EPCAM = `EPCAM+`/rowSums(fr_EPCAM)) %>% as.data.frame()
+
+nr_KRT5 <- colData(sce) %>% as.data.frame %>% select(cluster_30, GMM_KRT5) %>% table()
+fr_KRT5 <- as.data.frame(nr_KRT5) %>% pivot_wider(names_from = GMM_KRT5, values_from = Freq) %>% column_to_rownames("cluster_30")
+fr_KRT5 <- fr_KRT5 %>% transmute(fr_KRT5 = `KRT5+`/rowSums(fr_KRT5)) %>% as.data.frame()
+
+nr_KRT8 <- colData(sce) %>% as.data.frame %>% select(cluster_30, GMM_KRT8) %>% table()
+fr_KRT8 <- as.data.frame(nr_KRT8) %>% pivot_wider(names_from = GMM_KRT8, values_from = Freq) %>% column_to_rownames("cluster_30")
+fr_KRT8 <- fr_KRT8 %>% transmute(fr_KRT8 = `KRT8+`/rowSums(fr_KRT8)) %>% as.data.frame()
+
+anno_cluscat <- cbind(fr_EPCAM,fr_KRT5,fr_KRT8) 
+anno_cluscat <- anno_cluscat %>% mutate(cluster_30 = rownames(anno_cluscat))
+anno_cluscat$max <- anno_cluscat %>% pivot_longer(names_to = "GMM", values_to = "fra",cols = 1:3) %>% group_by(cluster_30) %>% mutate(max = max(fra)) %>% select(cluster_30, max) %>% unique() %>% pull(max)
+
+# Define analysis_cat 
+anno_cluscat <- anno_cluscat %>% 
+  mutate(cluster_category = ifelse(max >= 0.4,"Epithelial","Non-Epithelial"))
+
+# Add to sce
+sce$analysis_cat <- anno_cluscat$cluster_category[match(sce$cluster_30, anno_cluscat$cluster_30)]
+
+analysis_cat <- setNames(c("#E41A1C", "#377EB8"),sort(unique(sce$analysis_cat)))                                  
+metadata(sce)$colors$analysis_cat <- analysis_cat 
+
+# Visualize on TSNE
+plotReducedDim(sce, dimred="TSNE_MNN", colour_by="analysis_cat")+
+  scale_color_manual(values = metadata(sce)$colors$analysis_cat)
+
+# Visualize as Heatmap 
+
+Heatmap((t(assay(mean_sce, "logcounts"))))
+
+h <- Heatmap(t(assay(mean_sce, "logcounts")),
+        col = col_exprs,
+        name= "logcounts",
+        show_row_names = T, 
+        show_column_names =  T, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  rowAnnotation(clus_cat = anno_simple(anno_cluscat$cluster_category, col = metadata(sce)$colors$analysis_cat))
+draw(h)
 ```
 
-
-# 8. Downstream analysis 
+Save sce after QC 
 
 ```{r}
-plotReducedDim(sce, dimred = "TSNE_MNN", 
-               colour_by = "KRT5", 
-               by_exprs_values = "logcounts",
-               point_size = 0.5)
-
-plotReducedDim(sce, dimred = "TSNE_MNN", 
-               colour_by = "KRT7", 
-               by_exprs_values = "logcounts",
-               point_size = 0.5)
-
-plotReducedDim(sce, dimred = "TSNE_MNN", 
-               colour_by = "KRT8", 
-               by_exprs_values = "logcounts",
-               point_size = 0.5)
-
-plotReducedDim(sce, dimred = "TSNE_MNN", 
-               colour_by = "KRT18", 
-               by_exprs_values = "logcounts",
-               point_size = 0.5)
-
-cur_dat <- t(assay(sce,"logcounts")) %>% as.data.frame %>% select("KRT5","KRT7")
-
-dittoScatterPlot(
-    object = sce,
-    x.var = "KRT7", y.var = "KRT5",
-    color.var = "PID")
-
-
-summary(rownames(sce) == "KRT5")
-
-
-ggplot(cur_dat, aes(x=KRT7, y=KRT5)) +
-  geom_point(alpha = 0.5)+
-  #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "count")+
-  theme_classic()
-
-ggplot(cur_dat, aes(x=KRT7, y=KRT5)) +
-  geom_point(alpha = 0.5)+
-  stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "count")+
-  theme_classic()
+saveRDS(sce, "/mnt/tnbc_volume/GSE161529/data_analysis/sce_scRNA_anacat.rds")
 ```
-
