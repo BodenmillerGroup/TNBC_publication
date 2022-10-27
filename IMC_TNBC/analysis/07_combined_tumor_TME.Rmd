@@ -1415,6 +1415,66 @@ dittoBarPlot(sce, var = "spatial_metacommunity", group.by = "PID")+
   theme(axis.text.x = element_blank())
 ```
 
+## Metacommunity size analysis
+
+```{r}
+# Mean Metacommunity cell number - per PID
+com_size <- colData(sce) %>% as.data.frame %>% select(PID, cell_id, spatial_metacommunity) %>% filter(!is.na(spatial_metacommunity)) %>% group_by(PID, spatial_metacommunity) %>% count() 
+
+com_tumor_size <- com_size %>% filter(str_detect(spatial_metacommunity,"tumor_"))
+
+ggplot(com_tumor_size, aes(x = reorder(spatial_metacommunity,n), y = n))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = spatial_metacommunity), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  #coord_cartesian(ylim = c(3,13))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ylab("Mean metacommunity cell number per PID")+
+  stat_compare_means(method = "kruskal.test")
+
+# Mean metacommunity density - per PID
+com_size$tissue_area <- sce$tissue_area[match(com_size$PID, sce$PID)]
+com_density <- com_size %>% mutate(density = n/(tissue_area/1000000))
+
+com_tumor_density <- com_density %>% filter(str_detect(spatial_metacommunity,"tumor_"))
+
+ggplot(com_tumor_density, aes(x = reorder(spatial_metacommunity,density), y = density))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = spatial_metacommunity), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  #coord_cartesian(ylim = c(3,13))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ylab("Mean metacommunity density per PID")+
+  stat_compare_means(method = "kruskal.test")
+
+
+# Number of cells per metacommunity - per Community
+com_1 <- colData(sce) %>% as.data.frame %>% select(PID, spatial_metacommunity, spatial_community) %>% filter(!is.na(spatial_metacommunity)) %>% group_by(PID, spatial_metacommunity, spatial_community) %>% count() 
+
+com_1 <- com_1 %>% filter(str_detect(spatial_metacommunity,"tumor_"))
+ggplot(com_1, aes(x = reorder(spatial_metacommunity,n), y = log10(n)))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = spatial_metacommunity), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ylab("Number of cells per metacommunity")+
+  stat_compare_means(method = "kruskal.com_1")
+
+# Metacommunity cell density - per Community
+com_1$tissue_area <- sce$tissue_area[match(com_1$PID, sce$PID)]
+com_1 <- com_1 %>% mutate(density = n/(tissue_area/1000000))
+com_1 <- com_1 %>% filter(str_detect(spatial_metacommunity,"tumor_"))
+
+ggplot(com_1, aes(x = reorder(spatial_metacommunity,density), y = log10(density)))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = spatial_metacommunity), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  #coord_cartesian(ylim = c(3,13))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ylab("Metacommunity density per PID")+
+  stat_compare_means(method = "kruskal.com_1")
+```
+
 ## Survival analysis 
 
 ### For OS on community proportions
@@ -1791,7 +1851,7 @@ Heatmap(out_viz,
 
 ## Detect Patch
 
-Example: For Tumor_6 
+### Example: For Tumor_6 
 
 ```{r patch}
 ## Patch detection
@@ -1816,7 +1876,7 @@ plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_b
 plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "patch_tumor_6") #Patch
 ```
 
-For Tumor patches in general 
+### For Tumor patches in general 
 
 ```{r patch}
 ## Combine tumor clusters 
@@ -1845,10 +1905,67 @@ plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_b
 plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "patch_tumor") #Patch
 ```
 
+### All phenotypes 
+
+```{r patch-milieu}
+# Patch detection for all phenotypes
+
+for(i in unfactor(unique(sce$metacluster_combined))){ 
+  sce <- patchDetection(sce,
+               patch_cells = sce$metacluster_combined == i,
+               colPairName = "knn_interaction_graph",
+               min_patch_size = 10,
+               name = paste0("patch_",i),
+               expand_by = 0, 
+               img_id = "sample_id",
+               BPPARAM = MulticoreParam(workers = 20))
+}
+
+#subset sce to 20 images with most cluster cells
+#cur_sam <- colData(sce) %>% as.data.frame %>% select(sample_id, metacluster_combined) %>% filter(metacluster_combined == "tumor_6") %>% group_by(metacluster_combined) %>% count(sample_id) %>% arrange(desc(n)) %>% slice(1:10) %>% pull(sample_id)
+
+#Visualize
+#plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "metacluster_combined")+
+#  scale_color_manual(values = metadata(sce)$colors$metacluster_combined) #Cell Types
+#plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "patch_tumor_6") #Patch
+#plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "milieu_tumor_6") #Milieu
+```
+
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
 saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
+
+## Patch size analysis 
+
+```{r}
+library(ggpubr)
+
+size_plot <- colData(sce) %>% as.data.frame %>% select(PID, cell_id, contains("patch_")) %>% pivot_longer(cols = 3:ncol(.),names_to = "patch_name", values_to = "patch_ID") %>% filter(!is.na(patch_ID)) %>% group_by(PID, patch_name, patch_ID) %>% count() 
+
+# Mean tumor patch size per PID 
+size_tumor_plot <- size_plot %>% filter(str_detect(patch_name,"patch_tumor_")) %>% group_by(PID,patch_name) %>% mutate(mean_PID = mean(n), median_PID = median(n)) %>% select(patch_name,mean_PID) %>% unique()
+
+ggplot(size_tumor_plot, aes(x = reorder(patch_name,mean_PID), y = log2(mean_PID)))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = patch_name), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  coord_cartesian(ylim = c(3,13))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  stat_compare_means(method = "kruskal.test", label.y = 12.5)
+
+# Mean TME patch size per PID 
+size_TME_plot <- size_plot %>% filter(!str_detect(patch_name,"patch_tumor_") & !str_detect(patch_name,"patch_MC")) %>% group_by(PID,patch_name) %>% mutate(mean_PID = mean(n), median_PID = median(n)) %>% select(patch_name,mean_PID) %>% unique()
+
+ggplot(size_TME_plot, aes(x = reorder(patch_name,mean_PID), y = log2(mean_PID)))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = patch_name), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  coord_cartesian(ylim = c(3,13))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  stat_compare_means(method = "kruskal.test", label.y = 12.5)
+```
+
 
 ## Patch distance analysis 
 
@@ -1968,34 +2085,6 @@ ggplot(test_df, aes(mean, color = metacluster_combined))+
 ```
 
 ## Detect Milieu
-
-```{r patch-milieu}
-# Milieu detection ("expanded" patch)
-
-library(doParallel)
-registerDoParallel(cores = 3)
-
-foreach(i = unfactor(unique(sce$metacluster_combined)))%dopar%{ 
-  
-  sce <- patchDetection(sce,
-               patch_cells = sce$metacluster_combined == i,
-               colPairName = "knn_interaction_graph",
-               min_patch_size = 10,
-               name = paste0("milieu_",i),
-               expand_by = 30, 
-               img_id = "sample_id",
-               BPPARAM = MulticoreParam(workers = 5))
-}
-
-#subset sce to 20 images with most cluster cells
-#cur_sam <- colData(sce) %>% as.data.frame %>% select(sample_id, metacluster_combined) %>% filter(metacluster_combined == "tumor_6") %>% group_by(metacluster_combined) %>% count(sample_id) %>% arrange(desc(n)) %>% slice(1:10) %>% pull(sample_id)
-
-#Visualize
-#plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "metacluster_combined")+
-#  scale_color_manual(values = metadata(sce)$colors$metacluster_combined) #Cell Types
-#plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "patch_tumor_6") #Patch
-#plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "milieu_tumor_6") #Milieu
-```
 
 ### Milieu enrichment analysis 
 

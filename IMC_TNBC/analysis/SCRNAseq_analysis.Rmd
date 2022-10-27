@@ -310,6 +310,9 @@ plotReducedDim(sce, dimred="TSNE_MNN", colour_by="GMM_KRT8")
 Heatmap with clustering and GMM information 
 
 ```{r}
+
+sce <- readRDS("/mnt/tnbc_volume/GSE161529/data_analysis/sce_scRNA_anacat.rds")
+
 ### 1. Heatmap body ###
 
 # Min-Max [0,1] normalization of arcsinh-transformed counts
@@ -320,7 +323,7 @@ assay(sce, "min_max") <- assay(sce, "min_max") / (rowMaxs(assay(sce, "logcounts"
 mean_sce <- aggregateAcrossCells(sce, ids = sce$cluster_30,
                                  statistics = "mean",
                                  use.assay.type = "logcounts",
-                                 subset.row = rowData(sce)$Symbol %in% c("EPCAM","KRT5","KRT8","KRT7","KRT18"))
+                                 subset.row = rowData(sce)$Symbol %in% c("EPCAM"))
 
 # Heatmap body color 
 col_exprs <- colorRamp2(c(0,1,2,3), c("#440154FF", "#31688EFF", "#35B779FF", "#FDE725FF"))
@@ -352,7 +355,7 @@ anno_cluscat$max <- anno_cluscat %>% pivot_longer(names_to = "GMM", values_to = 
 
 # Define analysis_cat 
 anno_cluscat <- anno_cluscat %>% 
-  mutate(cluster_category = ifelse(max >= 0.4,"Epithelial","Non-Epithelial"))
+  mutate(cluster_category = ifelse(fr_EPCAM >= 0.3,"Epithelial","Non-Epithelial"))
 
 # Add to sce
 sce$analysis_cat <- anno_cluscat$cluster_category[match(sce$cluster_30, anno_cluscat$cluster_30)]
@@ -365,8 +368,6 @@ plotReducedDim(sce, dimred="TSNE_MNN", colour_by="analysis_cat")+
   scale_color_manual(values = metadata(sce)$colors$analysis_cat)
 
 # Visualize as Heatmap 
-
-Heatmap((t(assay(mean_sce, "logcounts"))))
 
 h <- Heatmap(t(assay(mean_sce, "logcounts")),
         col = col_exprs,
