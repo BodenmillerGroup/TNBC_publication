@@ -172,6 +172,7 @@ PID_DFS_1 <- ggsurvplot(fit,
 
 PID_DFS_1
 ```
+
 ```{r coxph dfs}
 ### Multivariate cox proportional hazard model on multiple covariates (here PID groups)
 PID_metagroups <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,PID) %>% group_by(PID) %>% table() %>% as.data.frame

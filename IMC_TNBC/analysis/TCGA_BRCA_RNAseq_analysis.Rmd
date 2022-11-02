@@ -1,0 +1,348 @@
+---
+title: "TCGA_BRCA_RNAseq_analysis"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# TCGA BRCA dataset analysis 
+
+## Load data 
+
+```{r}
+library(SummarizedExperiment)
+library(TCGAbiolinks)
+
+query.exp <- GDCquery(
+    project = "TCGA-BRCA", 
+    data.category = "Transcriptome Profiling",
+    data.type = "Gene Expression Quantification", 
+    workflow.type = "STAR - Counts",
+    sample.type = c("Primary Tumor")
+)
+
+GDCdownload(
+    query = query.exp,
+    files.per.chunk = 100
+)
+
+brca.exp <- GDCprepare(
+    query = query.exp, 
+    save = TRUE, 
+    save.filename = "brcaExp.rda"
+)
+```
+
+## Add clinical/survival info
+
+```{r}
+brca.exp$PID <- str_split(brca.exp$patient,"-",simplify = TRUE)[,3]
+
+# Clean object
+brca.clean <- brca.exp
+colData(brca.clean) <- NULL
+brca.clean$PID <- brca.exp$PID
+
+# 1. Add clinical information 
+## Cleaned clinical information from UCSC Xena
+information.subtype.xena <- read_delim("/mnt/rcc_volume/TNBC/data_analysis/03_data/BRCA_clinicalinfo.txt")
+information.subtype.xena <- information.subtype.xena %>% as.data.frame
+
+## Add relevant data based on PID
+for (entry in colnames(information.subtype.xena)[colnames(information.subtype.xena) %in% c("ER_Status_nature2012","PR_Status_nature2012","HER2_Final_Status_nature2012","Metastasis_nature2012","Tumor_nature2012","Node_nature2012","PAM50Call_RNAseq","PAM50_mRNA_nature2012")]) {
+  colData(brca.clean)[,entry] <- information.subtype.xena[,entry][match(colData(brca.clean)[,"PID"],information.subtype.xena$patient_id)]
+}
+
+# 2. Add survival information 
+## Cleaned survival information from UCSC Xena
+information.survival_xena <- read_delim("/mnt/rcc_volume/TNBC/data_analysis/03_data/BRCA_survival_Xena.txt")
+information.survival_xena$PID <- str_split(information.survival_xena$sample,"-",simplify = TRUE)[,3]
+information.survival_xena <- information.survival_xena %>% as.data.frame
+
+for (entry in colnames(information.survival_xena)[!colnames(information.survival_xena) %in% c("sample","_PATIENT","Redaction","PID")]) {
+  colData(brca.clean)[,entry] <- information.survival_xena[,entry][match(colData(brca.clean)[,"PID"],information.survival_xena$PID)]
+}
+
+colData(brca.clean)
+
+# # Subtype information from TCGA
+# infomation.subtype <- TCGAquery_subtype(tumor = "BRCA")
+# # Survival information from TCGA
+# information.clinical <- GDCquery_clinic(project = "TCGA-BRCA",type = "clinical") 
+```
+
+## Filter dataset for TNBC and basal-like
+
+```{r}
+brca.clean$TNBC <- ifelse(brca.clean$ER_Status_nature2012 == "Negative" & brca.clean$PR_Status_nature2012 == "Negative" & brca.clean$HER2_Final_Status_nature2012 == "Negative", "TNBC", "Not_TNBC")
+brca.clean$TNBC[is.na(brca.clean$TNBC)] <- "Undefined"
+
+# TNBC 
+tnbc.clean <- brca.clean[,brca.clean$TNBC == "TNBC"]
+tnbc.clean # 122 patients
+
+# Basal
+brca.clean$PAM50Call_RNAseq[is.na(brca.clean$PAM50Call_RNAseq)] <- "Undefined"
+basal.clean <- brca.clean[,brca.clean$PAM50Call_RNAseq == "Basal"]
+basal.clean # 143 patients
+```
+
+## DESeq2 processing
+
+### 1. TCGA BRCA - full dataset 
+1106 patients 
+
+```{r}
+library(DESeq2)
+brca.clean$PAM50Call_RNAseq[is.na(brca.clean$PAM50Call_RNAseq)] <- "Undefined"
+
+# Create DESeqDataset
+ddsSE <- DESeqDataSet(brca.clean, design = ~ PAM50Call_RNAseq)
+
+ddsSE
+
+# DESeq analysis includes count normalization based on size factors
+res <- DESeq(ddsSE)
+
+rownames(res) <- rowData(res)$gene_name
+DESeq2::plotCounts(res, gene = "KRT7", intgroup = "PAM50Call_RNAseq")
+DESeq2::plotCounts(res, gene = "KRT5", intgroup = "PAM50Call_RNAseq")
+
+# Variance-stabilizing transformation
+vsd <- DESeq2::vst(res)
+
+DESeq2::plotPCA(vsd, intgroup = "PAM50Call_RNAseq")
+#DESeq2::plotPCA(vsd, intgroup = "KRT5_7_score")
+
+# Access normalized and stabilized counts
+mat <- assay(vsd)
+```
+
+```{r}
+saveRDS(vsd,"/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full.rds")
+```
+
+### 2. TCGA BRCA - TNBC dataset 
+122 patients
+
+```{r}
+library(DESeq2)
+brca.clean$PAM50Call_RNAseq[is.na(brca.clean$PAM50Call_RNAseq)] <- "Undefined"
+
+# Create DESeqDataset
+ddsSE <- DESeqDataSet(brca.clean, design = ~ PAM50Call_RNAseq)
+
+ddsSE
+
+# DESeq analysis includes count normalization based on size factors
+res <- DESeq(ddsSE)
+
+rownames(res) <- rowData(res)$gene_name
+DESeq2::plotCounts(res, gene = "KRT7", intgroup = "PAM50Call_RNAseq")
+DESeq2::plotCounts(res, gene = "KRT5", intgroup = "PAM50Call_RNAseq")
+
+# Variance-stabilizing transformation
+vsd <- DESeq2::vst(res)
+
+DESeq2::plotPCA(vsd, intgroup = "PAM50Call_RNAseq")
+#DESeq2::plotPCA(vsd, intgroup = "KRT5_7_score")
+
+# Access normalized and stabilized counts
+mat <- assay(vsd)
+```
+
+## CK5/7 Signature 
+
+GMM on normalized (NOT stabilized) counts (okay?)
+
+```{r}
+# 1. CK5
+GMM_CK5 <- Mclust(counts(res, normalized = TRUE)["KRT5",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK5$classification == 2, 
+                                        "KRT5+",
+                                        "KRT5-"), 
+                     KRT5_exprs = assay(vsd)["KRT5",],
+                     uncertainty = GMM_CK5$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT5_exprs, fill = class_epi))+
+  geom_density()+
+  geom_rug(aes(color = class_epi))+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")
+
+#Add GMM epi class to object
+vsd$GMM_KRT5 <- GMM_df$class_epi
+
+# 2. CK7
+GMM_CK7 <- Mclust(counts(res, normalized = TRUE)["KRT7",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK7$classification == 2, 
+                                        "KRT7+",
+                                        "KRT7-"), 
+                     KRT7_exprs = assay(vsd)["KRT7",],
+                     uncertainty = GMM_CK7$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT7_exprs, fill = class_epi))+
+  geom_density()+
+  geom_rug(aes(color = class_epi))+
+  theme_classic(base_size = 17)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")
+
+#Add GMM epi class to object
+vsd$GMM_KRT7 <- GMM_df$class_epi
+
+## Combine KRT5/7 GMM scores 
+vsd$KRT5_7_score <- ifelse(vsd$GMM_KRT5 == "KRT5+" & vsd$GMM_KRT7 == "KRT7+", "KRT5/7+", 
+       ifelse(vsd$GMM_KRT5 == "KRT5+" & vsd$GMM_KRT7 == "KRT7-", "KRT5+",
+              ifelse(vsd$GMM_KRT5 == "KRT5-" & vsd$GMM_KRT7 == "KRT7+", "KRT7+","KRT5/7-")))
+
+## Visualize 
+plot <- as.data.frame(t(assay(vsd)[rownames(assay(vsd)) %in% c("KRT5","KRT7"),]))
+plot$KRT5_7_score <- vsd$KRT5_7_score[match(rownames(plot),colnames(vsd))]
+plot$PAM50Call_RNAseq <- vsd$PAM50Call_RNAseq[match(rownames(plot),colnames(vsd))]
+plot$TNBC <- vsd$TNBC[match(rownames(plot),colnames(vsd))]
+
+ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
+  geom_point(size = 2)+
+  #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
+  theme_classic()+
+  xlab("CK7 counts")+
+  ylab("CK5 counts")
+  #coord_cartesian(xlim = c(5,20), ylim = c(5,20))
+
+ggplot(plot, aes(x=KRT7, y=KRT5, color = PAM50Call_RNAseq)) +
+  geom_point(size = 2)+
+  #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
+  theme_classic()+
+  xlab("CK7 counts")+
+  ylab("CK5 counts")
+  #coord_cartesian(xlim = c(5,20), ylim = c(5,20))
+
+ggplot(plot, aes(x=KRT7, y=KRT5, color = TNBC)) +
+  geom_point(size = 2)+
+  #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
+  theme_classic()+
+  xlab("CK7 counts")+
+  ylab("CK5 counts")
+  #coord_cartesian(xlim = c(5,20), ylim = c(5,20))
+```
+## Survival analysis 
+
+```{r}
+#Assess survival impact 
+library(survival)
+library(survminer)
+
+cur_surv <- colData(vsd) %>% as.data.frame() %>% select(PID, KRT5_7_score, DFI, DFI.time, OS, OS.time, DSS, DSS.time, PFI, PFI.time) #%>% filter(!KRT5_7_score %in% c("KRT5+","KRT7+"))
+
+#Plot survival curves
+fit <- survfit(Surv(DFI.time, DFI) ~ KRT5_7_score, data = cur_surv)
+print(fit)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          #palette = "Set1",
+          log.rank.weights = "n")
+
+#Plot survival curves
+fit_1 <- survfit(Surv(PFI.time, PFI) ~ KRT5_7_score, data = cur_surv)
+print(fit_1)
+
+ggsurvplot(fit_1,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          #palette = "Set1",
+          log.rank.weights = "n")
+```
+## Cox model 
+
+```{r}
+### Multivariate cox proportional hazard model on multiple covariates (here PID groups)
+PID_metagroups <- colData(vsd) %>% as.data.frame() %>% select(KRT5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "KRT5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+
+colnames(PID_metagroups) <- c("KRT57negative","KRT57positive","KRT5positive","KRT7positive")
+
+## 1. Based on SCP assignments
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$DFI <- vsd$DFI[match(rownames(Cox_df),vsd$PID)]
+Cox_df$DFI.time <- vsd$DFI.time[match(rownames(Cox_df),vsd$PID)]
+
+Cox_df$pT_simple <- as.factor(vsd$Tumor_nature2012[match(rownames(Cox_df),vsd$PID)])
+Cox_df$pN_simple <- as.factor(vsd$Node_nature2012[match(rownames(Cox_df),vsd$PID)])
+Cox_df$pM_simple <- as.factor(vsd$Metastasis_nature2012[match(rownames(Cox_df),vsd$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-DFI,-DFI.time, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFI.time, DFI) ~ pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("SCP")+
+ylab("HR for PID groups")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+```
+
+## Barplot visualization 
+
+```{r}
+dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "TNBC")
+dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "TNBC", scale = "count")
+
+dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "PAM50Call_RNAseq")
+dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "PAM50Call_RNAseq", scale = "count")
+  
+dittoBarPlot(vsd, var = "PAM50Call_RNAseq", group.by = "KRT5_7_score")
+dittoBarPlot(vsd, var = "PAM50Call_RNAseq", group.by = "KRT5_7_score", scale = "count")
+
+dittoBarPlot(vsd, var = "TNBC", group.by = "KRT5_7_score")
+dittoBarPlot(vsd, var = "TNBC", group.by = "KRT5_7_score", scale = "count")
+```
+

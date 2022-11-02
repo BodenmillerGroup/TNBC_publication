@@ -194,7 +194,6 @@ plotCells(mask = masks[img_ids],
           thick = TRUE)
 ```
 
-
 # 3. Spatial analysis
 
 ```{r load combined sce}

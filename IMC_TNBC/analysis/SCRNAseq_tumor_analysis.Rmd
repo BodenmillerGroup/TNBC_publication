@@ -135,8 +135,11 @@ sce$tumor_cluster_90 <- graph_clust
 # Define cluster colors
 cluster_col <- setNames(colorRampPalette(brewer.pal(9, "Paired"))(length(unique(sce$tumor_cluster_90))),unique(sce$tumor_cluster_90))
 
+plotReducedDim(sce, dimred="TSNE_MNN_tumor", colour_by="tumor_cluster_90", text_by = "tumor_cluster_70")+
+  scale_color_manual(values = cluster_col)
 plotReducedDim(sce, dimred="TSNE_MNN_tumor", colour_by="tumor_cluster_70", text_by = "tumor_cluster_70")+
   scale_color_manual(values = cluster_col)
+
 ```
 ### Cluster stability testing
 
@@ -266,6 +269,10 @@ x <- ggplot(cur_dat, aes(x=KRT7, fill=GMM_tumor_KRT7)) +
 
 main/(y+x)
 
+
+colData(sce) %>% as.data.frame %>% group_by(KRT5_7_score) %>% count() %>% ungroup() %>% mutate(fra = n/sum(n))
+
+
 # 2. Reduced Dims Plot 
 plotReducedDim(sce, dimred = "TSNE_MNN_tumor", 
                colour_by = "KRT5", 
@@ -280,7 +287,7 @@ plotReducedDim(sce, dimred = "TSNE_MNN_tumor",
                by_exprs_values = "logcounts")
 
 plotReducedDim(sce, dimred = "TSNE_MNN_tumor", 
-               colour_by = "KRT14", 
+               colour_by = "KRT19", 
                by_exprs_values = "logcounts")
 
 plotReducedDim(sce, dimred = "TSNE_MNN_tumor", 
@@ -291,7 +298,7 @@ plotReducedDim(sce, dimred="TSNE_MNN_tumor", colour_by="KRT5_7_score")+
   scale_color_manual(values = metadata(sce)$colors$KRT5_7_score)
 
 # 3. Expression plot
-plotExpression(sce, features=c("KRT5", "KRT7", "KRT8", "KRT14","KRT18","KRT19"),
+plotExpression(sce, features=c("KRT5", "KRT7", "KRT8", "KRT14","KRT18","KRT19", "KRT15"),
     x="KRT5_7_score", colour_by="KRT5_7_score")+
   theme_classic()+
   scale_color_manual(values = metadata(sce)$colors$KRT5_7_score)
@@ -309,6 +316,7 @@ for_plot <- colData(sce) %>% as.data.frame %>%
     column_to_rownames("KRT5_7_score")
 
 Heatmap(for_plot,
+        name = "Proportion",
         col = viridis(100),
         show_row_names = TRUE)
 ```
@@ -327,8 +335,75 @@ Save sce
 
 ```{r}
 saveRDS(sce, "/mnt/tnbc_volume/GSE161529/data_analysis/sce_scRNA_tumor.rds")
+
+sce <- readRDS("/mnt/tnbc_volume/GSE161529/data_analysis/sce_scRNA_tumor.rds")
 ```
 
+
+### Visualize in clusters based on marker expressions 
+
+
+```{r}
+library(readxl)
+breast_majorCT <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/BreastMajorCellTypeSignatures_GrayEtAl_2022.xlsx")
+
+
+breast_majorCT <- breast_majorCT %>% select(AV, HS, BA) %>% pivot_longer(cols = 1:3, names_to = "CT", values_to = "Gene")
+
+```
+
+
+```{r}
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$KRT5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rowData(sce)$Symbol %in%  c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17"))
+                                #rowData(sce)$Symbol %in%  c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14") & rowData(sce)$Symbol %in% breast_majorCT$Gene)
+
+# Heatmap body colors 
+col_exprs <- colorRamp2(c(0,1,2,3), c("#440154FF", "#31688EFF", "#35B779FF", "#FDE725FF"))
+
+
+#rowData(cluster_mean_sce) <- 
+
+CK_type <- data.frame(CK = c("KRT5","KRT14","KRT17","KRT7","KRT8","KRT18","KRT19","KRT15"), 
+           type = c(rep("basal_like",3), rep("luminal_like",4),"stem_like"))
+  
+rowData(cluster_mean_sce)$type <- CK_type$type[match(rowData(cluster_mean_sce)$Symbol, CK_type$CK)]  
+
+
+scaled_mat <- t(scale(t(assay(cluster_mean_sce, "logcounts"))))
+
+column_order <- column_order(Heatmap(assay(cluster_mean_sce, "logcounts"),
+        col = viridis(100),
+        name = "mean logcounts",
+        row_title = c("basal_like","luminal_like","stem_like"), 
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        row_split = rowData(cluster_mean_sce)$type,
+        cluster_row_slices = FALSE))
+
+Heatmap(assay(cluster_mean_sce, "logcounts"),
+        col = viridis(100),
+        name = "mean logcounts",
+        row_title = c("basal_like","luminal_like","stem_like"), 
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        row_split = rowData(cluster_mean_sce)$type,
+        cluster_row_slices = FALSE)+
+Heatmap(scaled_mat,
+        name = "scaled logcounts",
+        row_title = c("basal_like","luminal_like","stem_like"), 
+        column_order = column_order,
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        row_split = rowData(cluster_mean_sce)$type,
+        cluster_row_slices = FALSE)
+
+```
 
 ## 6. Differential gene expression analysis
 
