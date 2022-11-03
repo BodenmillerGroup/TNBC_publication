@@ -53,7 +53,7 @@ information.subtype.xena <- read_delim("/mnt/rcc_volume/TNBC/data_analysis/03_da
 information.subtype.xena <- information.subtype.xena %>% as.data.frame
 
 ## Add relevant data based on PID
-for (entry in colnames(information.subtype.xena)[colnames(information.subtype.xena) %in% c("ER_Status_nature2012","PR_Status_nature2012","HER2_Final_Status_nature2012","Metastasis_nature2012","Tumor_nature2012","Node_nature2012","PAM50Call_RNAseq","PAM50_mRNA_nature2012")]) {
+for (entry in colnames(information.subtype.xena)[colnames(information.subtype.xena) %in% c("ER_Status_nature2012","PR_Status_nature2012","HER2_Final_Status_nature2012","Metastasis_nature2012","Tumor_nature2012","Node_nature2012","PAM50Call_RNAseq","PAM50_mRNA_nature2012", "Age_at_Initial_Pathologic_Diagnosis_nature2012")]) {
   colData(brca.clean)[,entry] <- information.subtype.xena[,entry][match(colData(brca.clean)[,"PID"],information.subtype.xena$patient_id)]
 }
 
@@ -244,7 +244,7 @@ ggplot(plot, aes(x=KRT7, y=KRT5, color = TNBC)) +
 library(survival)
 library(survminer)
 
-cur_surv <- colData(vsd) %>% as.data.frame() %>% select(PID, KRT5_7_score, DFI, DFI.time, OS, OS.time, DSS, DSS.time, PFI, PFI.time) #%>% filter(!KRT5_7_score %in% c("KRT5+","KRT7+"))
+cur_surv <- colData(vsd) %>% as.data.frame() %>% select(PID, KRT5_7_score, DFI, DFI.time, OS, OS.time, DSS, DSS.time, PFI, PFI.time) %>% filter(!KRT5_7_score %in% c("KRT5+","KRT7+"))
 
 #Plot survival curves
 fit <- survfit(Surv(DFI.time, DFI) ~ KRT5_7_score, data = cur_surv)
@@ -258,7 +258,8 @@ ggsurvplot(fit,
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
           #palette = "Set1",
-          log.rank.weights = "n")
+          log.rank.weights = "n", 
+          xlim = c(0, 4000))
 
 #Plot survival curves
 fit_1 <- survfit(Surv(PFI.time, PFI) ~ KRT5_7_score, data = cur_surv)
@@ -272,12 +273,18 @@ ggsurvplot(fit_1,
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
           #palette = "Set1",
-          log.rank.weights = "n")
+          log.rank.weights = "n",
+          xlim = c(0, 4000))
 ```
 ## Cox model 
 
 ```{r}
-### Multivariate cox proportional hazard model on multiple covariates (here PID groups)
+colData(vsd)$age <- as.numeric(information.subtype.xena$Age_at_Initial_Pathologic_Diagnosis_nature2012[match(colData(brca.clean)[,"PID"],vsd$PID)])
+```
+
+```{r}
+## 1. Disease-free interval 
+### Multivariate cox proportional hazard model on multiple covariates (here KRT5/7 groups)
 PID_metagroups <- colData(vsd) %>% as.data.frame() %>% select(KRT5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 
 PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
@@ -286,21 +293,21 @@ PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "K
 
 colnames(PID_metagroups) <- c("KRT57negative","KRT57positive","KRT5positive","KRT7positive")
 
-## 1. Based on SCP assignments
 Cox_df <- PID_metagroups
 
 #add covariates for correction
 Cox_df$DFI <- vsd$DFI[match(rownames(Cox_df),vsd$PID)]
 Cox_df$DFI.time <- vsd$DFI.time[match(rownames(Cox_df),vsd$PID)]
 
+Cox_df$age <- as.numeric(vsd$age[match(rownames(Cox_df),vsd$PID)])
 Cox_df$pT_simple <- as.factor(vsd$Tumor_nature2012[match(rownames(Cox_df),vsd$PID)])
 Cox_df$pN_simple <- as.factor(vsd$Node_nature2012[match(rownames(Cox_df),vsd$PID)])
 Cox_df$pM_simple <- as.factor(vsd$Metastasis_nature2012[match(rownames(Cox_df),vsd$PID)])
 
 #Based on proportions
-covariates <- Cox_df %>% select(-DFI,-DFI.time, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+covariates <- Cox_df %>% select(-DFI,-DFI.time, -age, -pT_simple, -pN_simple, -pM_simple, - KRT57negative) %>% colnames
 
-multi_formula <- as.formula(paste("Surv(DFI.time, DFI) ~ pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+multi_formula <- as.formula(paste("Surv(DFI.time, DFI) ~ age + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "), "+ KRT57negative"))
 
 multi_model <- coxph(multi_formula, data = Cox_df)
 
@@ -318,7 +325,7 @@ plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
 hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
 geom_point(size = 4)+
 geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
-coord_cartesian(ylim=c(0,50))+
+coord_cartesian(ylim=c(0,30))+
 geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
 scale_color_brewer(palette = "Set1")+
 xlab("SCP")+
@@ -328,6 +335,58 @@ theme(axis.text.x = element_text(angle = 90))
 
 hr_prop
 ```
+
+````{r}
+## 2. Progression-free interval 
+PID_metagroups <- colData(vsd) %>% as.data.frame() %>% select(KRT5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "KRT5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+
+colnames(PID_metagroups) <- c("KRT57negative","KRT57positive","KRT5positive","KRT7positive")
+
+## 1. Based on SCP assignments
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$PFI <- vsd$PFI[match(rownames(Cox_df),vsd$PID)]
+Cox_df$PFI.time <- vsd$PFI.time[match(rownames(Cox_df),vsd$PID)]
+
+Cox_df$age <- as.numeric(vsd$age[match(rownames(Cox_df),vsd$PID)])
+Cox_df$pT_simple <- as.factor(vsd$Tumor_nature2012[match(rownames(Cox_df),vsd$PID)])
+Cox_df$pN_simple <- as.factor(vsd$Node_nature2012[match(rownames(Cox_df),vsd$PID)])
+Cox_df$pM_simple <- as.factor(vsd$Metastasis_nature2012[match(rownames(Cox_df),vsd$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-PFI,-PFI.time, -age, -pT_simple, -pN_simple, -pM_simple, - KRT57negative) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(PFI.time, PFI) ~ age + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "), "+ KRT57negative"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("SCP")+
+ylab("HR for PID groups")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
 ```
 
 ## Barplot visualization 
@@ -345,4 +404,317 @@ dittoBarPlot(vsd, var = "PAM50Call_RNAseq", group.by = "KRT5_7_score", scale = "
 dittoBarPlot(vsd, var = "TNBC", group.by = "KRT5_7_score")
 dittoBarPlot(vsd, var = "TNBC", group.by = "KRT5_7_score", scale = "count")
 ```
+
+## Differential expression analysis 
+
+```{r}
+brca.clean$KRT5_7_score <- vsd$KRT5_7_score[match(brca.clean$PID, vsd$PID)]
+
+brca.clean$KRT5_7_score_combined <- ifelse(brca.clean$KRT5_7_score == "KRT5/7+","KRT5_7_pos","Not_KRT5_7_pos")
+```
+
+```{r}
+library(DESeq2)
+
+# Create DESeqDataset
+ddsSE_1 <- DESeqDataSet(brca.clean, design = ~ KRT5_7_score_combined)
+
+# DESeq analysis includes count normalization based on size factors
+dds <- DESeq(ddsSE_1)
+
+# Extract results - also performs independent filtering
+res <- DESeq2::results(dds)
+summary(res)
+
+# Variance-stabilizing transformation
+vsd <- DESeq2::vst(dds)
+```
+
+### Heatmap visualization 
+
+```{r}
+# Extract Top 20
+rownames(res) <- rowData(brca.clean)$gene_name[match(rownames(res), rownames(brca.clean))]
+
+sig.up <- res %>% as.data.frame %>% filter(log2FoldChange > 1) %>% arrange(padj) %>% slice(1:25) %>% rownames_to_column("gene") %>% pull(gene)
+sig.down <- res %>% as.data.frame %>% filter(log2FoldChange < -1) %>% arrange(padj) %>% slice(1:25) %>% rownames_to_column("gene") %>% pull(gene)
+
+# Heatmap body 
+ht <- assay(vsd) %>% as.data.frame %>% rownames_to_column("gene")
+ht$gene <- rowData(brca.clean)$gene_name[match(ht$gene, rownames(brca.clean))]
+mat_up <- ht %>% filter(gene %in% sig.up) %>% column_to_rownames("gene")
+mat_down <- ht %>% filter(gene %in% sig.down) %>% column_to_rownames("gene")
+
+# Annotation
+anno <- as.data.frame(t(mat_down))
+anno$KRT5_7_score_combined <- brca.clean$KRT5_7_score_combined[match(rownames(anno),colnames(brca.clean))]
+anno$KRT5_7_score <- brca.clean$KRT5_7_score[match(rownames(anno),colnames(brca.clean))]
+anno$PAM50 <- brca.clean$PAM50Call_RNAseq[match(rownames(anno),colnames(brca.clean))]
+anno$TNBC <- brca.clean$TNBC[match(rownames(anno),colnames(brca.clean))]
+
+# Plot Heatmap
+Heatmap(mat_up, column_split = anno$KRT5_7_score_combined, column_title = NULL)%v%
+  columnAnnotation(KRT5_7_score_combined = anno$KRT5_7_score_combined)%v%
+  columnAnnotation(KRT5_7_score = anno$KRT5_7_score)%v%
+  columnAnnotation(PAM50 = anno$PAM50)%v%
+  columnAnnotation(TNBC = anno$TNBC)
+
+Heatmap(mat_down, column_split = anno$KRT5_7_score_combined, column_title = NULL)%v%
+  columnAnnotation(KRT5_7_score_combined = anno$KRT5_7_score_combined)%v%
+  columnAnnotation(KRT5_7_score = anno$KRT5_7_score)%v%
+  columnAnnotation(PAM50 = anno$PAM50)%v%
+  columnAnnotation(TNBC = anno$TNBC)
+```
+
+### Volcano-plot visualization 
+
+```{r}
+## LFC shrinkage using apeglm 
+DESeq2::plotMA(res, ylim = c(-5, 5))
+
+plot_vol <- res %>% as.data.frame %>% rownames_to_column("gene")
+
+library(apeglm)
+DESeq2::resultsNames(dds)
+
+reshape <- DESeq2::lfcShrink(dds, coef = "KRT5_7_score_combined_Not_KRT5_7_pos_vs_KRT5_7_pos", 
+                            type = "apeglm")
+
+DESeq2::plotMA(reshape, ylim = c(-5, 5))
+```
+
+```{r}
+#rownames(reshape) <- rowData(brca.clean)$gene_name[match(rownames(reshape), rownames(brca.clean))]
+
+plot_vol <- reshape %>% as.data.frame %>% rownames_to_column("gene")
+plot_vol <- res %>% as.data.frame %>% rownames_to_column("gene")
+plot_vol <- plot_vol %>% mutate(type = ifelse(log2FoldChange > 1 & padj < 0.01, "UP", 
+                                  ifelse(log2FoldChange < -1 & padj < 0.01, "DOWN","NA")))
+
+col <- c("DOWN" = "#E41A1C", "UP" = "#377EB8", "NA" = "black")
+
+# Down-regulated
+ggplot(plot_vol, aes(x = log2FoldChange, y=-log10(padj)))+
+  geom_point(aes(color = type))+
+  geom_label_repel(data = plot_vol %>% filter(gene %in% sig.down), aes(label = gene, color = type), max.overlaps = 30)+
+  xlab("log2FC (CK5/7+ vs Not_CK5/7+)")+
+  ylab("-log10(FDR)")+
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed")+
+  geom_hline(yintercept = -log10(1), linetype = "dashed")+
+  geom_vline(xintercept = 1, linetype = "dashed")+
+  geom_vline(xintercept = -1, linetype = "dashed")+
+  theme_classic()+
+  scale_color_manual(values = col)+
+  guides(color = "none")
+
+
+# Up-regulated
+ggplot(plot_vol, aes(x = log2FoldChange, y=-log10(padj)))+
+  geom_point(aes(color = type))+
+  geom_label_repel(data = plot_vol %>% filter(gene %in% sig.up), aes(label = gene, color = type), max.overlaps = 30)+
+  xlab("log2FC (CK5/7+ vs Not_CK5/7+)")+
+  ylab("-log10(FDR)")+
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed")+
+  geom_hline(yintercept = -log10(1), linetype = "dashed")+
+  geom_vline(xintercept = 1, linetype = "dashed")+
+  geom_vline(xintercept = -1, linetype = "dashed")+
+  theme_classic()+
+  scale_color_manual(values = col)+
+  guides(color = "none")
+```
+### Boxplot visualization for GOI 
+
+```{r}
+p1 <- ggplot(anno, aes(x = KRT5_7_score_combined, y = MUC4))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = KRT5_7_score_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  xlab("")+
+  #stat_compare_means(method = "kruskal.test")+
+  scale_color_brewer(palette = "Set1")+
+  guides(color = "none")
+
+p2 <- ggplot(anno, aes(x = KRT5_7_score, y = MUC4))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = KRT5_7_score_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ylab("")+
+  xlab("")+
+  scale_color_brewer(palette = "Set1")+
+  guides(color = "none")
+  
+p3 <- ggplot(anno, aes(x = TNBC, y = MUC4))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = KRT5_7_score_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ylab("")+
+  xlab("")+
+  scale_color_brewer(palette = "Set1")+
+  guides(color = "none")
+
+
+p1+p2+p3
+```
+
+## Gene-set enrichment analysis 
+
+With `clusterProfiler`. 
+
+```{r}
+library(clusterProfiler)
+library(enrichplot)
+library(org.Hs.eg.db)
+
+organism <- "org.Hs.eg.db"
+
+# Prepare input gene list based on log2foldchanges 
+original_gene_list <- res$log2FoldChange
+names(original_gene_list) <- rownames(res)
+gene_list <- na.omit(original_gene_list)
+gene_list <- sort(gene_list, decreasing = TRUE) # sort in decreasing order
+
+# Run GO analysis
+gse <- gseGO(geneList=gene_list, 
+             ont ="BP", 
+             keyType = "SYMBOL", 
+             minGSSize = 3, 
+             maxGSSize = 500, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = organism, 
+             pAdjustMethod = "BH")
+
+# Visualization
+## Dot plot
+dotplot(gse, showCategory=10, split=".sign") + facet_grid(~.sign)
+
+## Emap plot
+emapplot(pairwise_termsim(gse), showCategory = 10, color = "enrichmentScore", layout = "circle")
+
+## GSEA plot
+gseaplot2(gse, title = gse$Description[10], geneSetID = 1)
+gseaplot2(gse, title = gse$Description[16], geneSetID = 1)
+```
+
+With `goana`. Over-representation of genes in pathways.
+
+```{r}
+# goana() requires Entrez IDs, some of which map to multiple
+# symbols - hence the unique() in the call below.
+library(org.Hs.eg.db)
+entrez.ids <- mapIds(org.Hs.eg.db, keys=rownames(res), 
+                     column="ENTREZID", keytype="SYMBOL")
+
+sig.down <- res %>% as.data.frame %>% filter(log2FoldChange < -1 & padj < 0.01) %>% rownames_to_column("gene") %>% pull("gene")
+
+entrez.ids.DE <- mapIds(org.Hs.eg.db, keys=sig.down, 
+                     column="ENTREZID", keytype="SYMBOL")
+
+library(limma)
+go.out <- goana(unique(entrez.ids.DE), species="Hs", 
+                universe=unique(entrez.ids))
+
+
+# Only keeping biological process terms that are not overly general
+go.out <- go.out[order(go.out$P.DE),]
+go.useful <- go.out[go.out$Ont=="BP" & go.out$N <= 2000,]
+
+plot_go_BP <- go.useful[1:10,] #Top10 Genes
+
+ggplot(plot_go_BP, aes(x = reorder(Term,-P.DE), y = -log10(P.DE)))+
+  geom_bar(stat = "identity", fill = "firebrick", color = "black")+
+  coord_flip()+
+  theme_classic()
+```
+
+## KEGG pathway enrichment 
+
+With `clusterProfiler`. 
+
+```{r}
+# KEGG requires Entrez IDs 
+library(org.Hs.eg.db)
+
+entrez.ids <- mapIds(org.Hs.eg.db, keys=rownames(res), column="ENTREZID", keytype="SYMBOL")
+entrez.ids <- entrez.ids[!duplicated(entrez.ids)]
+
+df <- data.frame(log_change = gene_list, 
+           SYMBOL = names(gene_list))
+
+df$ENTREZ <- entrez.ids[match(df$SYMBOL, names(entrez.ids))]
+df <- df[!is.na(df$ENTREZ),]
+
+gene_list_kegg <- df$log_change
+names(gene_list_kegg) <- df$ENTREZ
+
+# Run KEGG
+gseKEGG <- gseKEGG(geneList=gene_list_kegg_unique, 
+        organism = "hsa",
+        keyType = "kegg", 
+        minGSSize = 10, 
+        maxGSSize = 500, 
+        pvalueCutoff = 0.05, 
+        verbose = TRUE, 
+        pAdjustMethod = "BH")
+
+# Visualization 
+## Dotplot 
+dotplot(gseKEGG, showCategory = 15, title = "Enriched Pathways" , split=".sign") + facet_grid(.~.sign)
+
+## EMAP plot 
+emapplot(pairwise_termsim(gseKEGG), showCategory = 15)
+
+## GSEA plot
+gseaplot2(gseKEGG, title = gseKEGG$Description[4], geneSetID = 1)
+```
+
+
+## Immune cell deconvolution 
+
+
+```{r}
+library(immunedeconv)
+
+deconvolution_methods
+
+rownames(assay(brca.clean, "tpm_unstrand"))
+
+# TPM gene expression matrix 
+TPM_mat <- assay(brca.clean, "tpm_unstrand")
+rownames(TPM_mat) <- rowData(brca.clean)$gene_name
+
+res_MCP <- immunedeconv::deconvolute(TPM_mat, method = "mcp_counter")
+res_QS <- immunedeconv::deconvolute(TPM_mat, method = "quantiseq", tumor = TRUE)
+
+
+
+#Z-scoring of MCP results by cell type
+res_MCP_1 <- res_MCP %>% dplyr::select(-cell_type)
+rownames(res_MCP_1) <- res_MCP$cell_type
+res_MCP_z <- as.data.frame(t(scale(t(res_MCP_1), center=TRUE, scale=TRUE)))
+res_MCP_z <- res_MCP_z %>% rownames_to_column("cell_type")
+
+res_MCP_plot <- res_MCP_z %>% pivot_longer(2:ncol(res_MCP_z), names_to = "PID", values_to = "score")
+
+res_MCP_plot$KRT5_7_score <- brca.clean$KRT5_7_score[match(res_MCP_plot$PID, colnames(brca.clean))]
+res_MCP_plot$TNBC <- brca.clean$TNBC[match(res_MCP_plot$PID, colnames(brca.clean))]
+
+
+ggplot(res_MCP_plot, aes(x = TNBC, y = score))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = TNBC), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  facet_wrap(~cell_type)
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ylab("")+
+  xlab("")+
+  scale_color_brewer(palette = "Set1")+
+  guides(color = "none")
+
+```
+
+
 
