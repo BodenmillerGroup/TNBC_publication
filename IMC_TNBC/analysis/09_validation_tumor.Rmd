@@ -140,8 +140,8 @@ rffit
 stopCluster(cl)
 
 saveRDS(rffit, "/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_folds_allmarkers.rds")
-
-#rffit_all <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred.rds")
+rffit_all <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred.rds")
+rffit_sub <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_submarker.rds")
 #rffit_all_folds <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_folds_allmarkers.rds")
 #rffit <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_submarker.rds")
 ```
@@ -166,7 +166,7 @@ plot(varImp(rffit))
 
 ```{r}
 # Select test data
-mat_test <- t(assay(test_sce, "exprs")[rowData(test_sce)$tumor_metacluster_relevant,])
+mat_test <- t(assay(test_sce, "exprs")[rowData(test_sce)$tumor_cluster_channel,])
 
 # Predict cell phenotypes in test data
 cur_pred <- predict(rffit, 
@@ -302,7 +302,7 @@ ggplot(margin, aes(x=margin, y = MC, fill = MC)) +
 Add to sce 
 
 ```{r}
-# Store labels in SpatialExperiment onje
+# Store labels in SpatialExperiment object
 
 sce_val$metacluster_predict <- factor(cell_class[match(sce_val$cell_id, names(cell_class))])
 
@@ -310,20 +310,20 @@ cur_table <- table(sce_val$metacluster_predict, sce_val$PID)
 
 colData(sce_val) %>% as.data.frame %>% filter(PID %in% c("2123","924","458","21","863")) %>% select(PID, pN_simple, pM_simple, status_OS, OS_months) %>% unique()
 
-plotSpatial(sce_val[,sce_val$PID == "2123"], 
+plotSpatial(sce_val[,sce_val$PID == "96"], 
             node_color_by = "metacluster_predict", 
             img_id = "sample_id", 
             node_size_fix = 2,
             node_shape_by = "analysis_cat")
 
-plotSpatial(sce_val[,sce_val$PID == "2123"], 
+plotSpatial(sce_val[,sce_val$PID == "924"], 
             node_color_by = "CK5", 
             assay_type = "exprs",
             img_id = "sample_id", 
             node_size_fix = 2,
             node_shape_by = "analysis_cat")
 
-plotSpatial(sce_val[,sce_val$PID == "2123"], 
+plotSpatial(sce_val[,sce_val$PID == "924"], 
             node_color_by = "CK7", 
             assay_type = "exprs",
             img_id = "sample_id", 
@@ -423,7 +423,7 @@ ha_meta <- HeatmapAnnotation(metacluster_predict = anno_simple(unfactor(anno$met
                             which = "row")
 
 Heatmap(t(assay(cluster_mean_sce, "exprs")),
-        column_title = "cluster_channels",
+        column_title = "pred_channels",
         col = col_exprs,
         name = "mean exprs",
         row_title = NULL, 
@@ -433,6 +433,26 @@ Heatmap(t(assay(cluster_mean_sce, "exprs")),
         row_split = anno$metacluster_predict,
         cluster_row_slices = FALSE)+
   ha_meta
+
+Heatmap(mat_scaled,
+        column_title = "pred_channels",
+        #col = col_exprs,
+        name = "mean exprs",
+        row_title = NULL, 
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        #row_split = anno$metacluster_predict,
+        cluster_row_slices = FALSE)+
+  ha_meta
+
+
+mat_scaled <- as.data.frame(scale(t(assay(cluster_mean_sce, "exprs"))))
+
+
+
+t(scale(t(assay(cluster_mean_sce, "exprs"))))
+   
 ```
 
 
