@@ -108,7 +108,6 @@ brca.clean$PAM50Call_RNAseq[is.na(brca.clean$PAM50Call_RNAseq)] <- "Undefined"
 
 # Create DESeqDataset
 ddsSE <- DESeqDataSet(brca.clean, design = ~ PAM50Call_RNAseq)
-
 ddsSE
 
 # DESeq analysis includes count normalization based on size factors
@@ -431,6 +430,30 @@ dittoBarPlot(vsd, var = "TNBC", group.by = "KRT5_7_score")
 dittoBarPlot(vsd, var = "TNBC", group.by = "KRT5_7_score", scale = "count")
 ```
 
+## Keratin expression comparison for PID groups 
+
+```{r}
+# Define keratins of interest
+keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17")
+
+# Define heatmap based on normalized counts 
+## Option 1: size-factor normalized counts 
+#df <- t(counts(dds, normalized = TRUE)[keratins,]) %>% as.data.frame %>% rownames_to_column("PID")
+## Option 2: vst counts
+df <- t(assay(vsd)[keratins,]) %>% as.data.frame %>% rownames_to_column("PID")
+
+## Create heatmap body 
+df$KRT5_7_score <- vsd$KRT5_7_score[match(df$PID, colnames(vsd))]
+
+mat <- df %>% pivot_longer(cols = 2:9, names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% summarize(mean = mean(exprs))
+
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+## Print heatmap 
+Heatmap(ht, name = "vst counts",col = viridis(100))+
+Heatmap(scale(ht), name = "scaled vst counts")
+```
+
 ## Differential expression analysis 
 
 ### 1. Perform DEA based on combined score 
@@ -455,7 +478,6 @@ ddsSE_1 <- DESeqDataSet(brca.clean, design = ~ KRT5_7_score_combined)
 summary(rowSums(counts(ddsSE_1)) >= 10)
 keep <- rowSums(counts(ddsSE_1)) >= 10
 ddsSE_1 <- ddsSE_1[keep, ]
-
 
 # DESeq analysis includes count normalization based on size factors
 dds <- DESeq(ddsSE_1, )
@@ -623,7 +645,6 @@ brca.clean$KRT5_7_score <- relevel(brca.clean$KRT5_7_score, ref = "KRT5/7_pos")
 library(ExploreModelMatrix)
 vd <- VisualizeDesign(sampleData = colData(brca.clean), 
                       designFormula = ~ KRT5_7_score)
-vd$plotlist
 ```
 
 ```{r}
@@ -635,15 +656,34 @@ library(DESeq2)
 # Create DESeqDataset
 ddsSE_1 <- DESeqDataSet(brca.clean, design = ~ KRT5_7_score)
 
+# Filter genes
+summary(rowSums(counts(ddsSE_1)) >= 10)
+keep <- rowSums(counts(ddsSE_1)) >= 10
+ddsSE_1 <- ddsSE_1[keep, ]
+
 # DESeq analysis includes count normalization based on size factors
 dds <- DESeq(ddsSE_1)
+resultsNames(dds)
 
 # Extract results - also performs independent filtering
-res <- DESeq2::results(dds)
-summary(res)
+# CK5+ vs. CK5/7+
+res_1 <- DESeq2::results(dds, contrast = c("KRT5_7_score","KRT5_pos","KRT5/7_pos")) 
+summary(res_1)
+
+# CK5/7- vs. CK5/7+
+res_2 <- DESeq2::results(dds, contrast = c("KRT5_7_score","KRT5/7_neg","KRT5/7_pos")) 
+summary(res_2)
+
+# CK7+ vs. CK5/7+
+res_3 <- DESeq2::results(dds, contrast = c("KRT5_7_score","KRT7_pos","KRT5/7_pos")) 
+summary(res_3)
 
 # Variance-stabilizing transformation
 vsd <- DESeq2::vst(dds)
+
+rownames(dds) <- rowData(brca.clean)$gene_name[match(rownames(dds), rownames(brca.clean))]
+counts(dds, normalized = TRUE)["KRT5",]
+
 ```
 
 ```{r}
@@ -655,7 +695,29 @@ saveRDS(vsd, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_FullSc
 #vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_DiffResults_VST.rds")
 ```
 
-### Gene-set enrichment analysis 
+Compare DEG 
+
+```{r}
+rownames(res_1) <- rowData(brca.clean)$gene_name[match(rownames(res_1), rownames(brca.clean))]
+rownames(res_2) <- rowData(brca.clean)$gene_name[match(rownames(res_2), rownames(brca.clean))]
+rownames(res_3) <- rowData(brca.clean)$gene_name[match(rownames(res_3), rownames(brca.clean))]
+
+sig_up_1 <- res_1 %>% as.data.frame %>% filter(log2FoldChange < -1 & padj < 0.05) %>% arrange(padj) %>% rownames_to_column("gene") %>% pull(gene)
+sig_up_2 <- res_2 %>% as.data.frame %>% filter(log2FoldChange < -1 & padj < 0.05) %>% arrange(padj) %>% rownames_to_column("gene") %>% pull(gene)
+sig_up_3 <- res_3 %>% as.data.frame %>% filter(log2FoldChange < -1 & padj < 0.05) %>% arrange(padj) %>% rownames_to_column("gene") %>% pull(gene)
+
+library(ggvenn)
+
+list_DEG <- list(KRT5 = sig_up_1, KRT5_7_neg = sig_up_2, KRT7 = sig_up_3)
+
+p1 <- ggvenn(list_DEG)+
+  scale_fill_brewer(palette = "Set1")
+p1
+
+sig_up_total <- intersect(sig_up_3,intersect(sig_up_1, sig_up_2))
+```
+
+## Gene-set enrichment analysis 
 
 With `clusterProfiler`. 
 
@@ -703,12 +765,10 @@ With `goana`. Over-representation of genes in pathways.
 # goana() requires Entrez IDs, some of which map to multiple
 # symbols - hence the unique() in the call below.
 library(org.Hs.eg.db)
-entrez.ids <- mapIds(org.Hs.eg.db, keys=rownames(res), 
+entrez.ids <- mapIds(org.Hs.eg.db, keys=rownames(res_1), 
                      column="ENTREZID", keytype="SYMBOL")
 
-sig.down <- res %>% as.data.frame %>% filter(log2FoldChange < -1 & padj < 0.01) %>% rownames_to_column("gene") %>% pull("gene")
-
-entrez.ids.DE <- mapIds(org.Hs.eg.db, keys=sig.down, 
+entrez.ids.DE <- mapIds(org.Hs.eg.db, keys=sig_up_total, 
                      column="ENTREZID", keytype="SYMBOL")
 
 library(limma)
@@ -718,7 +778,7 @@ go.out <- goana(unique(entrez.ids.DE), species="Hs",
 
 # Only keeping biological process terms that are not overly general
 go.out <- go.out[order(go.out$P.DE),]
-go.useful <- go.out[go.out$Ont=="BP" & go.out$N <= 2000,]
+go.useful <- go.out[go.out$Ont=="BP" & go.out$N <= 1000,]
 
 plot_go_BP <- go.useful[1:10,] #Top10 Genes
 
