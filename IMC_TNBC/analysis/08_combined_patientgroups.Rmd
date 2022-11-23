@@ -853,6 +853,136 @@ draw(h_scaled)
 
 # 3. Image visualization
 
+```{r}
+images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
+masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+```
+
+```{r}
+PID_groups_select <- unique(sce$PID_SC_groups)
+
+library(doParallel)
+registerDoParallel(cores = 7)
+
+foreach(i = "4")%dopar%{
+
+i = "4"
+##Visualize clusters on images - select 10 images for each category with highest number of cells
+cur_sample <- colData(sce) %>% as.data.frame %>% group_by(PID_SC_groups) %>% filter(PID_SC_groups == i) %>% pull(sample_id) %>% unique() #slice(1:10) %>% pull(sample_id)
+
+#Prepare images
+cur_images <- images[cur_sample]
+cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
+cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
+
+#Subset sce
+#cur_sce <- sce[,sce$PID_SC_groups == i]
+
+#Plot 
+plotPixels(cur_images,
+           mask = NULL,
+           object = sce,
+           img_id = "sample_id",
+           cell_id = "ObjectNumber",
+           missing_colour = "white",
+           outline_by = NULL,
+           colour_by = c("CK5","CK7","CK8_18"),
+           thick = FALSE,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7),
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/PID_group_viz_",i,".png"), scale = 2)
+           )
+}
+
+i = "inflamed"
+##Visualize clusters on images - select 10 images for each category with highest number of cells
+cur_sample <- colData(sce) %>% as.data.frame %>% group_by(spatial_CD8_pheno) %>% filter(spatial_CD8_pheno == i) %>% pull(sample_id) %>% unique() #slice(1:10) %>% pull(sample_id)
+
+#Prepare images
+cur_images <- images[cur_sample]
+cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
+cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
+
+#Subset sce
+#cur_sce <- sce[,sce$PID_SC_groups == i]
+
+#Plot 
+plotPixels(cur_images,
+           mask = NULL,
+           object = sce,
+           img_id = "sample_id",
+           cell_id = "ObjectNumber",
+           missing_colour = "white",
+           outline_by = NULL,
+           colour_by = c("panCK","HLADR","CD8a","CD20"),
+           thick = FALSE,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7),
+           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/PID_group_viz_",i,".png"), scale = 2)
+           )
+}
+
+stopCluster()
+
+```
+
+## 4. Patient selection for validation 
+
+Select Basoluminal patients for whole-slide staining validation. 
+
+```{r}
+# 1. PID from basoluminal patient group 
+PID_group_basoluminal <- colData(sce) %>% as.data.frame %>% dplyr::select(PID, PID_SC_groups) %>% filter(PID_SC_groups == "4") %>% pull(PID) %>% unique()
+
+# 2. PID with high metacluster 8 fractions 
+MC_PID_basoluminal <- colData(sce) %>% as.data.frame %>% dplyr::select(PID, sample_id,metacluster_combined) %>% filter(metacluster_combined == "tumor_8") %>% group_by(metacluster_combined, PID) %>% count() %>% arrange(desc(n))
+MC_PID_basoluminal <- MC_PID_basoluminal[1:10,]$PID
+
+# 3. PID that are CK5/7 high 
+PID_CK57group <- colData(sce) %>% as.data.frame %>% dplyr::select(PID, CK5_7_group) %>% filter(CK5_7_group == "3") %>% pull(PID) %>% unique()
+
+## Overlap of groups 
+Basalluminal_candidates <- c(PID_group_basoluminal,MC_PID_basoluminal,PID_CK57group) %>% unique()
+
+## Extract metadata
+meta_basalluminal_validate <- colData(sce) %>% as.data.frame %>% dplyr::select(PID, TMANr, age) %>% filter(PID %in% Basalluminal_candidates) %>% unique()
+rownames(meta_basalluminal_validate) <- NULL
+
+# write out csv
+write_csv(meta_basalluminal_validate, "/mnt/rcc_volume/TNBC/data_analysis/03_data/TNBC_basalluminalcandidates.csv") 
+```
+
+Visualize candidate patients on images 
+
+```{r}
+##Visualize clusters on images - select 10 images for each category with highest number of cells
+cur_sample <- colData(sce) %>% as.data.frame %>% filter(PID %in% Basalluminal_candidates) %>% pull(sample_id) %>% unique() #slice(1:10) %>% pull(sample_id)
+
+#Prepare images
+cur_images <- images[cur_sample]
+cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
+cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
+
+#Subset sce
+#cur_sce <- sce[,sce$PID_SC_groups == i]
+
+#Plot 
+plotPixels(cur_images,
+           mask = NULL,
+           object = sce,
+           img_id = "sample_id",
+           cell_id = "ObjectNumber",
+           missing_colour = "white",
+           outline_by = NULL,
+           colour_by = c("CK5","CK7"),
+           thick = FALSE,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7),
+           save_plot = list(filename = "/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/BasalluminalCandidates_viz_.png", scale = 2)
+           )
+```
+
+
 ## Save plots as pdf
 
 ```{r save_plots}

@@ -1200,7 +1200,7 @@ sce$CK5_7_score <- ifelse(sce$GMM_tumor_CK5 == "CK5+" & sce$GMM_tumor_CK7 == "CK
               ifelse(sce$GMM_tumor_CK5 == "CK5-" & sce$GMM_tumor_CK7 == "CK7+", "CK7+","CK5/7-")))
 
 ## Visualize 
-cur_dat <- t(assay(sce,"exprs")) %>% as.matrix %>% as.data.frame %>% select("CK5","CK7")
+cur_dat <- t(assay(sce,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("CK5","CK7")
 cur_dat$CK5_7_score <- sce$CK5_7_score[match(rownames(cur_dat), sce$cell_id)]
 
 ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
@@ -1227,7 +1227,7 @@ h <- Heatmap(plot_heat_PID,
 h <- draw(h)
 row_order_h <- row_order(h)
 
-anno <- colData(sce) %>% as.data.frame %>% select(PID) %>% unique()
+anno <- colData(sce) %>% as.data.frame %>% dplyr::select(PID) %>% unique()
 anno$CK5_7_group <- NA
 
 for(i in seq_along(row_order_h)){
