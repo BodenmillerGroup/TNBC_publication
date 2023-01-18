@@ -1152,6 +1152,125 @@ ggsurvplot(fit,
 ```
 
 
+
+```{r}
+## Euclidian distance analysis
+
+### 1. NOT clr transformed metacluster fractions
+
+SID_metacluster_cor <- SID_metacluster
+SID_metacluster_cor$PID <- sce$PID[match(SID_metacluster$sample_id,sce$sample_id)]
+
+## Euclidian metacluster distance between images of the same PID 
+PID_image_1 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 1) %>% pull(PID)
+PID_image_2 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 2) %>% pull(PID)
+PID_image_4 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 4) %>% pull(PID)
+
+out <- sapply(unique(colData(sce)$PID), function(x){
+  
+  SID <- SID_metacluster_cor %>% filter(PID %in% x) %>% select(-Freq,-PID) %>% pivot_wider(id_cols = metacluster,names_from = sample_id,values_from = fra) %>%
+    column_to_rownames("metacluster")
+
+  if(x %in% PID_image_2){
+    eu <- dist(t(SID))
+    }else if(x %in% PID_image_4){
+      eu <- dist(t(SID))
+      eu <- mean(eu)
+      }
+  
+  return(eu)
+})
+
+out_vec <- unlist(out, use.names = FALSE)
+out_image <- data_frame(dist = out_vec, category = "Image")
+
+## Mean euclidian distance between PID and all other PIDs
+test <- PID_metacluster %>% pivot_wider(id_cols = "PID",names_from = "metacluster",values_from = "fra") %>% column_to_rownames("PID")
+test_1 <- as.data.frame(as.matrix(dist(test)))
+test_1[test_1 == 0] <- NA 
+
+out_PID <- rowMeans(test_1, na.rm = TRUE)
+out_PID <- data.frame(dist = out_PID, category = "PID")
+
+## Plot 
+out_plot <- rbind(out_image, out_PID)
+
+ggplot(out_plot, aes(x = dist))+
+  geom_density(aes(fill = category))+
+  geom_rug(aes(color = category))+
+  theme_classic()+
+  ggtitle("Mean euclidian distance of metacluster fractions", 
+          subtitle = paste0("p = ",compare_means(dist ~ category, out_plot)$p.format, " (Wilcoxon)"))
+
+### 2. clr-transformed metacluster fractions
+
+SID_metacluster_cor <- SID_metacluster
+SID_metacluster_cor$PID <- sce$PID[match(SID_metacluster$sample_id,sce$sample_id)]
+
+## Euclidian metacluster distance between images of the same PID 
+
+PID_image_1 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 1) %>% pull(PID)
+PID_image_2 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 2) %>% pull(PID)
+PID_image_4 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 4) %>% pull(PID)
+
+out <- sapply(unique(colData(sce)$PID), function(x){
+  
+  SID <- SID_metacluster_cor %>% filter(PID %in% x) %>% select(-Freq,-PID) %>% pivot_wider(id_cols = metacluster,names_from = sample_id,values_from = fra) %>%
+    column_to_rownames("metacluster")
+  SID <- clr(t(SID))
+  
+  if(x %in% PID_image_2){
+    eu <- dist(SID)
+    }else if(x %in% PID_image_4){
+      eu <- dist(SID)
+      eu <- mean(eu)
+      }
+  
+  return(eu)
+})
+
+out_vec <- unlist(out, use.names = FALSE)
+out_image <- data_frame(dist = out_vec, category = "Image")
+
+## Mean euclidian distance between PID and all other PIDs
+test <- PID_metacluster %>% pivot_wider(id_cols = "PID",names_from = "metacluster",values_from = "fra") %>% column_to_rownames("PID")
+test <- clr(test)
+test_1 <- as.data.frame(as.matrix(dist(test)))
+test_1[test_1 == 0] <- NA 
+
+out_PID <- rowMeans(test_1, na.rm = TRUE)
+out_PID <- data.frame(dist = out_PID, category = "PID")
+
+
+## Plot 
+out_plot <- rbind(out_image, out_PID)
+
+ggplot(out_plot, aes(x = dist))+
+  geom_density(aes(fill = category))+
+  geom_rug(aes(color = category))+
+  theme_classic()+
+  ggtitle("Mean euclidian distance of metacluster fractions", 
+          subtitle = paste0("p = ",compare_means(dist ~ category, out_plot)$p.format, " (Wilcoxon)"))
+```
+
+```{r}
+## Dominant phenotype analysis 
+
+out_test <- foreach(i = unique(sce$sample_id),.combine = "rbind")%do%{
+out <- SID_metacluster_cor %>% filter(sample_id %in% i) %>% select(-Freq) %>% arrange(desc(fra)) %>% slice(1)
+}
+
+plot <- out_test %>% arrange(PID) %>% group_by(PID) %>% distinct(metacluster) %>% count(PID) %>% mutate(dominant = ifelse(n == "1", TRUE, FALSE)) %>% ungroup() %>% count(dominant) %>% mutate(fra = n/sum(n), category = "PID")
+
+  
+ggplot(plot, aes(x = category, y = n, fill = dominant))+
+  geom_tile(position = "stack")
+
+
+```
+
+
+
 ## 4.1 CK5/7 Signature 
 
 ```{r}
