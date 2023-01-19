@@ -1200,7 +1200,9 @@ ggplot(out_plot, aes(x = dist))+
   geom_rug(aes(color = category))+
   theme_classic()+
   ggtitle("Mean euclidian distance of metacluster fractions", 
-          subtitle = paste0("p = ",compare_means(dist ~ category, out_plot)$p.format, " (Wilcoxon)"))
+          subtitle = paste0("p = ",compare_means(dist ~ category, out_plot)$p.format, " (Wilcoxon)"))+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")
 
 ### 2. clr-transformed metacluster fractions
 
@@ -1250,23 +1252,53 @@ ggplot(out_plot, aes(x = dist))+
   geom_rug(aes(color = category))+
   theme_classic()+
   ggtitle("Mean euclidian distance of metacluster fractions", 
-          subtitle = paste0("p = ",compare_means(dist ~ category, out_plot)$p.format, " (Wilcoxon)"))
+          subtitle = paste0("p = ",compare_means(dist ~ category, out_plot)$p.format, " (Wilcoxon)"))+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")
 ```
 
 ```{r}
 ## Dominant phenotype analysis 
 
+PID_image_1 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 1) %>% pull(PID)
+PID_image_2 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 2) %>% pull(PID)
+PID_image_4 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 4) %>% pull(PID)
+
+
 out_test <- foreach(i = unique(sce$sample_id),.combine = "rbind")%do%{
 out <- SID_metacluster_cor %>% filter(sample_id %in% i) %>% select(-Freq) %>% arrange(desc(fra)) %>% slice(1)
 }
 
-plot <- out_test %>% arrange(PID) %>% group_by(PID) %>% distinct(metacluster) %>% count(PID) %>% mutate(dominant = ifelse(n == "1", TRUE, FALSE)) %>% ungroup() %>% count(dominant) %>% mutate(fra = n/sum(n), category = "PID")
 
+out_two <- out_test %>% arrange(PID) %>% filter(PID %in% PID_image_2) %>% group_by(PID) %>% distinct(metacluster) %>% count(PID) %>% mutate(dominant = ifelse(n == "1", TRUE, FALSE)) %>% ungroup() 
+
+out_four <- out_test %>% arrange(PID) %>% filter(PID %in% PID_image_4) %>% group_by(PID) %>% distinct(metacluster) %>% count(PID) %>% mutate(dominant = ifelse(n %in% c("1","2"), TRUE, FALSE)) %>% ungroup()
+
+out_all <- rbind(out_two, out_four)
+
+out_bar <- out_all %>% count(dominant) %>% mutate(fra = n/sum(n), category = "PID")
+
+ggplot(out_bar, aes(x = category, y = n, fill = dominant))+
+  geom_tile(position = "stack")+
+  theme_classic()+
+  ylab("Number of PID")+
+  scale_fill_brewer(palette = "Set1")
+
+
+PID_true <- out_all %>% filter(dominant == TRUE) %>% pull(PID)
+
+test <- out_test %>% arrange(PID) %>% filter(PID %in% PID_true) %>% group_by(PID) %>% mutate(mean_fra = mean(fra), dif_fra = max(fra)-min(fra))
+
+test_plot <- test %>% select(PID, mean_fra, dif_fra)
+
+
+ggplot(test_plot, aes(mean_fra, dif_fra, color = PID))+
+  geom_point()+
+  coord_cartesian(xlim = c(0,1), ylim = c(0,1))+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  guides(color = "none")+
+  theme_classic()
   
-ggplot(plot, aes(x = category, y = n, fill = dominant))+
-  geom_tile(position = "stack")
-
-
 ```
 
 
