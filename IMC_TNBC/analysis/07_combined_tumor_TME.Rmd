@@ -140,14 +140,38 @@ sce_sub <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds"
 sce_sub$cluster_combined <- sce$cluster_combined[match(sce_sub$cell_id, sce$cell_id)]
 sce_sub$metacluster_combined <- sce$metacluster_combined[match(sce_sub$cell_id, sce$cell_id)]
 
+#sub cluster categories
+sce_sub$metacluster_tumor_combined <- sce$metacluster_tumor_combined[match(sce_sub$cell_id, sce$cell_id)]
+sce_sub$metacluster_TME_combined <- unfactor(sce_sub$metacluster_combined)
+sce_sub$metacluster_TME_combined[sce_sub$analysis_cat == "non_tumor"] <- "TME"
+
+tumor_color <- c("grey")
+names(tumor_color) <- "tumor"
+TME_color <- c("grey")
+names(TME_color) <- "TME"
+
+color_TME <- c(metadata(sce)$colors$metacluster_combined, tumor_color, TME_color)
+color_TME
 
 #Plot TSNE
-plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_combined",shape_by = "analysis_cat")+
-  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)
 
-plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "cluster_combined",shape_by = "analysis_cat")+
-    scale_color_manual(values = metadata(sce)$colors$cluster_combined)
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "PID")+#shape_by = "analysis_cat")+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  guides(color = "none")
+
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "TMANr")+#shape_by = "analysis_cat")+
+  scale_color_manual(values = metadata(sce)$colors$TMANr)
+
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "analysis_cat")+#shape_by = "analysis_cat")+
+  scale_color_manual(values = metadata(sce)$colors$analysis_cat)
+
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_tumor_combined")+#shape_by = "analysis_cat")+
+  scale_color_manual(values = color_TME, limits = force)
+
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_TME_combined")+#shape_by = "analysis_cat")+
+  scale_color_manual(values = color_TME, limits = force)
 ```
+
 ## Add missing metadata 
 
 ```{r}
@@ -4334,5 +4358,32 @@ dev.off()
 
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_Mixing_DiffAbun.pdf",width = 6,height = 6, onefile = FALSE)
 diffabun_plot_mixing_1
+dev.off()
+
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_PID.pdf",width = 6,height = 6, onefile = FALSE)
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "PID")+#shape_by = "analysis_cat")+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  guides(color = "none")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TMANr.pdf",width = 6,height = 6, onefile = FALSE)
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "TMANr")+#shape_by = "analysis_cat")+
+  scale_color_manual(values = metadata(sce)$colors$TMANr)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_analysiscat.pdf",width = 6,height = 6, onefile = FALSE)
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "analysis_cat")+#shape_by = "analysis_cat")+
+  scale_color_manual(values = metadata(sce)$colors$analysis_cat)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TMEmetacluster.pdf",width = 6,height = 6, onefile = FALSE)
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_tumor_combined")+#shape_by = "analysis_cat")+
+  scale_color_manual(values = color_TME, limits = force)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TUMORmetacluster.pdf",width = 6,height = 6, onefile = FALSE)
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_TME_combined")+#shape_by = "analysis_cat")+
+  scale_color_manual(values = color_TME, limits = force)
 dev.off()
 ```
