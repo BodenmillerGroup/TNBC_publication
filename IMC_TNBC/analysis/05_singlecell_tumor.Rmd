@@ -195,7 +195,7 @@ gc()
 
 ```{r clustree, message = FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 #Pairwise rand index 
 #Agreement between two clustering approaches - ARI > 0.5 = "good" similarity
@@ -241,22 +241,22 @@ p1+p2+p3
 
 #Chosen method => k=110
 
-#Cluster colors 
-col_clus <- colorRampPalette(brewer.pal(9,"Paired"))(length(unique(sce$cluster_110)))
-
-#By clusters for one method (here k=110)
-#1. Silhouette width [-1,1]
-#Clusters with large positive silhouette widths are well-separated from other clusters
-sil.approx <- approxSilhouette(t(assay(sce, "exprs")), clusters=sce$cluster_110)
-sil.data <- as.data.frame(sil.approx)
-sil.data$closest <- factor(ifelse(sil.data$width > 0, sce$cluster_110, sil.data$other))
-sil.data$cluster <- sce$cluster_110
-
-p4 <- ggplot(sil.data, aes(x=cluster, y=width, colour=closest)) +
-    ggbeeswarm::geom_quasirandom(method="smiley")+
-  theme_classic()+
-  scale_color_manual(values = col_clus)
-p4
+# #Cluster colors 
+# col_clus <- colorRampPalette(brewer.pal(9,"Paired"))(length(unique(sce$cluster_110)))
+# 
+# #By clusters for one method (here k=110)
+# #1. Silhouette width [-1,1]
+# #Clusters with large positive silhouette widths are well-separated from other clusters
+# sil.approx <- approxSilhouette(t(assay(sce, "exprs")), clusters=sce$cluster_110)
+# sil.data <- as.data.frame(sil.approx)
+# sil.data$closest <- factor(ifelse(sil.data$width > 0, sce$cluster_110, sil.data$other))
+# sil.data$cluster <- sce$cluster_110
+# 
+# p4 <- ggplot(sil.data, aes(x=cluster, y=width, colour=closest)) +
+#     ggbeeswarm::geom_quasirandom(method="smiley")+
+#   theme_classic()+
+#   scale_color_manual(values = col_clus)
+# p4
 
 ```
 ## Add missing metadata 
@@ -830,11 +830,6 @@ fraction_anno + NULL
 
 
 
-
-
-
-
-
 ### Densities - Visualization and correlation of cluster densities
 
 ```{r density cor}
@@ -944,18 +939,19 @@ SID_cluster_dens_cor_plot
 
 ```{r}
 # Focus on basoluminal cells
-cur_dat <- t(assay(sce[,sce$metacluster == "8"],"exprs")) %>% as.data.frame %>% select("CK5","CK7","CK8_18")
+cur_dat <- t(assay(sce[,sce$metacluster == "8"],"exprs")) %>% as.data.frame %>% select("CK5","CK7","CK8_18","CD15")
 
-dim(cur_dat)
-ggplot(cur_dat, aes(x=CK7, y=CK5)) +
+scatter_CK5_7 <- ggplot(cur_dat, aes(x=CK7, y=CK5)) +
   geom_point(alpha = 0.5)+
-  stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "count")+
+  stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "count", alpha = 0.5)+
   theme_classic()
 
-ggplot(cur_dat, aes(x=CK8_18, y=CK5)) +
+scatter_CK5_8_18 <- ggplot(cur_dat, aes(x=CK8_18, y=CK5)) +
   geom_point(alpha = 0.5)+
-  stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "count",alpha = 0.1)+
+  stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "count", alpha = 0.5)+
   theme_classic()
+
+scatter_CK5_7 + scatter_CK5_8_18
 ```
 
 ## CATALYST-based visualization
@@ -1032,7 +1028,7 @@ corrplot(cor(cor_sce,method = "spearman"), method="color", col=brewer.pal(n=8, n
 #             digits = 2)
 ```
 
-## 4. Tumor heterogeneity analysis 
+## 5. Tumor heterogeneity analysis 
 
 ### Heatmap for cell count per cluster/metacluster
 
@@ -1064,10 +1060,10 @@ for_plot_MC <- colData(sce) %>% as_tibble() %>%
     ungroup() %>%
     select(-PID)
 
-Heatmap(for_plot_MC, 
-        name = "log(cell_count)",
-        col = viridis(100)
-        )
+#Heatmap(for_plot_MC, 
+#        name = "log(cell_count)",
+#        col = viridis(100)
+#        )
 ```
 
 ### Heterogeneity scores
@@ -1117,38 +1113,19 @@ shannon_MC_PID <- ggplot(shannon_plot, aes(x = category, y = shannon_equi))+
   ylab("Shannon Equitability Index of tumor metaclusters per PID")
 
 n_MC_PID/shannon_MC_PID
-
-### Check whether heterogeneity of metaclusters influences survival 
-
-shannon_plot$status_DFS <- sce$status_DFS[match(rownames(shannon_plot),sce$PID)]
-shannon_plot$DFS_months <- sce$DFS_months[match(rownames(shannon_plot),sce$PID)]
-
-### Plot survival curves
-fit <- survfit(Surv(DFS_months, status_DFS) ~ heterogeneity_score, data = shannon_plot)
-print(fit)
-
-ggsurvplot(fit,
-          pval = TRUE,
-          risk.table = TRUE, # Add risk table
-          risk.table.col = "strata", # Change risk table color by groups
-          linetype = "strata", # Change line type by groups
-          surv.median.line = "hv", # Specify median survival
-          ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = "Set1",
-          log.rank.weights = "n")+
-  ggtitle("Metacluster heterogeneity")
+```
 
 
-
+```{r}
 ## 2. For clusters
-PID_cluster <- colData(sce) %>% as.data.frame() %>% select(cluster_110,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_cluster_110 <- colData(sce) %>% as.data.frame() %>% select(cluster_110,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 
-PID_cluster <- PID_cluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_cluster_110 <- PID_cluster_110 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
 ### Number of clusters per PID 
-PID_cluster_p <- PID_cluster %>% filter(Freq > 5) %>% group_by(PID) %>% count(name = "n_MC") %>% mutate(category = "PID")
+PID_cluster_110_p <- PID_cluster_110 %>% filter(Freq > 5) %>% group_by(PID) %>% count(name = "n_MC") %>% mutate(category = "PID")
 
-ggplot(PID_cluster_p, aes(x = category, y = n_MC))+
+n_clus_PID <- ggplot(PID_cluster_110_p, aes(x = category, y = n_MC))+
   geom_boxplot(outlier.colour = NA)+
   geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
   guides(color = "none")+
@@ -1156,13 +1133,14 @@ ggplot(PID_cluster_p, aes(x = category, y = n_MC))+
   theme_classic(base_size = 12)+
   coord_cartesian(ylim = c(0,60))+
   theme(axis.title.x = element_blank())+
-  ylab("Number of clusters per PID")
+  ylab("Number of tumor clusters per PID")
 
+n_clus_PID
 
 ### Calculate shannon entropy per PID
 library(vegan)
 
-shannon_df <- PID_cluster %>% pivot_wider(id_cols = "PID",names_from = "cluster_110",values_from = "Freq") %>% column_to_rownames("PID")
+shannon_df <- PID_cluster_110 %>% pivot_wider(id_cols = "PID",names_from = "cluster_110",values_from = "Freq") %>% column_to_rownames("PID")
 
 shannon_plot <- data.frame(shannon_div = diversity(shannon_df),
                            number = 11,
@@ -1172,7 +1150,7 @@ shannon_plot <- data.frame(shannon_div = diversity(shannon_df),
 
 shannon_plot <- shannon_plot %>% arrange(desc(shannon_equi)) %>% mutate(heterogeneity = ntile(shannon_equi,3)) %>% mutate(heterogeneity_score = ifelse(heterogeneity == 3, "High",                                                                                                                                        ifelse(heterogeneity == 2, "Medium", "Low")))
 
-ggplot(shannon_plot, aes(x = category, y = shannon_equi))+
+shannon_clus_PID <- ggplot(shannon_plot, aes(x = category, y = shannon_equi))+
   geom_boxplot(outlier.colour = NA)+
   geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
   guides(color = "none")+
@@ -1180,27 +1158,9 @@ ggplot(shannon_plot, aes(x = category, y = shannon_equi))+
   theme_classic(base_size = 12)+
   theme(axis.title.x = element_blank())+
   coord_cartesian(ylim = c(0,1))+
-  ylab("Shannon entropy of tumor clusters per PID")
+  ylab("Shannon Equitability Index of tumor clusters per PID")
 
-### Check whether heterogeneity of clusters influences survival 
-
-shannon_plot$status_DFS <- sce$status_DFS[match(rownames(shannon_plot),sce$PID)]
-shannon_plot$DFS_months <- sce$DFS_months[match(rownames(shannon_plot),sce$PID)]
-
-### Plot survival curves
-fit <- survfit(Surv(DFS_months, status_DFS) ~ heterogeneity_score, data = shannon_plot)
-print(fit)
-
-ggsurvplot(fit,
-          pval = TRUE,
-          risk.table = TRUE, # Add risk table
-          risk.table.col = "strata", # Change risk table color by groups
-          linetype = "strata", # Change line type by groups
-          surv.median.line = "hv", # Specify median survival
-          ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = "Set1",
-          log.rank.weights = "n")+
-  ggtitle("Cluster heterogeneity")
+n_clus_PID/shannon_clus_PID
 ```
 
 
@@ -1316,15 +1276,17 @@ ggplot(out_plot_1, aes(x = dist))+
 ### Dominant phenotype analysis 
 
 ```{r}
-## Dominant phenotype analysis 
+SID_metacluster_dom <- SID_metacluster
+SID_metacluster_dom$PID <- sce$PID[match(SID_metacluster$sample_id,sce$sample_id)]
 
+## Dominant metacluster analysis 
 PID_image_1 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 1) %>% pull(PID)
 PID_image_2 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 2) %>% pull(PID)
 PID_image_4 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 4) %>% pull(PID)
 
 
 out_test <- foreach(i = unique(sce$sample_id),.combine = "rbind")%do%{
-out <- SID_metacluster_cor %>% filter(sample_id %in% i) %>% select(-Freq) %>% arrange(desc(fra)) %>% slice(1)
+out <- SID_metacluster_dom %>% filter(sample_id %in% i) %>% select(-Freq) %>% arrange(desc(fra)) %>% slice(1)
 }
 
 out_two <- out_test %>% arrange(PID) %>% filter(PID %in% PID_image_2) %>% group_by(PID) %>% distinct(metacluster) %>% count(PID) %>% mutate(dominant = ifelse(n == "1", TRUE, FALSE)) %>% ungroup() 
@@ -1336,7 +1298,7 @@ out_all <- rbind(out_two, out_four)
 out_bar <- out_all %>% count(dominant) %>% mutate(fra = n/sum(n), category = "PID")
 
 ggplot(out_bar, aes(x = category, y = n, fill = dominant))+
-  geom_tile(position = "stack", alpha = 0.5)+
+  geom_tile(position = "stack",color = "black")+#+alpha = 0.5)+
   theme_classic()+
   ylab("Number of PID")+
   scale_fill_brewer(palette = "Set1")
@@ -1358,9 +1320,55 @@ ggplot(test_plot, aes(mean_fra, dif_fra, color = PID))+
   
 ```
 
+```{r}
+SID_cluster_dom <- SID_cluster
+SID_cluster_dom$PID <- sce$PID[match(SID_cluster$sample_id,sce$sample_id)]
 
 
-## 4.1 CK5/7 Signature 
+## Dominant cluster analysis 
+PID_image_1 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 1) %>% pull(PID)
+PID_image_2 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 2) %>% pull(PID)
+PID_image_4 <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id) %>% unique() %>% group_by(PID) %>% count() %>% filter(n == 4) %>% pull(PID)
+
+
+out_test <- foreach(i = unique(sce$sample_id),.combine = "rbind")%do%{
+out <- SID_cluster_dom %>% filter(sample_id %in% i) %>% select(-Freq) %>% arrange(desc(fra)) %>% slice(1)
+}
+
+out_two <- out_test %>% arrange(PID) %>% filter(PID %in% PID_image_2) %>% group_by(PID) %>% distinct(cluster_110) %>% count(PID) %>% mutate(dominant = ifelse(n == "1", TRUE, FALSE)) %>% ungroup() 
+
+out_four <- out_test %>% arrange(PID) %>% filter(PID %in% PID_image_4) %>% group_by(PID) %>% distinct(cluster_110) %>% count(PID) %>% mutate(dominant = ifelse(n %in% c("1","2"), TRUE, FALSE)) %>% ungroup()
+
+out_all <- rbind(out_two, out_four)
+
+out_bar <- out_all %>% count(dominant) %>% mutate(fra = n/sum(n), category = "PID")
+
+ggplot(out_bar, aes(x = category, y = n, fill = dominant))+
+  geom_tile(position = "stack", color = "black",alpha = 0.5)+
+  theme_classic()+
+  ylab("Number of PID")+
+  scale_fill_brewer(palette = "Set1")
+
+
+PID_true <- out_all %>% filter(dominant == TRUE) %>% pull(PID)
+
+test <- out_test %>% arrange(PID) %>% filter(PID %in% PID_true) %>% group_by(PID) %>% mutate(mean_fra = mean(fra), dif_fra = max(fra)-min(fra))
+
+test_plot <- test %>% select(PID, mean_fra, dif_fra)
+
+
+ggplot(test_plot, aes(mean_fra, dif_fra, color = PID))+
+  geom_point(size = 3)+
+  coord_cartesian(xlim = c(0,1), ylim = c(0,1))+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  guides(color = "none")+
+  theme_classic()
+  
+```
+
+## 6. CK5/7 Signature 
+
+### Define signature / PID groups 
 
 ```{r}
 ## 5. CK5-7 signature
@@ -1411,12 +1419,15 @@ sce$CK5_7_score <- ifelse(sce$GMM_tumor_CK5 == "CK5+" & sce$GMM_tumor_CK7 == "CK
 cur_dat <- t(assay(sce,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("CK5","CK7")
 cur_dat$CK5_7_score <- sce$CK5_7_score[match(rownames(cur_dat), sce$cell_id)]
 
+metadata(sce)$colors$CK5_7_score <- setNames(c("grey","orange","firebrick","green4"), c("CK5/7-", "CK5/7+", "CK5+", "CK7+"))
+
 ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
   geom_point(alpha = 0.5)+
-  #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
   theme_classic()+
   xlab("CK7 exprs")+
-  ylab("CK5 exprs")
+  ylab("CK5 exprs")+
+  scale_color_manual(values = metadata(sce)$colors$CK5_7_score)
+
 
 plot_score_PID <- colData(sce) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
 
@@ -1456,7 +1467,7 @@ sce$CK5_7_group <- anno$CK5_7_group[match(sce$PID, anno$PID)]
 
 #metadata(sce)$colors$KRT5_7_score <- setNames(colorRampPalette(brewer.pal(4,"Set1"))(length(unique(sce$KRT5_7_score))),unique(sce$KRT5_7_score))
 ```
-
+### Kaplan Meier
 
 ```{r}
 #Assess survival impact 
@@ -1481,36 +1492,7 @@ ggsurvplot(fit,
 )
 ```
 
-
-```{r}
-plotSpatial(sce[,sce$CK5_7_group == "1"], 
-            node_color_by = "metacluster", 
-            img_id = "sample_id", 
-            node_size_fix = 2,
-            node_shape_by = "analysis_cat")
-
-plotSpatial(sce[,sce$CK5_7_group == "1"], 
-            node_color_by = "CK5", 
-            assay_type = "exprs",
-            img_id = "sample_id", 
-            node_size_fix = 2,
-            node_shape_by = "analysis_cat")
-
-plotSpatial(sce[,sce$CK5_7_group == "1"], 
-            node_color_by = "CK7", 
-            assay_type = "exprs",
-            img_id = "sample_id", 
-            node_size_fix = 2,
-            node_shape_by = "analysis_cat")
-
-plotSpatial(sce[,sce$CK5_7_group == "1"], 
-            node_color_by = "CK8_18", 
-            assay_type = "exprs",
-            img_id = "sample_id", 
-            node_size_fix = 2,
-            node_shape_by = "analysis_cat")
-```
-
+### Cox for CK5/7 score
 
 ```{r}
 library(survival)
@@ -1576,6 +1558,9 @@ theme(axis.text.x = element_text(angle = 90))
 #hr_prop
 ```
 
+### Cox for CK5/7 groups
+
+Multivariate 
 
 ```{r}
 library(survival)
@@ -1637,7 +1622,62 @@ theme(axis.text.x = element_text(angle = 90))
 #hr_prop
 ```
 
-# 5. Survival analysis 
+Univariate 
+
+```{r}
+library(survival)
+library(survminer)
+
+PID_CK57 <- colData(sce) %>% as.data.frame() %>% select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("CK57_",colnames(PID_metagroups))
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -CK57_4) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~", paste(covariates, collapse = " + "),"+CK57_4"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratiDFS
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0,10))+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+# 7. Survival analysis 
 
 ## Cox-proportonal hazards model for metaclusters
 
@@ -1830,6 +1870,8 @@ arrange_ggsurvplots(list(p1,p2))
 
 ### For DFS on metaclusters
 
+Multivariate 
+
 ```{r cox dfs}
 library(survival)
 library(survminer)
@@ -1985,6 +2027,60 @@ hr_mean
 hr_prop/
 hr_mean/
 hr_GMM
+```
+
+Univariate 
+
+```{r cox dfs}
+library(survival)
+library(survminer)
+
+PID_metacluster <- colData(sce) %>% as.data.frame() %>% select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metacluster <- PID_metacluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_metacluster %>% pivot_wider(id_cols = "PID",names_from = "metacluster",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("MC",colnames(PID_metagroups))
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -MC1) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ ", paste(covariates, collapse = " + "),"+ MC1"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratiDFS
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0,50))+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
 ```
 
 ```{r OS survival_curves}
@@ -2382,9 +2478,49 @@ lasso_plot <- ggplot(lasso_df, aes(x = reorder(predictor,-exp(coef)), y = exp(co
 lasso_plot
 ```
 
-# 7. Differential abundance testing 
+# 8. Differential abundance testing 
 
 ## pN 
+
+```{r}
+#Assess survival impact 
+library(patchwork)
+library(survival)
+library(survminer)
+
+
+#also possible to use spatial_CD8_pheno_merg (cold/excluded vs inflamed)
+cur_surv <- colData(sce) %>% as.data.frame() %>% 
+  select(PID, pN_merg,OS_months, DFS_months, status_DFS, status_OS) %>% unique()
+
+#Plot survival curves
+fit <- survfit(Surv(OS_months, status_OS) ~ pN_merg, data = cur_surv)
+print(fit)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          #palette = c("steelblue1","navy","firebrick"),
+          log.rank.weights = "n")
+
+fit <- survfit(Surv(DFS_months, status_DFS) ~ pN_merg, data = cur_surv)
+print(fit)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c("grey","purple"),
+          log.rank.weights = "n")
+```
+
 
 ### For metaclusters
 
@@ -2460,14 +2596,15 @@ ggplot(DA, aes(cluster, y = logFC))+
   ylab("logFC")+
   xlab("Cluster")+
   labs(fill = "FDR<0.1")+
-  ggtitle("pN_stage (1 vs 2/3/4)")+
+  ggtitle("pN_stage (0 vs 1/2/3)")+
   theme_classic()
 
 #Volcano plot  
 ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
   geom_point(aes(col=cluster, size = -log10(FDR)))+
+    geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
   scale_color_manual(values = metadata(sce)$colors$metacluster)+
-  xlab("logFC (pN: 1 vs 2/3/4)")+
+  xlab("logFC (pN: 0 vs 1/2/3)")+
   ylab("-log10(FDR)")+
   theme_classic()+
   geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
@@ -2480,14 +2617,116 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
                  size = -log10(FDR)))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
   scale_color_manual(values = metadata(sce)$colors$metacluster)+
-  xlab("logFC (pN: 1 vs 2/3/4)")+
+  xlab("logFC (pN: 0 vs 1/2/3)")+
   ylab("Abundance (logCPM)")+
   theme_classic()+
   geom_vline(xintercept = 0, linetype = "dashed")+
   labs(color = "cluster")
 ```
 
-# 8. Image visualization
+### For clusters
+
+```{r}
+### Differential abundance analysis based on edgeR
+library(edgeR)
+
+sce$pN_merg <- colData(sce) %>% 
+  as.data.frame %>% 
+  select(pN_simple) %>% 
+  mutate(pN_merg = ifelse(pN_simple %in% c("1","2","3"),"1/2/3", pN_simple)) %>% pull(pN_merg)
+
+sce <- sce
+abundances <- table(unfactor(sce$cluster_110), sce$PID)
+abundances <- unclass(abundances) 
+head(abundances)
+
+#relevant patient metadata (Relevel so that pN 1/2 is baseline)
+meta <- colData(sce)[match(colnames(abundances), sce$PID),]
+meta$pN_merg <- relevel(x=factor(meta$pN_merg), ref = "0")
+
+#filter
+meta <- meta[!is.na(meta$pN_merg),]
+abundances <- abundances[,colnames(abundances) %in% meta$PID]
+
+#create DGEList - based on edgeR package
+y.ab <- DGEList(abundances, samples=meta, group = meta$pN_merg)
+
+#Design matrix
+design <- model.matrix(~pN_merg, data = y.ab$samples)
+
+#Visualize
+# logCPM of abundances per cluster
+cur_mat <- cpm(abundances,prior.count = 1,log = TRUE)
+
+Heatmap(cur_mat, 
+        col = viridis(100),
+        column_split = unfactor(meta$pN_merg))%v%
+  columnAnnotation(pN_merg = anno_simple(unfactor(meta$pN_merg)))
+
+
+# Estimate NB and QL dispersion 
+y.ab <- estimateDisp(y.ab, design, trend="none")
+summary(y.ab$common.dispersion)
+plotBCV(y.ab, cex=1)
+
+fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
+summary(fit.ab$var.prior)
+plotQLDisp(fit.ab, cex=1)
+
+# Test for differential abundance of clusters between tumor stages
+res <- glmQLFTest(fit.ab, coef=ncol(design))
+
+res$coefficients
+summary(decideTests(res))
+
+DA <- res$table
+
+DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
+
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.05, result = ifelse(DA$logFC > 0 & DA$FDR < 0.05, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.05, "DOWN", "NOTSIG"))) %>% 
+  arrange(desc(logFC))
+
+DA$cluster <- factor(DA$cluster, levels = DA$cluster)
+
+sig <- DA %>% filter(FDR<0.05) %>% pull(cluster) %>% unfactor
+
+## Visualize
+#Barplot
+ggplot(DA, aes(cluster, y = logFC))+
+  geom_col(aes(fill=result), col = "black")+
+  scale_fill_manual(values = c("#377EB8","lightgrey","#E41A1C"))+
+  ylab("logFC")+
+  xlab("Cluster")+
+  labs(fill = "FDR<0.1")+
+  ggtitle("pN_stage (0 vs 1/2/3)")+
+  theme_classic()
+
+#Volcano plot  
+ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
+  geom_point(aes(col=cluster, size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.05), aes(label = cluster))+
+  scale_color_manual(values = metadata(sce)$colors$cluster_110)+
+  xlab("logFC (pN: 0 vs 1/2/3)")+
+  ylab("-log10(FDR)")+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed")+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+
+#Abundance vs log fold change (best?)
+ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.05), aes(label = cluster))+
+  scale_color_manual(values = metadata(sce)$colors$cluster_110)+
+  xlab("logFC (pN: 0 vs 1/2/3)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+```
+
+# 9. Image visualization
 
 ```{r load images, message = FALSE}
 #Load images and masks
@@ -2627,17 +2866,6 @@ plotPixels(cur_images,
 ```
 
 
-
-
-
-
-
-
-
-
-
-
-
 ## Save sce objects
 
 ```{r save_objects, message = FALSE, warning=FALSE}
@@ -2647,10 +2875,14 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 ## Save plots as pdf
 
-```{r save_plots}
-##IMPORTANT: change to chunk output in console for this last part 
+```{r save_plots, include=FALSE}
+##IMPORTANT: change to chunk output in console for this last part - DO NOT RUN LIKE THIS DUE TO DUPLICATED VARIABLE NAMES
 
 ##save plots as pdf (vector graphics)
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_ClusterTesting.pdf",height = 4, width = 9)
+p1+p2+p3 
+dev.off()
 
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_Cluster_Metacluster.pdf",width = 14,height = 9)
 draw(h_meta)
@@ -2740,8 +2972,6 @@ ggsurvplot(fit,
           palette = "Set1") 
 dev.off()
 
-
-
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DiffAbun_Node.pdf", width = 6, height = 5, onefile = FALSE)
 ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
@@ -2760,83 +2990,115 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57score
 h
 dev.off()
 
-
-
-
-
-
-
-
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CC_ClusterTesting.pdf",width = 10,height = 5)
-p1+p2+p3
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57score_Cox.pdf",width = 8,height = 4)
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0,40))+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CC_Silhouette_Cluster110.pdf",width = 12,height = 10)
-p4
-dev.off()
-
-
-
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CC_PIDMetaCluster_ClusterCor.pdf",width = 12,height = 10)
-(d_PID+SID_metacluster_cor_plot)/
-(d_dens_PID+SID_metacluster_dens_cor_plot)
-dev.off()
-
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CC_PIDMetaCluster_CountHeatmap.pdf",width = 8,height = 6)
-Heatmap(for_plot_MC, 
-        name = "log(cell_count)",
-        col = viridis(100)
-        )
-dev.off()
-
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CC_PIDMetaClusterVSShannon.pdf",width = 4,height = 8)
-n_MC_PID/shannon_MC_PID
-dev.off()
-
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Meta_HR_DFS.pdf",width = 8,height = 7)
-hr_prop/
-hr_mean
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cluster_Fra_Cor.pdf", height = 8)
+SID_cluster_cor_plot
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_MC4_KaplanMeier_OS.pdf",width = 6,height = 6, onefile = FALSE)
-p1
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CLRDR_PID.pdf")
+clrDR(sce_cat, dr = "PCA", 
+      by = "sample_id", point_col = "sample_id",
+      k = "metacluster", point_pal = metadata(sce_cat)$colors$PID)+
+  scale_color_manual(values = metadata(sce_cat)$colors$metacluster)+
+  guides(fill = "none")+
+  theme_classic()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_ClusterMeta_HR_DFS.pdf",width = 8,height = 6)
-hr_prop/
-hr_cat/
-hr_cat_GMM
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_n_metacluster_PID.pdf", height = 8)
+n_MC_PID
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_Heatmap_metaClus_PIDgroups.pdf",width = 8,height = 8)
-h_g_meta
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_n_cluster_PID.pdf", height = 8)
+n_clus_PID
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_Heatmap_Clus_PIDgroups.pdf",width = 8,height = 8)
-h_g_clus
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DominantBar_Clus.pdf", width = 5)
+ggplot(out_bar, aes(x = category, y = n, fill = dominant))+
+  geom_tile(position = "stack", color = "black",alpha = 0.5)+
+  theme_classic()+
+  ylab("Number of PID")+
+  scale_fill_brewer(palette = "Set1")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_HeatmapPIDgroups_mean.pdf",width = 11,height = 7)
-h_g_rich
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Basoluminal_Scatter.pdf", height = 4,width = 8)
+scatter_CK5_7 + scatter_CK5_8_18
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_HeatmapPIDgroupsCLR.pdf",width = 11,height = 7)
-h_g_1
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_OS_Meta.pdf", height = 4, width = 8)
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0,60))+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_HeatmapPIDgroupsCLR_mean.pdf",width = 11,height = 7)
-h_g_rich_clr
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS_Meta_Uni.pdf", height = 4, width = 6)
+hr_prop
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_PIDgroups_Clus_OS.pdf",width = 8,height = 5)
-plot_OS
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS_CK57PID_Uni.pdf", height = 4, width = 4)
+hr_prop
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/06_tumor/TNBC_Tumor_CC_PIDgroups_Clus_DFS.pdf",width = 8,height = 5)
-plot_DFS
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS_Clus_Lasso.pdf", height = 5, width = 8)
+lasso_plot
 dev.off()
 
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_KaplanMeier_pNmerg.pdf", width = 5, height = 6, onefile = FALSE)
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c("grey","purple"),
+          log.rank.weights = "n")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DiffAbun_Node_Clus.pdf", width = 6, height = 5, onefile = FALSE)
+ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.05), aes(label = cluster))+
+  scale_color_manual(values = metadata(sce)$colors$cluster_110)+
+  xlab("logFC (pN: 0 vs 1/2/3)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57score_scater.pdf", width = 5, height = 5)
+ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
+  geom_point(alpha = 0.5)+
+  theme_classic()+
+  xlab("CK7 exprs")+
+  ylab("CK5 exprs")+
+  scale_color_manual(values = metadata(sce)$colors$CK5_7_score)
+dev.off()
 
 ##IMPORTANT: change back to chunk output inline
 ```
