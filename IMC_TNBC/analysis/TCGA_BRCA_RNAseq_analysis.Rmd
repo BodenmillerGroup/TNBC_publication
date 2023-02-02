@@ -126,6 +126,11 @@ vsd <- DESeq2::vst(res)
 mat <- assay(vsd)
 ```
 
+```{r}
+res <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_res.rds") 
+vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
+```
+
 ## CK5/7 Signature 
 
 GMM on size-factor normalized (NOT VST) counts
@@ -183,35 +188,27 @@ metadata(vsd)$colors$KRT57_score <- setNames(c("grey",wes_palette("Moonrise3")[1
 metadata(vsd)$colors$PAM50 <- setNames(brewer.pal(6,"Paired"),sort(unique(vsd$PAM50Call_RNAseq)))
 
 ## Visualize 
-plot <- as.data.frame(t(assay(vsd)[rownames(assay(vsd)) %in% c("KRT5","KRT7"),]))
+
+### 1. Normalized counts
+plot <- as.data.frame(t(counts(res, normalized = TRUE)[rownames(counts(res, normalized = TRUE)) %in% c("KRT5","KRT7"),]))
 plot$KRT5_7_score <- vsd$KRT5_7_score[match(rownames(plot),colnames(vsd))]
 plot$PAM50Call_RNAseq <- vsd$PAM50Call_RNAseq[match(rownames(plot),colnames(vsd))]
 plot$TNBC <- vsd$TNBC[match(rownames(plot),colnames(vsd))]
+
+# ### 2. VST-transformed counts 
+# plot <- as.data.frame(t(assay(vsd)[rownames(assay(vsd)) %in% c("KRT5","KRT7"),]))
+# plot$KRT5_7_score <- vsd$KRT5_7_score[match(rownames(plot),colnames(vsd))]
+# plot$PAM50Call_RNAseq <- vsd$PAM50Call_RNAseq[match(rownames(plot),colnames(vsd))]
+# plot$TNBC <- vsd$TNBC[match(rownames(plot),colnames(vsd))]
 
 ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
   geom_point(size = 2)+
   #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
   theme_classic()+
-  xlab("CK7 counts")+
-  ylab("CK5 counts")+
+  xlab("CK7 normalized counts")+
+  ylab("CK5 normalized counts")+
+  coord_cartesian(xlim = c(0,120000), ylim = c(0,300000))+
   scale_color_manual(values = metadata(vsd)$colors$KRT57_score)
-  #coord_cartesian(xlim = c(5,20), ylim = c(5,20))
-
-ggplot(plot, aes(x=KRT7, y=KRT5, color = PAM50Call_RNAseq)) +
-  geom_point(size = 2)+
-  #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
-  theme_classic()+
-  xlab("CK7 counts")+
-  ylab("CK5 counts")+
-  scale_color_manual(values = metadata(vsd)$colors$PAM50)
-  #coord_cartesian(xlim = c(5,20), ylim = c(5,20))
-
-ggplot(plot, aes(x=KRT7, y=KRT5, color = TNBC)) +
-  geom_point(size = 2)+
-  #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
-  theme_classic()+
-  xlab("CK7 counts")+
-  ylab("CK5 counts")
   #coord_cartesian(xlim = c(5,20), ylim = c(5,20))
 
 colData(vsd) %>% as.data.frame %>% group_by(KRT5_7_score) %>% count() %>% ungroup() %>% mutate(fra = n/sum(n))
@@ -220,11 +217,212 @@ colData(vsd) %>% as.data.frame %>% group_by(KRT5_7_score) %>% count() %>% ungrou
 ```{r}
 saveRDS(vsd,"/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
 saveRDS(res,"/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_res.rds")
-
-vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
+#res <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_res.rds") 
+#vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
 ```
 
-## Survival analysis 
+
+## 1. DEA - combined
+
+```{r}
+brca.clean$KRT5_7_score <- vsd$KRT5_7_score[match(brca.clean$PID, vsd$PID)]
+brca.clean$KRT5_7_score_combined <- ifelse(brca.clean$KRT5_7_score == "KRT5/7+","KRT5_7_pos","Not_KRT5_7_pos")
+```
+
+```{r}
+#saveRDS(brca.clean,"/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_cleaned_full.rds")
+brca.clean <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_cleaned_full.rds")
+```
+
+```{r}
+library(DESeq2)
+
+# Create DESeqDataset
+ddsSE_1 <- DESeqDataSet(brca.clean, design = ~ KRT5_7_score_combined)
+
+# Filter genes
+summary(rowSums(counts(ddsSE_1)) >= 10)
+keep <- rowSums(counts(ddsSE_1)) >= 10
+ddsSE_1 <- ddsSE_1[keep, ]
+
+# DESeq analysis includes count normalization based on size factors
+dds <- DESeq(ddsSE_1, )
+
+# Extract results - also performs independent filtering
+res <- DESeq2::results(dds) #alpha = 0.05, lfcThreshold = 1)
+summary(res)
+
+# Variance-stabilizing transformation
+vsd <- DESeq2::vst(dds)
+```
+
+```{r}
+#Save objects 
+saveRDS(res, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_CombinedScore.rds")
+saveRDS(vsd, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Combined_VST.rds")
+
+res <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_CombinedScore.rds")
+vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Combined_VST.rds")
+
+## Add colors 
+metadata(vsd)$colors$KRT57_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("KRT5/7-", "KRT5/7+","KRT5+", "KRT7+"))
+metadata(vsd)$colors$PAM50 <- setNames(brewer.pal(6,"Paired"),sort(unique(vsd$PAM50Call_RNAseq)))
+
+rownames(vsd) <- rowData(vsd)$gene_name
+```
+
+### Heatmap visualization 
+
+```{r}
+# Extract Top 20
+rownames(res) <- rowData(brca.clean)$gene_name[match(rownames(res), rownames(brca.clean))]
+
+sig.up <- res %>% as.data.frame %>% filter(log2FoldChange > 1) %>% arrange(padj) %>% slice(1:30) %>% rownames_to_column("gene") %>% pull(gene)
+sig.down <- res %>% as.data.frame %>% filter(log2FoldChange < -1) %>% arrange(padj) %>% slice(1:30) %>% rownames_to_column("gene") %>% pull(gene)
+
+# Heatmap body 
+ht <- assay(vsd) %>% as.data.frame %>% rownames_to_column("gene")
+ht$gene <- rowData(brca.clean)$gene_name[match(ht$gene, rownames(brca.clean))]
+mat_up <- ht %>% filter(gene %in% sig.up) %>% column_to_rownames("gene")
+mat_down <- ht %>% filter(gene %in% sig.down) %>% column_to_rownames("gene")
+
+# Annotation
+anno <- as.data.frame(t(mat_up))
+anno$KRT5_7_score_combined <- brca.clean$KRT5_7_score_combined[match(rownames(anno),colnames(brca.clean))]
+anno$KRT5_7_score <- brca.clean$KRT5_7_score[match(rownames(anno),colnames(brca.clean))]
+anno$PAM50 <- brca.clean$PAM50Call_RNAseq[match(rownames(anno),colnames(brca.clean))]
+anno$TNBC <- brca.clean$TNBC[match(rownames(anno),colnames(brca.clean))]
+
+# Plot Heatmap
+Heatmap(mat_up, 
+        col = viridis(100),
+        column_split = anno$KRT5_7_score_combined, 
+        column_title = NULL)%v%
+  columnAnnotation(KRT5_7_score_combined = anno$KRT5_7_score_combined)%v%
+  columnAnnotation(KRT5_7_score = anno$KRT5_7_score)%v%
+  columnAnnotation(PAM50 = anno$PAM50)%v%
+  columnAnnotation(TNBC = anno$TNBC)
+
+Heatmap(mat_down, 
+        col = viridis(100),
+        column_split = anno$KRT5_7_score_combined, 
+        column_title = NULL)%v%
+  columnAnnotation(KRT5_7_score_combined = anno$KRT5_7_score_combined)%v%
+  columnAnnotation(KRT5_7_score = anno$KRT5_7_score)%v%
+  columnAnnotation(PAM50 = anno$PAM50)%v%
+  columnAnnotation(TNBC = anno$TNBC)
+```
+
+### Volcano-plot visualization 
+
+```{r}
+## LFC shrinkage using apeglm 
+DESeq2::plotMA(res, ylim = c(-5, 5))
+
+plot_vol <- res %>% as.data.frame %>% rownames_to_column("gene")
+
+library(apeglm)
+DESeq2::resultsNames(dds)
+
+reshape <- DESeq2::lfcShrink(dds, coef = "KRT5_7_score_combined_Not_KRT5_7_pos_vs_KRT5_7_pos", 
+                            type = "apeglm")
+
+DESeq2::plotMA(reshape, ylim = c(-5, 5))
+```
+
+```{r}
+#rownames(reshape) <- rowData(brca.clean)$gene_name[match(rownames(reshape), rownames(brca.clean))]
+
+plot_vol <- res %>% as.data.frame %>% rownames_to_column("gene")
+plot_vol <- plot_vol %>% mutate(type = ifelse(log2FoldChange > 1 & padj < 0.01, "UP", 
+                                  ifelse(log2FoldChange < -1 & padj < 0.01, "DOWN","NA")))
+
+col <- c("DOWN" = "#E41A1C", "UP" = "#377EB8", "NA" = "black")
+
+# Combined 
+ggplot(plot_vol, aes(x = log2FoldChange, y=-log10(padj)))+
+  geom_point(aes(color = type))+
+  geom_label_repel(data = plot_vol %>% filter(gene %in% sig.down), aes(label = gene, color = type), max.overlaps = 30)+
+  geom_label_repel(data = plot_vol %>% filter(gene %in% sig.up), aes(label = gene, color = type), max.overlaps = 30)+
+  xlab("log2FC (CK5/7+ vs Not_CK5/7+)")+
+  ylab("-log10(FDR)")+
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed")+
+  geom_hline(yintercept = -log10(1), linetype = "dashed")+
+  geom_vline(xintercept = 1, linetype = "dashed")+
+  geom_vline(xintercept = -1, linetype = "dashed")+
+  theme_classic()+
+  scale_color_manual(values = col)+
+  guides(color = "none")
+
+# Down-regulated
+ggplot(plot_vol, aes(x = log2FoldChange, y=-log10(padj)))+
+  geom_point(aes(color = type))+
+  geom_label_repel(data = plot_vol %>% filter(gene %in% sig.down), aes(label = gene, color = type), max.overlaps = 30)+
+  xlab("log2FC (CK5/7+ vs Not_CK5/7+)")+
+  ylab("-log10(FDR)")+
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed")+
+  geom_hline(yintercept = -log10(1), linetype = "dashed")+
+  geom_vline(xintercept = 1, linetype = "dashed")+
+  geom_vline(xintercept = -1, linetype = "dashed")+
+  theme_classic()+
+  scale_color_manual(values = col)+
+  guides(color = "none")
+
+# Up-regulated
+ggplot(plot_vol, aes(x = log2FoldChange, y=-log10(padj)))+
+  geom_point(aes(color = type))+
+  geom_label_repel(data = plot_vol %>% filter(gene %in% sig.up), aes(label = gene, color = type), max.overlaps = 30)+
+  xlab("log2FC (CK5/7+ vs Not_CK5/7+)")+
+  ylab("-log10(FDR)")+
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed")+
+  geom_hline(yintercept = -log10(1), linetype = "dashed")+
+  geom_vline(xintercept = 1, linetype = "dashed")+
+  geom_vline(xintercept = -1, linetype = "dashed")+
+  theme_classic()+
+  scale_color_manual(values = col)+
+  guides(color = "none")
+```
+
+### Boxplot visualization for GOI 
+
+```{r}
+p1 <- ggplot(anno, aes(x = KRT5_7_score_combined, y = TBC1D9))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = KRT5_7_score_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  xlab("")+
+  #stat_compare_means(method = "kruskal.test")+
+  scale_color_brewer(palette = "Set1")+
+  guides(color = "none")
+
+p2 <- ggplot(anno, aes(x = KRT5_7_score, y = TBC1D9))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = KRT5_7_score_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ylab("")+
+  xlab("")+
+  scale_color_brewer(palette = "Set1")+
+  guides(color = "none")
+  
+p3 <- ggplot(anno, aes(x = TNBC, y = TBC1D9))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = KRT5_7_score_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ylab("")+
+  xlab("")+
+  scale_color_brewer(palette = "Set1")+
+  guides(color = "none")
+
+
+p1+p2+p3
+```
+
+## 2. Survival analysis 
+
+### Kaplan-Meier
 
 ```{r}
 #Assess survival impact 
@@ -237,6 +435,8 @@ cur_surv <- colData(vsd) %>% as.data.frame() %>% dplyr::select(PID, KRT5_7_score
 fit <- survfit(Surv(DFI.time, DFI) ~ KRT5_7_score, data = cur_surv)
 print(fit)
 
+metadata(vsd)$colors$KRT57_score 
+
 ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -244,7 +444,7 @@ ggsurvplot(fit,
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = c("grey","orange","firebrick","green4"),
+          palette = c("grey","#85D4E3","#F4B5BD","#9C964A"),
           log.rank.weights = "n", 
           xlim = c(0, 4000))
 
@@ -259,7 +459,7 @@ ggsurvplot(fit_1,
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = c("grey","orange","firebrick","green4"),
+          palette = c("grey","#85D4E3","#F4B5BD","#9C964A"),
           log.rank.weights = "n",
           xlim = c(0, 4000))
 
@@ -296,7 +496,7 @@ ggsurvplot(fit_1,
 #           xlim = c(0, 4000))
 ```
 
-## Cox model 
+### Cox model 
 
 ```{r}
 vsd$age <- vsd$Age_at_Initial_Pathologic_Diagnosis_nature2012
@@ -411,10 +611,11 @@ hr_prop
 ```
 
 
+Multivariate 
 
 ````{r}
 ## 2. Progression-free interval 
-PID_metagroups <- colData(vsd) %>% as.data.frame() %>% select(KRT5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metagroups <- colData(vsd) %>% as.data.frame() %>% dplyr::select(KRT5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 
 PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
@@ -464,8 +665,59 @@ theme(axis.text.x = element_text(angle = 90))
 
 hr_prop_PFS
 ```
+Univariate
 
-## Barplot visualization 
+```{r}
+## 2. Progression-free interval 
+### Univariate cox proportional hazard model on multiple covariates (here KRT5/7 groups)
+PID_metagroups <- colData(vsd) %>% as.data.frame() %>% dplyr::select(KRT5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "KRT5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+
+colnames(PID_metagroups) <- c("KRT57negative","KRT57positive","KRT5positive","KRT7positive")
+
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$PFI <- vsd$PFI[match(rownames(Cox_df),vsd$PID)]
+Cox_df$PFI.time <- vsd$PFI.time[match(rownames(Cox_df),vsd$PID)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-PFI,-PFI.time, -KRT57negative) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(PFI.time, PFI) ~", paste(covariates, collapse = " + "), "+ KRT57negative"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,5))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Covariates")+
+ylab("HR for PID groups")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+
+## 3. Barplot visualization 
 
 ```{r}
 dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "TNBC")+
@@ -487,7 +739,7 @@ dittoBarPlot(vsd, var = "TNBC", group.by = "KRT5_7_score")
 dittoBarPlot(vsd, var = "TNBC", group.by = "KRT5_7_score", scale = "count")
 ```
 
-## Keratin expression comparison for PID groups 
+## 4. Keratin expression comparison for PID groups 
 
 ```{r}
 # Define keratins of interest
@@ -513,7 +765,7 @@ Heatmap(ht, name = "Mean Z-scores")
 Heatmap(scale(ht), name = "Scaled mean Z-scores")
 ```
 
-## Stem-like marker expression comparison for PID groups 
+## 5. Stem-like marker expression comparison for PID groups 
 
 ```{r}
 # Define keratins of interest
@@ -543,17 +795,18 @@ Heatmap(scale(ht), name = "Scaled mean Z-scores")
 df$KRT5_7_score <- factor(df$KRT5_7_score, levels = c("KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
 compare_means(BRCA1 ~ KRT5_7_score,df) #pairwise comparisons
 compare_means(BRCA1 ~ KRT5_7_score,df, method = "kruskal.test") #global comparison
+df$KRT5_7_score <- factor(df$KRT5_7_score, levels = c("KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
 
-ggplot(df, aes(x = KRT5_7_score, y = BRCA1))+
+ggplot(df, aes(x = KRT5_7_score, y = SOX9))+
   geom_boxplot(outlier.color = NA)+
   geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
   scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
   theme_classic()+
-  ylab("BRCA1 expression")
+  ylab("SOX9 expression")
 ```
 
 
-## Lim et al signatures for PID groups 
+## 6. Lim et al signatures for PID groups 
 
 ```{r}
 library(readxl)
@@ -608,8 +861,9 @@ mat <- mat %>% filter(!is.na(mean))
 ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
 
 Heatmap(ht, name = "Mean signature Z-scores")
+```
 
-
+```{r}
 #Mature luminal signature per PID group 
 mature_lum_sig_up_rel <- mature_lum_sig_up[mature_lum_sig_up %in% rownames(assay(vsd))]
 
@@ -636,7 +890,9 @@ mat <- mat %>% filter(!is.na(mean))
 ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
 
 Heatmap(ht, name = "Mean signature Z-scores")
+```
 
+```{r}
 #Basal signature per PID group 
 basal_sig_up_rel <- basal_sig_up[basal_sig_up %in% rownames(assay(vsd))]
 
@@ -753,7 +1009,9 @@ Heatmap(ht, name = "Mean signature Z-scores")
 ```
 
 
-## BRCA1 mutation 
+## 7. BRCA1 genomic analysis
+
+### Somatic mutation 
 
 ```{r}
 somatic_mut_TCGA <- read.delim("/mnt/rcc_volume/TNBC/data_analysis/03_data/somaticmutation_TCGA_BRCA.txt")
@@ -769,7 +1027,7 @@ vsd$BRCA1_mut <- cur_dat$mut[match(vsd$PID, cur_dat$PID)]
 colData(vsd) %>% as.data.frame %>% dplyr::select(KRT5_7_score, BRCA1_mut) %>% filter(BRCA1_mut == 1)
 ```
 
-## BRCA1 CNV
+### CNV
 
 ```{r}
 CNV_TCGA <- read.delim("/mnt/rcc_volume/TNBC/data_analysis/03_data/TCGA_BRCA_GISTIC2.txt")
@@ -792,188 +1050,93 @@ ggplot(out_dat) +
 ```
 
 
+## 8. GSEA 
 
-## Differential expression analysis 
-
-### 1. Perform DEA based on combined score 
-
-```{r}
-brca.clean$KRT5_7_score <- vsd$KRT5_7_score[match(brca.clean$PID, vsd$PID)]
-brca.clean$KRT5_7_score_combined <- ifelse(brca.clean$KRT5_7_score == "KRT5/7+","KRT5_7_pos","Not_KRT5_7_pos")
-```
+With `clusterProfiler`. 
 
 ```{r}
-saveRDS(brca.clean,"/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_cleaned_full.rds")
-brca.clean <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_cleaned_full.rds")
+library(clusterProfiler)
+library(enrichplot)
+library(org.Hs.eg.db)
+
+organism <- "org.Hs.eg.db"
+
+# Prepare input gene list based on log2foldchanges 
+original_gene_list <- res$log2FoldChange
+names(original_gene_list) <- rownames(res)
+gene_list <- na.omit(original_gene_list)
+gene_list <- sort(gene_list, decreasing = TRUE) # sort in decreasing order
+
+# Run GO analysis
+gse <- gseGO(geneList=gene_list, 
+             ont ="BP", 
+             keyType = "SYMBOL", 
+             minGSSize = 50, 
+             maxGSSize = 1000, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = organism, 
+             pAdjustMethod = "BH")
+
+# Visualization
+## Dot plot
+dotplot(gse, showCategory=10, split=".sign") + facet_grid(~.sign)
+
+
+## Emap plot
+emapplot(pairwise_termsim(gse), showCategory = 15, color = "enrichmentScore", layout = "circle")
+
+## GSEA plot
+gseaplot2(gse, title = gse$Description[9], geneSetID = 1)
+gseaplot2(gse, title = gse$Description[10], geneSetID = 1)
+gseaplot2(gse, title = gse$Description[14], geneSetID = 1)
 ```
+
+
+## 9. KEGG pathway enrichment 
+
+With `clusterProfiler`. 
 
 ```{r}
-library(DESeq2)
+# KEGG requires Entrez IDs 
+library(org.Hs.eg.db)
 
-# Create DESeqDataset
-ddsSE_1 <- DESeqDataSet(brca.clean, design = ~ KRT5_7_score_combined)
+entrez.ids <- mapIds(org.Hs.eg.db, keys=rownames(res), column="ENTREZID", keytype="SYMBOL")
+entrez.ids <- entrez.ids[!duplicated(entrez.ids)]
 
-# Filter genes
-summary(rowSums(counts(ddsSE_1)) >= 10)
-keep <- rowSums(counts(ddsSE_1)) >= 10
-ddsSE_1 <- ddsSE_1[keep, ]
+df <- data.frame(log_change = gene_list, 
+           SYMBOL = names(gene_list))
 
-# DESeq analysis includes count normalization based on size factors
-dds <- DESeq(ddsSE_1, )
+df$ENTREZ <- entrez.ids[match(df$SYMBOL, names(entrez.ids))]
+df <- df[!is.na(df$ENTREZ),]
 
-# Extract results - also performs independent filtering
-res <- DESeq2::results(dds) #alpha = 0.05, lfcThreshold = 1)
-summary(res)
+gene_list_kegg <- df$log_change
+names(gene_list_kegg) <- df$ENTREZ
 
-# Variance-stabilizing transformation
-vsd <- DESeq2::vst(dds)
+# Run KEGG
+gseKEGG <- gseKEGG(geneList=gene_list_kegg, 
+        organism = "hsa",
+        keyType = "kegg", 
+        minGSSize = 50, 
+        maxGSSize = 500, 
+        pvalueCutoff = 0.05, 
+        verbose = TRUE, 
+        pAdjustMethod = "BH")
+
+# Visualization 
+## Dotplot 
+dotplot(gseKEGG, showCategory = 15, title = "Enriched Pathways" , split=".sign") + facet_grid(.~.sign)
+
+## EMAP plot 
+emapplot(pairwise_termsim(gseKEGG), showCategory = 15,color = "enrichmentScore", layout = "circle")
+
+## GSEA plot
+gseaplot2(gseKEGG, title = gseKEGG$Description[4], geneSetID = 1)
+gseaplot2(gseKEGG, title = gseKEGG$Description[12], geneSetID = 1)
+gseaplot2(gseKEGG, title = gseKEGG$Description[20], geneSetID = 1)
 ```
 
-```{r}
-#Save objects 
-saveRDS(res, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_CombinedScore.rds")
-saveRDS(vsd, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Combined_VST.rds")
-
-res <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_DiffResults.rds")
-vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_DiffResults_VST.rds")
-```
-
-#### Heatmap visualization 
-
-```{r}
-# Extract Top 20
-rownames(res) <- rowData(brca.clean)$gene_name[match(rownames(res), rownames(brca.clean))]
-
-sig.up <- res %>% as.data.frame %>% filter(log2FoldChange > 1) %>% arrange(padj) %>% slice(1:30) %>% rownames_to_column("gene") %>% pull(gene)
-sig.down <- res %>% as.data.frame %>% filter(log2FoldChange < -1) %>% arrange(padj) %>% slice(1:30) %>% rownames_to_column("gene") %>% pull(gene)
-
-# Heatmap body 
-ht <- assay(vsd) %>% as.data.frame %>% rownames_to_column("gene")
-ht$gene <- rowData(brca.clean)$gene_name[match(ht$gene, rownames(brca.clean))]
-mat_up <- ht %>% filter(gene %in% sig.up) %>% column_to_rownames("gene")
-mat_down <- ht %>% filter(gene %in% sig.down) %>% column_to_rownames("gene")
-
-# Annotation
-anno <- as.data.frame(t(mat_up))
-anno$KRT5_7_score_combined <- brca.clean$KRT5_7_score_combined[match(rownames(anno),colnames(brca.clean))]
-anno$KRT5_7_score <- brca.clean$KRT5_7_score[match(rownames(anno),colnames(brca.clean))]
-anno$PAM50 <- brca.clean$PAM50Call_RNAseq[match(rownames(anno),colnames(brca.clean))]
-anno$TNBC <- brca.clean$TNBC[match(rownames(anno),colnames(brca.clean))]
-
-# Plot Heatmap
-Heatmap(mat_up, 
-        col = viridis(100),
-        column_split = anno$KRT5_7_score_combined, 
-        column_title = NULL)%v%
-  columnAnnotation(KRT5_7_score_combined = anno$KRT5_7_score_combined)%v%
-  columnAnnotation(KRT5_7_score = anno$KRT5_7_score)%v%
-  columnAnnotation(PAM50 = anno$PAM50)%v%
-  columnAnnotation(TNBC = anno$TNBC)
-
-Heatmap(mat_down, 
-        col = viridis(100),
-        column_split = anno$KRT5_7_score_combined, 
-        column_title = NULL)%v%
-  columnAnnotation(KRT5_7_score_combined = anno$KRT5_7_score_combined)%v%
-  columnAnnotation(KRT5_7_score = anno$KRT5_7_score)%v%
-  columnAnnotation(PAM50 = anno$PAM50)%v%
-  columnAnnotation(TNBC = anno$TNBC)
-```
-
-#### Volcano-plot visualization 
-
-```{r}
-## LFC shrinkage using apeglm 
-DESeq2::plotMA(res, ylim = c(-5, 5))
-
-plot_vol <- res %>% as.data.frame %>% rownames_to_column("gene")
-
-library(apeglm)
-DESeq2::resultsNames(dds)
-
-reshape <- DESeq2::lfcShrink(dds, coef = "KRT5_7_score_combined_Not_KRT5_7_pos_vs_KRT5_7_pos", 
-                            type = "apeglm")
-
-DESeq2::plotMA(reshape, ylim = c(-5, 5))
-```
-
-```{r}
-#rownames(reshape) <- rowData(brca.clean)$gene_name[match(rownames(reshape), rownames(brca.clean))]
-
-plot_vol <- res %>% as.data.frame %>% rownames_to_column("gene")
-plot_vol <- plot_vol %>% mutate(type = ifelse(log2FoldChange > 1 & padj < 0.05, "UP", 
-                                  ifelse(log2FoldChange < -1 & padj < 0.05, "DOWN","NA")))
-
-col <- c("DOWN" = "#E41A1C", "UP" = "#377EB8", "NA" = "black")
-
-# Down-regulated
-ggplot(plot_vol, aes(x = log2FoldChange, y=-log10(padj)))+
-  geom_point(aes(color = type))+
-  geom_label_repel(data = plot_vol %>% filter(gene %in% sig.down), aes(label = gene, color = type), max.overlaps = 30)+
-  xlab("log2FC (CK5/7+ vs Not_CK5/7+)")+
-  ylab("-log10(FDR)")+
-  geom_hline(yintercept = -log10(0.01), linetype = "dashed")+
-  geom_hline(yintercept = -log10(1), linetype = "dashed")+
-  geom_vline(xintercept = 1, linetype = "dashed")+
-  geom_vline(xintercept = -1, linetype = "dashed")+
-  theme_classic()+
-  scale_color_manual(values = col)+
-  guides(color = "none")
-
-
-# Up-regulated
-ggplot(plot_vol, aes(x = log2FoldChange, y=-log10(padj)))+
-  geom_point(aes(color = type))+
-  geom_label_repel(data = plot_vol %>% filter(gene %in% sig.up), aes(label = gene, color = type), max.overlaps = 30)+
-  xlab("log2FC (CK5/7+ vs Not_CK5/7+)")+
-  ylab("-log10(FDR)")+
-  geom_hline(yintercept = -log10(0.01), linetype = "dashed")+
-  geom_hline(yintercept = -log10(1), linetype = "dashed")+
-  geom_vline(xintercept = 1, linetype = "dashed")+
-  geom_vline(xintercept = -1, linetype = "dashed")+
-  theme_classic()+
-  scale_color_manual(values = col)+
-  guides(color = "none")
-```
-
-#### Boxplot visualization for GOI 
-
-```{r}
-p1 <- ggplot(anno, aes(x = KRT5_7_score_combined, y = TBC1D9))+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = KRT5_7_score_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90))+
-  xlab("")+
-  #stat_compare_means(method = "kruskal.test")+
-  scale_color_brewer(palette = "Set1")+
-  guides(color = "none")
-
-p2 <- ggplot(anno, aes(x = KRT5_7_score, y = TBC1D9))+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = KRT5_7_score_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90))+
-  ylab("")+
-  xlab("")+
-  scale_color_brewer(palette = "Set1")+
-  guides(color = "none")
-  
-p3 <- ggplot(anno, aes(x = TNBC, y = TBC1D9))+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = KRT5_7_score_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90))+
-  ylab("")+
-  xlab("")+
-  scale_color_brewer(palette = "Set1")+
-  guides(color = "none")
-
-
-p1+p2+p3
-```
-
-### 2. Perform DEA based on all scores
+## 10. DEA - pairwise
 
 ```{r}
 brca.clean$KRT5_7_score <- str_replace(brca.clean$KRT5_7_score, "\\+","_pos")
@@ -1022,16 +1185,14 @@ vsd <- DESeq2::vst(dds)
 
 rownames(dds) <- rowData(brca.clean)$gene_name[match(rownames(dds), rownames(brca.clean))]
 counts(dds, normalized = TRUE)["KRT5",]
-
 ```
 
 ```{r}
 #Save objects 
-saveRDS(res, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_FullScore.rds")
-saveRDS(vsd, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_FullScore_VST.rds")
+#saveRDS(vsd, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_FullScore_VST.rds")
 
-#res <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_DiffResults.rds")
-#vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_DiffResults_VST.rds")
+## NOTE: res_1 to res_3 are not yet saved 
+#res_1 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_FullScore.rds")
 ```
 
 Compare DEG 
@@ -1056,48 +1217,7 @@ p1
 sig_up_total <- intersect(sig_up_3,intersect(sig_up_1, sig_up_2))
 ```
 
-## Gene-set enrichment analysis 
-
-With `clusterProfiler`. 
-
-```{r}
-library(clusterProfiler)
-library(enrichplot)
-library(org.Hs.eg.db)
-
-organism <- "org.Hs.eg.db"
-
-# Prepare input gene list based on log2foldchanges 
-original_gene_list <- res$log2FoldChange
-names(original_gene_list) <- rownames(res)
-gene_list <- na.omit(original_gene_list)
-gene_list <- sort(gene_list, decreasing = TRUE) # sort in decreasing order
-
-# Run GO analysis
-gse <- gseGO(geneList=gene_list, 
-             ont ="BP", 
-             keyType = "SYMBOL", 
-             minGSSize = 3, 
-             maxGSSize = 1000, 
-             pvalueCutoff = 0.05, 
-             verbose = TRUE, 
-             OrgDb = organism, 
-             pAdjustMethod = "BH")
-
-# Visualization
-## Dot plot
-dotplot(gse, showCategory=10, split=".sign") + facet_grid(~.sign)
-
-gse %>% as.data.frame()
-
-## Emap plot
-emapplot(pairwise_termsim(gse), showCategory = 20, color = "enrichmentScore", layout = "circle")
-
-## GSEA plot
-gseaplot2(gse, title = gse$Description[11], geneSetID = 1)
-gseaplot2(gse, title = gse$Description[9], geneSetID = 1)
-```
-
+### Pathway overrepresentation 
 With `goana`. Over-representation of genes in pathways.
 
 ```{r}
@@ -1127,49 +1247,7 @@ ggplot(plot_go_BP, aes(x = reorder(Term,-P.DE), y = -log10(P.DE)))+
   theme_classic()
 ```
 
-## KEGG pathway enrichment 
-
-With `clusterProfiler`. 
-
-```{r}
-# KEGG requires Entrez IDs 
-library(org.Hs.eg.db)
-
-entrez.ids <- mapIds(org.Hs.eg.db, keys=rownames(res), column="ENTREZID", keytype="SYMBOL")
-entrez.ids <- entrez.ids[!duplicated(entrez.ids)]
-
-df <- data.frame(log_change = gene_list, 
-           SYMBOL = names(gene_list))
-
-df$ENTREZ <- entrez.ids[match(df$SYMBOL, names(entrez.ids))]
-df <- df[!is.na(df$ENTREZ),]
-
-gene_list_kegg <- df$log_change
-names(gene_list_kegg) <- df$ENTREZ
-
-# Run KEGG
-gseKEGG <- gseKEGG(geneList=gene_list_kegg, 
-        organism = "hsa",
-        keyType = "kegg", 
-        minGSSize = 10, 
-        maxGSSize = 500, 
-        pvalueCutoff = 0.05, 
-        verbose = TRUE, 
-        pAdjustMethod = "BH")
-
-# Visualization 
-## Dotplot 
-dotplot(gseKEGG, showCategory = 15, title = "Enriched Pathways" , split=".sign") + facet_grid(.~.sign)
-
-## EMAP plot 
-emapplot(pairwise_termsim(gseKEGG), showCategory = 15,color = "enrichmentScore", layout = "circle")
-
-## GSEA plot
-gseaplot2(gseKEGG, title = gseKEGG$Description[2], geneSetID = 1)
-```
-
-
-## Immune cell deconvolution 
+## 11. Immune cell deconvolution 
 
 ```{r}
 library(immunedeconv)
@@ -1278,6 +1356,34 @@ ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
   scale_color_manual(values = metadata(vsd)$colors$KRT57_score)
 dev.off()
 
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_scatter_norm.pdf",height = 5, width = 5)
+ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
+  geom_point(size = 2)+
+  #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
+  theme_classic()+
+  xlab("CK7 normalized counts")+
+  ylab("CK5 normalized counts")+
+  coord_cartesian(xlim = c(0,120000), ylim = c(0,300000))+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57_Combined_Volcano.pdf", height = 9, width = 9, onefile = FALSE)
+ggplot(plot_vol, aes(x = log2FoldChange, y=-log10(padj)))+
+  geom_point(aes(color = type))+
+  geom_label_repel(data = plot_vol %>% filter(gene %in% sig.down), aes(label = gene, color = type), max.overlaps = 30)+
+  geom_label_repel(data = plot_vol %>% filter(gene %in% sig.up), aes(label = gene, color = type), max.overlaps = 30)+
+  xlab("log2FC (CK5/7+ vs Not_CK5/7+)")+
+  ylab("-log10(FDR)")+
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed")+
+  geom_hline(yintercept = -log10(1), linetype = "dashed")+
+  geom_vline(xintercept = 1, linetype = "dashed")+
+  geom_vline(xintercept = -1, linetype = "dashed")+
+  theme_classic()+
+  scale_color_manual(values = col)+
+  guides(color = "none")
+dev.off()
+
+
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Kaplan_DFS.pdf", height = 7, width = 6, onefile = FALSE)
 ggsurvplot(fit,
           pval = TRUE,
@@ -1286,7 +1392,8 @@ ggsurvplot(fit,
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = c("grey","orange","firebrick","green4"),
+          palette = c("grey","#85D4E3","#F4B5BD","#9C964A"),
+          log.rank.weights = "n", 
           xlim = c(0, 4000))
 dev.off()
 
@@ -1298,8 +1405,8 @@ ggsurvplot(fit_1,
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = c("grey","orange","firebrick","green4"),
-          log.rank.weights = "n",
+          palette = c("grey","#85D4E3","#F4B5BD","#9C964A"),
+          log.rank.weights = "n", 
           xlim = c(0, 4000))
 dev.off()
 
@@ -1311,6 +1418,10 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score
 hr_prop
 dev.off()
 
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Cox_PFS.pdf", height = 4, width = 7, onefile = FALSE)
+hr_prop_PFS
+dev.off()
+
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Barplot_TNBC.pdf", height = 4, width = 4, onefile = FALSE)
 dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "TNBC")+
     scale_fill_manual(values = metadata(vsd)$colors$KRT57_score)
@@ -1320,6 +1431,103 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score
 dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "PAM50Call_RNAseq")+
     scale_fill_manual(values = metadata(vsd)$colors$KRT57_score)
 dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Heatmap_Keratins.pdf", height = 4, width = 6, onefile = FALSE)
+Heatmap(scale(ht), name = "Scaled mean Z-scores")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Heatmap_Stem.pdf", height = 4, width = 7, onefile = FALSE)
+Heatmap(scale(ht), name = "Scaled mean Z-scores")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_SOX9_exprs.pdf", height = 5, width = 5, onefile = FALSE)
+ggplot(df, aes(x = KRT5_7_score, y = SOX9))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("SOX9 expression")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_BRCA1_exprs.pdf", height = 5, width = 5, onefile = FALSE)
+ggplot(df, aes(x = KRT5_7_score, y = BRCA1))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("BRCA1 expression")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_LumProgenitor_exprs.pdf", height = 5, width = 5, onefile = FALSE)
+ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Luminal progenitor signature")+
+  stat_compare_means()
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_LumProgenitor_Heatmap.pdf", height = 4, width = 7, onefile = FALSE)
+Heatmap(ht, name = "Mean signature Z-scores", show_column_names = FALSE)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_MatureLuminal_exprs.pdf", height = 5, width = 5, onefile = FALSE)
+ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Luminal progenitor signature")+
+  stat_compare_means()
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_MatureLuminal_Heatmap.pdf", height = 4, width = 7, onefile = FALSE)
+Heatmap(ht, name = "Mean signature Z-scores", show_column_names = FALSE)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Basal_exprs.pdf", height = 5, width = 5, onefile = FALSE)
+ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Luminal progenitor signature")+
+  stat_compare_means()
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Basal_Heatmap.pdf", height = 4, width = 7, onefile = FALSE)
+Heatmap(ht, name = "Mean signature Z-scores", show_column_names = FALSE)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_GSEA_EMAP.pdf", onefile = FALSE)
+emapplot(pairwise_termsim(gse), showCategory = 15, color = "enrichmentScore", layout = "circle")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_GSEA_EpithelialDiff.pdf", height = 5, width = 5, onefile = FALSE)
+gseaplot2(gse, title = gse$Description[9], geneSetID = 1)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_GSEA_EpithelialProlif.pdf", height = 5, width = 5, onefile = FALSE)
+gseaplot2(gse, title = gse$Description[14], geneSetID = 1)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_EMAP.pdf", onefile = FALSE)
+emapplot(pairwise_termsim(gseKEGG), showCategory = 15,color = "enrichmentScore", layout = "circle")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_IL17.pdf", height = 5, width = 5, onefile = FALSE)
+gseaplot2(gseKEGG, title = gseKEGG$Description[4], geneSetID = 1)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_TNF.pdf", height = 5, width = 5, onefile = FALSE)
+gseaplot2(gseKEGG, title = gseKEGG$Description[12], geneSetID = 1)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_NFKB.pdf", height = 5, width = 5, onefile = FALSE)
+gseaplot2(gseKEGG, title = gseKEGG$Description[20], geneSetID = 1)
+dev.off()
 ```
+
 
 
