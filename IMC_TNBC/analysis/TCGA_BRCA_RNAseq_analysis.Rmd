@@ -743,7 +743,7 @@ dittoBarPlot(vsd, var = "TNBC", group.by = "KRT5_7_score", scale = "count")
 
 ```{r}
 # Define keratins of interest
-keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM")
+keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM","ANXA8","MUC1")
 
 # Define heatmap based on normalized counts 
 ## Option 1: size-factor normalized counts 
@@ -756,7 +756,7 @@ df <- df %>% rownames_to_column("PID")
 ## Create heatmap body 
 df$KRT5_7_score <- vsd$KRT5_7_score[match(df$PID, colnames(vsd))]
 
-mat <- df %>% pivot_longer(cols = 2:11, names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% summarize(mean = mean(exprs))
+mat <- df %>% pivot_longer(cols = 2:(ncol(df)-1), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% summarize(mean = mean(exprs))
 
 ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
 
@@ -769,7 +769,7 @@ Heatmap(scale(ht), name = "Scaled mean Z-scores")
 
 ```{r}
 # Define keratins of interest
-stem <- c("SOX9","KIT","PROM1","YAP1","HDAC2","NOTCH1","TNF","NFKB1","CD44","ALDH1A1","BRCA1","BRCA2")
+stem <- c("SOX9","KIT","PROM1","YAP1","HDAC2","NOTCH1","TNF","NFKB1","CD44","ALDH1A3","NT5E","BRCA1","BRCA2", "TGFB2","EZH2")
 
 # Define heatmap based on normalized counts 
 ## Option 1: size-factor normalized counts 
