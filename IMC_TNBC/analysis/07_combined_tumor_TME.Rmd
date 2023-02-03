@@ -218,7 +218,7 @@ plotCells(mask = masks[img_ids],
           thick = TRUE)
 ```
 
-# 3. Spatial analysis
+sc# 3. Spatial analysis
 
 ```{r load combined sce}
 ##Load sce
@@ -1967,27 +1967,54 @@ library(ggpubr)
 size_plot <- colData(sce) %>% as.data.frame %>% select(PID, cell_id, contains("patch_")) %>% pivot_longer(cols = 3:ncol(.),names_to = "patch_name", values_to = "patch_ID") %>% filter(!is.na(patch_ID)) %>% group_by(PID, patch_name, patch_ID) %>% count() 
 
 # Mean tumor patch size per PID 
-size_tumor_plot <- size_plot %>% filter(str_detect(patch_name,"patch_tumor_")) %>% group_by(PID,patch_name) %>% mutate(mean_PID = mean(n), median_PID = median(n)) %>% select(patch_name,mean_PID) %>% unique()
+size_tumor_plot <- size_plot %>% filter(str_detect(patch_name,"patch_tumor_")) %>% group_by(PID,patch_name) %>% mutate(mean_PID = mean(n), median_PID = median(n)) %>% select(patch_name,median_PID,mean_PID) %>% unique()
 
-ggplot(size_tumor_plot, aes(x = reorder(patch_name,mean_PID), y = log2(mean_PID)))+
+size_tumor_plot$metacluster <- str_replace(size_tumor_plot$patch_name, "patch_","")
+
+ggplot(size_tumor_plot, aes(x = reorder(metacluster,median_PID), y = log2(mean_PID)))+
   geom_boxplot(outlier.color = NA)+
-  geom_jitter(aes(color = patch_name), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  coord_cartesian(ylim = c(3,13))+
+  geom_jitter(aes(color = metacluster), size = 3, position=position_jitter(w=0.1,h=0.1))+
   theme_classic()+
   theme(axis.text.x = element_text(angle = 90))+
-  stat_compare_means(method = "kruskal.test", label.y = 12.5)
+  stat_compare_means(method = "kruskal.test", label.y = 12.5)+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
+  ggtitle("Mean cell number per tumor patch per PID")
 
-# Mean TME patch size per PID 
-size_TME_plot <- size_plot %>% filter(!str_detect(patch_name,"patch_tumor_") & !str_detect(patch_name,"patch_MC")) %>% group_by(PID,patch_name) %>% mutate(mean_PID = mean(n), median_PID = median(n)) %>% select(patch_name,mean_PID) %>% unique()
 
-ggplot(size_TME_plot, aes(x = reorder(patch_name,mean_PID), y = log2(mean_PID)))+
-  geom_boxplot(outlier.color = NA)+
-  geom_jitter(aes(color = patch_name), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  coord_cartesian(ylim = c(3,13))+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90))+
-  stat_compare_means(method = "kruskal.test", label.y = 12.5)
+# # Mean TME patch size per PID 
+# size_TME_plot <- size_plot %>% filter(!str_detect(patch_name,"patch_tumor_") & !str_detect(patch_name,"patch_MC")) %>% group_by(PID,patch_name) %>% mutate(mean_PID = mean(n), median_PID = median(n)) %>% select(patch_name,mean_PID) %>% unique()
+# 
+# ggplot(size_TME_plot, aes(x = reorder(patch_name,mean_PID), y = log2(mean_PID)))+
+#   geom_boxplot(outlier.color = NA)+
+#   geom_jitter(aes(color = patch_name), size = 3, position=position_jitter(w=0.1,h=0.1))+
+#   coord_cartesian(ylim = c(3,13))+
+#   theme_classic()+
+#   theme(axis.text.x = element_text(angle = 90))+
+#   stat_compare_means(method = "kruskal.test", label.y = 12.5)
 ```
+
+
+```{r}
+cur_out <- foreach(i=1:11, .combine = "rbind")%do%{
+  cur_dat <- as.data.frame(patchSize(sce, patch_name = paste0("patch_tumor_",i)))
+  colnames(cur_dat) <- c("patch_id","polygon","size")
+  cur_dat$type <- paste0("patch_tumor_",i)
+  return(cur_dat)
+  }
+
+cur_out <- cur_out %>% group_by(type) %>% mutate(mean = mean(size), median = median(size))
+
+# plot mean per PID!! 
+ggplot(cur_out, aes(x = reorder(type,median), y = log2(size)))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = type), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  stat_compare_means()
+
+
+
+
+```
+
 
 
 ## Patch distance analysis 
@@ -2615,6 +2642,7 @@ ggplot(dist_tumor_df, aes(x = reorder(metacluster_combined, mean), y = mean))+
   guides(fill = "none")+
   stat_compare_means(method = "kruskal.test")
 ```
+
 ### T cell expression analysis 
 
 ```{r}
