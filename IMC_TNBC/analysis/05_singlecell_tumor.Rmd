@@ -803,10 +803,10 @@ plot(hc)
 row_sorted <- hc$order
 
 # Define annotation dataframe
+cur_df <- cur_df[row_sorted,]
+
 anno <- colData(sce) %>% as.data.frame %>% select(PID, age_bin, grade, pT_simple, pN_simple, pM_simple) %>% unique()
 anno <- anno[match(rownames(cur_df), anno$PID),]
-
-cur_df <- cur_df[row_sorted,]
 
 # Plot annotation dataframe with ComplexHeatmap
 fraction_anno <- HeatmapAnnotation(MC_fractions = anno_barplot(cur_df, gp=gpar(fill=metadata(sce)$colors$metacluster[colnames(cur_df)]),
@@ -1419,7 +1419,8 @@ sce$CK5_7_score <- ifelse(sce$GMM_tumor_CK5 == "CK5+" & sce$GMM_tumor_CK7 == "CK
 cur_dat <- t(assay(sce,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("CK5","CK7")
 cur_dat$CK5_7_score <- sce$CK5_7_score[match(rownames(cur_dat), sce$cell_id)]
 
-metadata(sce)$colors$CK5_7_score <- setNames(c("grey","orange","firebrick","green4"), c("CK5/7-", "CK5/7+", "CK5+", "CK7+"))
+library(wesanderson)
+metadata(sce)$colors$CK5_7_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("CK5/7-", "CK5/7+", "CK5+", "CK7+"))
 
 ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
   geom_point(alpha = 0.5)+
@@ -1427,7 +1428,6 @@ ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
   xlab("CK7 exprs")+
   ylab("CK5 exprs")+
   scale_color_manual(values = metadata(sce)$colors$CK5_7_score)
-
 
 plot_score_PID <- colData(sce) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
 
@@ -2907,7 +2907,7 @@ clrDR(sce_cat, dr = "PCA",
   theme_classic()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_FractionHeatmap.pdf", width = 12, height = 14, onefile = FALSE)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_FractionHeatmap.pdf", width = 10, height = 16, onefile = FALSE)
 fraction_anno + NULL
 dev.off()
 
@@ -2972,7 +2972,7 @@ ggsurvplot(fit,
           palette = "Set1") 
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DiffAbun_Node.pdf", width = 6, height = 5, onefile = FALSE)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DiffAbun_Node.pdf", width = 8, height = 5, onefile = FALSE)
 ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
@@ -3066,7 +3066,7 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DF
 lasso_plot
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_KaplanMeier_pNmerg.pdf", width = 5, height = 6, onefile = FALSE)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_KaplanMeier_pNmerg.pdf", width = 6, height = 6, onefile = FALSE)
 ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table

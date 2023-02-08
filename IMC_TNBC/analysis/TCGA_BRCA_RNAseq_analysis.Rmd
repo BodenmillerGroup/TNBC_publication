@@ -743,7 +743,7 @@ dittoBarPlot(vsd, var = "TNBC", group.by = "KRT5_7_score", scale = "count")
 
 ```{r}
 # Define keratins of interest
-keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM","ANXA8","MUC1")
+keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM")
 
 # Define heatmap based on normalized counts 
 ## Option 1: size-factor normalized counts 
@@ -768,8 +768,8 @@ Heatmap(scale(ht), name = "Scaled mean Z-scores")
 ## 5. Stem-like marker expression comparison for PID groups 
 
 ```{r}
-# Define keratins of interest
-stem <- c("SOX9","KIT","PROM1","YAP1","HDAC2","NOTCH1","TNF","NFKB1","CD44","ALDH1A3","NT5E","BRCA1","BRCA2", "TGFB2","EZH2")
+# Define stem markers of interest
+stem <- c("SOX9","KIT","PROM1","YAP1","HDAC2","NOTCH1","TNF","NFKB1","CD44","ALDH1A3","NT5E","BRCA1","BRCA2", "TGFB2","EZH2", "ANXA8","MUC1")
 
 # Define heatmap based on normalized counts 
 ## Option 1: size-factor normalized counts 
@@ -1436,7 +1436,7 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score
 Heatmap(scale(ht), name = "Scaled mean Z-scores")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Heatmap_Stem.pdf", height = 4, width = 7, onefile = FALSE)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Heatmap_Stem.pdf", height = 4, width = 8, onefile = FALSE)
 Heatmap(scale(ht), name = "Scaled mean Z-scores")
 dev.off()
 
