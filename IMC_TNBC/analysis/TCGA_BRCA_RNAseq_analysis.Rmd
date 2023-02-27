@@ -1009,7 +1009,189 @@ Heatmap(ht, name = "Mean signature Z-scores")
 ```
 
 
-## 7. BRCA1 genomic analysis
+## 7. Li et al signatures for PID groups 
+
+A: Alveolar subtypes 
+
+```{r}
+library(readxl)
+AV_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 1)
+
+colnames(AV_sig) <- c("pan_AV", "BL_enriched","AP_enriched")
+
+# Extract unique genes that were up- or down-regulated in each signature 
+panAV_sig_up <- AV_sig$pan_AV
+panAV_sig_up <- panAV_sig_up[!is.na(panAV_sig_up)]
+
+BL_sig_up <- AV_sig$BL_enriched
+BL_sig_up <- BL_sig_up[!is.na(BL_sig_up)]
+
+AP_sig_up <- AV_sig$AP_enriched
+AP_sig_up <- AP_sig_up[!is.na(AP_sig_up)]
+```
+
+```{r}
+## 1. pan AV signature per PID group 
+panAV_sig_up_rel <- panAV_sig_up[panAV_sig_up %in% rownames(assay(vsd))]
+# Filter for available genes
+df <- t(assay(vsd)[panAV_sig_up_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$KRT5_7_score <- vsd$KRT5_7_score[match(rownames(df), colnames(vsd))]
+df$KRT5_7_score <- factor(df$KRT5_7_score, levels = c("KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+
+compare_means(signature_sum ~ KRT5_7_score,df) #pairwise comparisons
+compare_means(signature_sum ~ KRT5_7_score,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Pan-Alveolar signature (Li et al.)")+
+  stat_compare_means()
+
+mat <- df %>% pivot_longer(cols = 1:(ncol(df)-2), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% summarize(mean = mean(exprs))
+mat <- mat %>% filter(!is.na(mean))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+Heatmap(ht, name = "Mean signature Z-scores")
+```
+
+
+```{r}
+## 2. BL signature per PID group 
+BL_sig_up_rel <- BL_sig_up[BL_sig_up %in% rownames(assay(vsd))]
+# Filter for available genes
+df <- t(assay(vsd)[BL_sig_up_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$KRT5_7_score <- vsd$KRT5_7_score[match(rownames(df), colnames(vsd))]
+df$KRT5_7_score <- factor(df$KRT5_7_score, levels = c("KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+
+compare_means(signature_sum ~ KRT5_7_score,df) #pairwise comparisons
+compare_means(signature_sum ~ KRT5_7_score,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Basal-luminal signature (Li et al.)")+
+  stat_compare_means()
+
+mat <- df %>% pivot_longer(cols = 1:(ncol(df)-2), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% summarize(mean = mean(exprs))
+mat <- mat %>% filter(!is.na(mean))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+Heatmap(ht, name = "Mean signature Z-scores")
+```
+
+```{r}
+## 3. AP signature per PID group 
+AP_sig_up_rel <- AP_sig_up[AP_sig_up %in% rownames(assay(vsd))]
+# Filter for available genes
+df <- t(assay(vsd)[AP_sig_up_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$KRT5_7_score <- vsd$KRT5_7_score[match(rownames(df), colnames(vsd))]
+df$KRT5_7_score <- factor(df$KRT5_7_score, levels = c("KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+
+compare_means(signature_sum ~ KRT5_7_score,df) #pairwise comparisons
+compare_means(signature_sum ~ KRT5_7_score,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("AV progenitor signature (Li et al.)")+
+  stat_compare_means()
+
+mat <- df %>% pivot_longer(cols = 1:(ncol(df)-2), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% summarize(mean = mean(exprs))
+mat <- mat %>% filter(!is.na(mean))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+Heatmap(ht, name = "Mean signature Z-scores")
+```
+
+B: pan-Basal and pan-HS
+
+```{r}
+HS_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 2) %>% select("Pan-HS") %>% pull("Pan-HS")
+HS_sig_up <- HS_sig[!is.na(HS_sig)]
+
+BA_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 3) %>% select("Pan-BA") %>% pull("Pan-BA")
+BA_sig_up <- BA_sig[!is.na(BA_sig)]
+```
+
+```{r}
+## 1. HS signature per PID group 
+HS_sig_up_rel <- HS_sig_up[HS_sig_up %in% rownames(assay(vsd))]
+# Filter for available genes
+df <- t(assay(vsd)[HS_sig_up_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$KRT5_7_score <- vsd$KRT5_7_score[match(rownames(df), colnames(vsd))]
+df$KRT5_7_score <- factor(df$KRT5_7_score, levels = c("KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+
+compare_means(signature_sum ~ KRT5_7_score,df) #pairwise comparisons
+compare_means(signature_sum ~ KRT5_7_score,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Hormone-sensing signature (Li et al.)")+
+  stat_compare_means()
+
+mat <- df %>% pivot_longer(cols = 1:(ncol(df)-2), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% summarize(mean = mean(exprs))
+mat <- mat %>% filter(!is.na(mean))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+Heatmap(ht, name = "Mean signature Z-scores")
+```
+
+```{r}
+## 2. BA signature per PID group 
+BA_sig_up_rel <- BA_sig_up[BA_sig_up %in% rownames(assay(vsd))]
+# Filter for available genes
+df <- t(assay(vsd)[BA_sig_up_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$KRT5_7_score <- vsd$KRT5_7_score[match(rownames(df), colnames(vsd))]
+df$KRT5_7_score <- factor(df$KRT5_7_score, levels = c("KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+
+compare_means(signature_sum ~ KRT5_7_score,df) #pairwise comparisons
+compare_means(signature_sum ~ KRT5_7_score,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("BA signature (Li et al.)")+
+  stat_compare_means()
+
+mat <- df %>% pivot_longer(cols = 1:(ncol(df)-2), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% summarize(mean = mean(exprs))
+mat <- mat %>% filter(!is.na(mean))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+Heatmap(ht, name = "Mean signature Z-scores")
+```
+
+## 8. BRCA1 genomic analysis
 
 ### Somatic mutation 
 
@@ -1050,7 +1232,7 @@ ggplot(out_dat) +
 ```
 
 
-## 8. GSEA 
+## 9. GSEA 
 
 With `clusterProfiler`. 
 
@@ -1093,7 +1275,7 @@ gseaplot2(gse, title = gse$Description[14], geneSetID = 1)
 ```
 
 
-## 9. KEGG pathway enrichment 
+## 10. KEGG pathway enrichment 
 
 With `clusterProfiler`. 
 
@@ -1136,7 +1318,7 @@ gseaplot2(gseKEGG, title = gseKEGG$Description[12], geneSetID = 1)
 gseaplot2(gseKEGG, title = gseKEGG$Description[20], geneSetID = 1)
 ```
 
-## 10. DEA - pairwise
+## 11. DEA - pairwise
 
 ```{r}
 brca.clean$KRT5_7_score <- str_replace(brca.clean$KRT5_7_score, "\\+","_pos")
@@ -1247,7 +1429,7 @@ ggplot(plot_go_BP, aes(x = reorder(Term,-P.DE), y = -log10(P.DE)))+
   theme_classic()
 ```
 
-## 11. Immune cell deconvolution 
+## 12. Immune cell deconvolution 
 
 ```{r}
 library(immunedeconv)
@@ -1486,17 +1668,17 @@ pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score
 Heatmap(ht, name = "Mean signature Z-scores", show_column_names = FALSE)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Basal_exprs.pdf", height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_BL_exprs.pdf", height = 5, width = 5, onefile = FALSE)
 ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
   geom_boxplot(outlier.color = NA)+
   geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
   scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
   theme_classic()+
-  ylab("Luminal progenitor signature")+
+  ylab("Basal-luminal signature (Li et al.)")+
   stat_compare_means()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Basal_Heatmap.pdf", height = 4, width = 7, onefile = FALSE)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_BL_Heatmap.pdf", height = 4, width = 7, onefile = FALSE)
 Heatmap(ht, name = "Mean signature Z-scores", show_column_names = FALSE)
 dev.off()
 
