@@ -1366,6 +1366,57 @@ ggplot(test_plot, aes(mean_fra, dif_fra, color = PID))+
   
 ```
 
+
+### Age and fraction correlation - MC8 / CK5/7 scores
+
+```{r}
+library(ggpmisc)
+# Metacluster 8 
+PID_metacluster <- colData(sce) %>% as.data.frame() %>% select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metacluster <- PID_metacluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+PID_MC8 <- PID_metacluster %>% filter(metacluster == "8", fra > 0.05, Freq > 10) %>% arrange(desc(fra))
+
+PID_MC8$age <- sce$age[match(PID_MC8$PID, sce$PID)]
+
+ggplot(PID_MC8, aes(x = fra, y=age))+
+  geom_point()+
+  stat_smooth(method = "lm",
+              formula = y ~ x,
+              geom = "smooth", 
+              color = "firebrick")+
+  stat_poly_eq()+
+  stat_fit_glance(method = 'lm',
+                       method.args = list(formula = y ~ x),
+                       geom = 'text',
+                       aes(label = paste("P-value = ", signif(..p.value.., digits = 4), sep = "")))+
+  theme_classic()
+```
+
+```{r}
+library(ggpmisc)
+# CK5/7+
+PID_CK57 <- colData(sce) %>% as.data.frame() %>% select(CK5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+PID_CK57_pos <- PID_CK57 %>% filter(CK5_7_score == "CK5/7+", fra > 0.05, Freq > 10) %>% arrange(desc(fra))
+
+PID_CK57_pos$age <- sce$age[match(PID_CK57_pos$PID, sce$PID)]
+
+ggplot(PID_CK57_pos, aes(x = fra, y=age))+
+  geom_point()+
+  stat_smooth(method = "lm",
+              formula = y ~ x,
+              geom = "smooth", 
+              color = "firebrick")+
+  stat_poly_eq()+
+  stat_fit_glance(method = 'lm',
+                       method.args = list(formula = y ~ x),
+                       geom = 'text',
+                       aes(label = paste("P-value = ", signif(..p.value.., digits = 4), sep = "")))+
+  theme_classic()
+```
+
 ## 6. CK5/7 Signature 
 
 ### Define signature / PID groups 
@@ -3100,6 +3151,36 @@ ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
   scale_color_manual(values = metadata(sce)$colors$CK5_7_score)
 dev.off()
 
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Age_MC8Abundance_scater.pdf", width = 5, height = 5)
+ggplot(PID_MC8, aes(x = fra, y=age))+
+  geom_point()+
+  stat_smooth(method = "lm",
+              formula = y ~ x,
+              geom = "smooth", 
+              color = "firebrick")+
+  stat_poly_eq()+
+  stat_fit_glance(method = 'lm',
+                       method.args = list(formula = y ~ x),
+                       geom = 'text',
+                       aes(label = paste("P-value = ", signif(..p.value.., digits = 4), sep = "")))+
+  theme_classic()
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Age_CK57pos_scater.pdf", width = 5, height = 5)
+ggplot(PID_CK57_pos, aes(x = fra, y=age))+
+  geom_point()+
+  stat_smooth(method = "lm",
+              formula = y ~ x,
+              geom = "smooth", 
+              color = "firebrick")+
+  stat_poly_eq()+
+  stat_fit_glance(method = 'lm',
+                       method.args = list(formula = y ~ x),
+                       geom = 'text',
+                       aes(label = paste("P-value = ", signif(..p.value.., digits = 4), sep = "")))+
+  theme_classic()
+dev.off()
 ##IMPORTANT: change back to chunk output inline
 ```
 
