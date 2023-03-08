@@ -2222,6 +2222,15 @@ interaction_tumor_CK57 %>% as_tibble() %>%
         scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
         theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   theme_classic()
+
+interaction_tumor %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% filter(to_label != "tumor_8") %>%
+    group_by(from_label, to_label) %>%
+    summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>%
+    ggplot() +
+        geom_tile(aes(from_label, to_label, fill = sum_sigval)) +
+        scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme_classic()
 ```
 
 ```{r}

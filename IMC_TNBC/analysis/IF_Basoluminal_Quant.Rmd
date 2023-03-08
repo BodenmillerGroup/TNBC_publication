@@ -1,0 +1,279 @@
+---
+title: "IF_Basoluminal_Quantification"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(scuttle)
+library(scater)
+library(scran)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(circlize)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(parallel)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(Rphenograph)
+library(igraph)
+library(RColorBrewer)
+library(foreach)
+library(clValid)
+library(bluster)
+library(psych)
+library(corrplot)
+library(psych)
+
+#Batch correction
+library(batchelor)
+```
+
+```{r}
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+```
+
+# IF Quantification - Basoluminal 
+
+Data generated with QuPath. 
+Steps included tumor region designation, single-cell segmentation (nuclei detection + expansion), thresholding on markers (CK5/7/19)
+
+```{r}
+# read in data 
+dat <- read_csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/QuPath_Basoluminal_Quantification_Annotation.csv")
+
+colnames(dat) <- str_replace(colnames(dat),"Num ","")
+colnames(dat) <- str_replace(colnames(dat),"Cy3","CK7")
+colnames(dat) <- str_replace(colnames(dat),"Cy5","CK19")
+colnames(dat) <- str_replace(colnames(dat),"Cy7","CK5")
+colnames(dat) <- str_replace(colnames(dat)," ","")
+colnames(dat) <- str_replace(colnames(dat)," ","")
+
+dat$PID <- str_split(dat$Image,".czi", simplify = TRUE)[,1]
+
+
+# Optional: Kick out samples for which tumor selection was difficult in QuPath / low basal/luminal cells present
+
+dat <- dat %>% filter(!PID %in% c("B10_23314","B07_41959","B10_59762"))
+
+```
+
+
+```{r}
+cur_dat <- dat %>% select("CK7","CK7:CK19","CK19","CK5","CK5:CK7","CK5:CK7:CK19","CK5:CK19", "PID") %>% pivot_longer(1:7,values_to = "n", names_to = "CK_group")
+```
+
+```{r}
+# CK group fraction dataframe
+cur_in <- cur_dat %>% as.data.frame %>% group_by(PID, CK_group) %>% summarise(mean_n = mean(n)) %>% group_by(PID) %>% mutate(total_n = sum(mean_n))
+
+cur_df <- cur_in %>% group_by(PID) %>% mutate(fra = mean_n/sum(mean_n))
+cur_df <- cur_df %>% pivot_wider(id_cols = "PID", names_from = "CK_group",values_from = "fra") %>% column_to_rownames("PID")
+
+# Option: Perform hierarchical clustering on fractions
+dd <- dist(cur_df, method = "euclidean")
+hc <- hclust(dd, method = "ward.D2")
+plot(hc)
+row_sorted <- hc$order
+
+# Option: order by triple-positive cell fraction
+row_sorted_fra <- cur_in %>% group_by(PID) %>% mutate(fra = mean_n/sum(mean_n)) %>% filter(CK_group == "CK5:CK7:CK19") %>% arrange(desc(fra)) %>% pull(PID)
+
+# Define annotation dataframe
+cur_df <- cur_df[row_sorted_fra,]
+cur_df <- cur_df[,c("CK5:CK7:CK19", "CK5:CK7","CK7:CK19","CK19","CK7","CK5","CK5:CK19")]
+
+anno <- cur_in
+anno <- anno[match(rownames(cur_df), anno$PID),]
+
+# Color
+cur_color <- setNames(brewer.pal(7, "Paired"), colnames(cur_df))
+
+# Plot annotation dataframe with ComplexHeatmap
+fraction_anno <- HeatmapAnnotation(PID = anno_text(anno$PID), 
+                                   CK_fractions = anno_barplot(cur_df, gp=gpar(fill=cur_color),
+                                                               bar_width = 1, height = unit(25,"cm"), width = unit(11,"cm"),
+                                                               show_row_names = TRUE, row_names_side = "left"),
+                                   total_n = anno_barplot(anno$total_n, border = TRUE),
+                                   gap = unit(1,"mm"),
+                                   which = "row")
+h <- fraction_anno + NULL
+
+lgd <- Legend(title = "CK_group", at = colnames(cur_df), 
+              legend_gp = gpar(fill = cur_color))
+             
+# Plot
+draw(h,annotation_legend_list = list(lgd))
+```
+```{r}
+# Focus on CK5/7
+cur_dat <- cur_dat %>% ungroup() %>% mutate(CK5_7_group = ifelse(CK_group %in% c("CK5","CK5:CK19"),"CK5+", 
+                                         ifelse(CK_group %in% c("CK7","CK7:CK19"),"CK7+", 
+                                                ifelse(CK_group %in% c("CK5:CK7","CK5:CK7:CK19"),"CK5/7+", NA)))) %>% filter(!is.na(CK5_7_group))
+
+cur_dat <- cur_dat %>% as.data.frame %>% group_by(PID, CK5_7_group) %>% summarise(mean_n = mean(n)) %>% group_by(PID) %>% mutate(total_n = sum(mean_n))                                     
+
+cur_CK <- cur_dat %>% group_by(PID) %>% mutate(fra = mean_n/sum(mean_n))
+
+cur_CK <- cur_CK %>% pivot_wider(id_cols = "PID", names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("PID")
+
+# Option: order by triple-positive cell fraction
+row_sorted_fra <- cur_dat %>% group_by(PID) %>% mutate(fra = mean_n/sum(mean_n)) %>% filter(CK5_7_group == "CK5/7+") %>% arrange(desc(fra)) %>% pull(PID)
+
+# Define annotation dataframe
+cur_CK <- cur_CK[row_sorted_fra,]
+cur_CK <- cur_CK[,c("CK5/7+", "CK5+", "CK7+")]
+
+anno <- cur_dat 
+anno <- anno[match(rownames(cur_CK), anno$PID),]
+
+# Color
+cur_color_CK <- setNames(wes_palette("Moonrise3")[1:3], c("CK5/7+", "CK5+", "CK7+"))
+
+# Plot annotation dataframe with ComplexHeatmap
+fraction_anno <- HeatmapAnnotation(PID = anno_text(anno$PID), 
+                                   CK_fractions = anno_barplot(cur_CK, gp=gpar(fill=cur_color_CK),
+                                                               bar_width = 1, height = unit(25,"cm"), width = unit(11,"cm"),
+                                                               show_row_names = TRUE, row_names_side = "left"),
+                                   total_n = anno_barplot(anno$total_n, border = TRUE),
+                                   gap = unit(1,"mm"),
+                                   which = "row")
+h_1 <- fraction_anno + NULL
+
+lgd_1 <- Legend(title = "CK_group", at = colnames(cur_CK), 
+              legend_gp = gpar(fill = cur_color_CK))
+             
+# Plot
+draw(h_1,annotation_legend_list = list(lgd_1))
+```
+Combined 
+
+```{r}
+fraction_combined <- HeatmapAnnotation(PID = anno_text(anno$PID), 
+                                       CK57_fractions = anno_barplot(cur_CK, gp=gpar(fill=cur_color_CK),
+                                                               bar_width = 1, height = unit(25,"cm"), width = unit(11,"cm"),
+                                                               show_row_names = TRUE, row_names_side = "left"),
+                                       CK_fractions = anno_barplot(cur_df, gp=gpar(fill=cur_color),
+                                                               bar_width = 1, height = unit(25,"cm"), width = unit(11,"cm"),
+                                                               show_row_names = TRUE, row_names_side = "left"),
+                                       total_n = anno_barplot(anno$total_n, border = TRUE),
+                                       gap = unit(2,"mm"),
+                                       which = "row")
+
+h_comb <- fraction_combined + NULL
+draw(h_comb,annotation_legend_list = list(lgd,lgd_1))
+```
+
+Correlation between IMC measurements 
+
+```{r}
+PID_CK57 <- colData(sce) %>% as.data.frame() %>% select(CK5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% filter(CK5_7_score != "CK5/7-") %>% mutate(fra = Freq/sum(Freq))
+
+PID_CK57_df <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "CK5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+
+
+cur_CK_out <- cur_CK
+rownames(cur_CK_out) <- str_replace(rownames(cur_CK_out),"_",".")
+
+rownames(cur_CK_out)[rownames(cur_CK_out) == "B13.6577"] <- "B13.06577"
+rownames(cur_CK_out)[rownames(cur_CK_out) == "B07.8412"] <- "B07.08412"
+
+cur_cor <- PID_CK57_df[rownames(PID_CK57_df) %in% rownames(cur_CK_out),]
+
+cur_cor <- cur_cor %>% select("CK5/7+")
+
+cur_cor$`CK5/7+_IF` <- cur_CK_out$`CK5/7+`[match(rownames(cur_cor), rownames(cur_CK_out))]
+cur_cor$PID <- rownames(cur_cor)
+
+spearman_test <- cor.test(cur_cor[,1],cur_cor[,2], method = "spearman")
+
+ggplot(cur_cor, aes(x = `CK5/7+`, y = `CK5/7+_IF`))+
+  geom_smooth(method='lm', formula= y~x, se = TRUE, color = "darkgrey")+
+  geom_point(aes(color = PID), size = 3)+
+  ylab("CK5/7 Fraction IF")+
+  xlab("CK5/7 Fraction IMC")+
+  theme_classic()+
+  scale_color_manual(values=metadata(sce)$colors$PID)+
+  ggtitle(paste("Spearman rho = ",round(spearman_test$estimate, digits = 2),"/ p =",round(spearman_test$p.value, digits = 4)))
+```
+
+Check overlap of CK19 and CK7 positive cells
+
+```{r}
+cur_719 <- cur_in %>% filter(CK_group != "CK5") %>% mutate(CK7_19_group = ifelse(CK_group %in% c("CK5:CK19","CK19"),"CK19+", 
+                                                ifelse(CK_group %in% c("CK5:CK7","CK7"),"CK7+", "CK7_19+"))) 
+
+cur_719 <- cur_719 %>% as.data.frame %>% group_by(PID, CK7_19_group) %>% summarise(sum_n = sum(mean_n))                               
+
+cur_719 <- cur_719 %>% group_by(PID) %>% mutate(fra = sum_n/sum(sum_n))
+
+cur_719$PID <- str_replace(cur_719$PID, "_",".")
+cur_719$PID[cur_719$PID == "B13.6577"] <- "B13.06577"
+cur_719$PID[cur_719$PID == "B07.8412"] <- "B07.08412"
+
+ggplot(cur_719, aes(x=CK7_19_group, y=fra))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  theme_classic()
+```
+```{r}
+## Save plots as pdf
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_Heatmap_combined.pdf",width = 12, height = 8, onefile = FALSE)
+draw(h_comb,annotation_legend_list = list(lgd,lgd_1))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_IF_IMC_cor.pdf", width = 8)
+ggplot(cur_cor, aes(x = `CK5/7+`, y = `CK5/7+_IF`))+
+  geom_smooth(method='lm', formula= y~x, se = TRUE, color = "darkgrey")+
+  geom_point(aes(color = PID), size = 3)+
+  ylab("CK5/7 Fraction IF")+
+  xlab("CK5/7 Fraction IMC")+
+  theme_classic()+
+  scale_color_manual(values=metadata(sce)$colors$PID)+
+  ggtitle(paste("Spearman rho = ",round(spearman_test$estimate, digits = 2),"/ p =",round(spearman_test$p.value, digits = 4)))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_CK7_19.pdf", height = 6, width = 8)
+ggplot(cur_719, aes(x=CK7_19_group, y=fra))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  theme_classic()
+dev.off()
+```
+
