@@ -1,0 +1,96 @@
+---
+title: "IMC_Jackson_analysis"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Analysis of Jackson et al. (2020)
+
+## Read in data 
+
+```{r}
+devtools::install_github("https://github.com/BodenmillerGroup/imcdatasets/tree/full_datasets")
+```
+
+```{r}
+# Subset for tumor metacluster
+sce <- sce[,sce$metacluster %in% c(14:27)]
+```
+
+## 1. CK5/7 Signature 
+
+```{r}
+## 5. CK5-7 signature
+# 1. CK5
+GMM_CK5 <- Mclust(assay(sce, "exprs")["CK5",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK5$classification == 2, 
+                                        "CK5+",
+                                        "CK5-"), 
+                     KRT5_exprs = assay(sce, "exprs")["CK5",],
+                     uncertainty = GMM_CK5$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT5_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_tumor_CK5 <- GMM_df$class_epi
+
+# 2. CK7
+GMM_CK7 <- Mclust(assay(sce, "exprs")["CK7",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK7$classification == 2, 
+                                        "CK7+",
+                                        "CK7-"), 
+                     KRT7_exprs = assay(sce, "exprs")["CK7",],
+                     uncertainty = GMM_CK7$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT7_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_tumor_CK7 <- GMM_df$class_epi
+
+## Combine CK5/7 GMM scores 
+sce$CK5_7_score <- ifelse(sce$GMM_tumor_CK5 == "CK5+" & sce$GMM_tumor_CK7 == "CK7+", "CK5/7+", 
+       ifelse(sce$GMM_tumor_CK5 == "CK5+" & sce$GMM_tumor_CK7 == "CK7-", "CK5+",
+              ifelse(sce$GMM_tumor_CK5 == "CK5-" & sce$GMM_tumor_CK7 == "CK7+", "CK7+","CK5/7-")))
+
+## Visualize 
+cur_dat <- t(assay(sce,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("CK5","CK7")
+
+
+cur_dat$CK5_7_score <- sce$CK5_7_score[match(rownames(cur_dat), sce$id)]
+
+ggplot(cur_dat, aes(x=CK7, y=CK5,color = CK5_7_score)) +
+  geom_point(alpha = 0.5)+
+  #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
+  theme_classic()+
+  xlab("CK7 exprs")+
+  ylab("CK5 exprs")
+
+colData(sce) %>% as.data.frame %>% group_by(CK5_7_score) %>% count() %>% ungroup() %>% mutate(fra = n/sum(n))
+
+sce$PID <- as.character(sce$PID)
+plot_score_PID <- colData(sce) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
+plot_score_PID$clinical_type <- sce$clinical_type[match(plot_score_PID$PID, sce$PID)]
+
+colData(sce)
+
+
+ggplot(plot_score_PID, aes(x=PID, y=fra, fill = CK5_7_score))+
+  geom_tile(position = "fill")
+```
