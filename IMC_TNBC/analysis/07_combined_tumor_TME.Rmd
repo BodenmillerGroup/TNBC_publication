@@ -2163,6 +2163,29 @@ ggplot(PID_patch_abundant) +
   theme(axis.text.x = element_blank())
 ```
 
+
+```{r}
+PID_dom_MC8 <- PID_patch %>% mutate(max = max(fra)) %>% filter(fra == max) %>% ungroup() %>% filter(metacluster_combined == "tumor_8") %>% pull(PID)
+
+PID_overall <- colData(sce) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_MC8_overall <- PID_overall %>% group_by(PID) %>% filter(metacluster_combined == "tumor_8") %>% mutate(cells = ifelse(Freq > 5, TRUE, FALSE)) %>% mutate(patch = ifelse(PID %in% patch_MC8_PID, TRUE, FALSE)) %>% mutate(dominated = ifelse(PID %in% PID_dom_MC8, TRUE, FALSE)) %>% mutate(PID_category = ifelse(patch && dominated, "dominated", ifelse(patch, "patch", ifelse(cells, "cells", "not_present"))))                                                                                                                                                                     
+PID_MC8_overall_plot <- PID_MC8_overall %>% group_by(PID_category) %>% count() %>% ungroup() %>% mutate(fra = n/sum(n)) %>% mutate(category = "PID")
+PID_MC8_overall_plot$PID_category <- factor(PID_MC8_overall_plot$PID_category, levels = c("not_present","cells","patch","dominated"))
+
+ggplot(PID_MC8_overall_plot) +
+  geom_tile(color = "black",aes(category, n, fill = PID_category), position = "stack")+
+  scale_fill_brewer(palette = "Blues")+
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  xlab("PID")+
+  theme(axis.text.x = element_blank())
+```
+
+
+
+
+
 ```{r}
 sce_tumor <- sce[,sce$analysis_cat == "tumor"]
 sce_tumor$metacluster_combined <- unfactor(sce_tumor$metacluster_combined)
@@ -2189,14 +2212,20 @@ interaction_tumor_CK57 <- testInteractions(sce_tumor_CK57,
 
 # Full tumor compartments
 interaction_tumor <- testInteractions(sce_tumor, 
-                 group_by = "sample_id", 
-                 label = "metacluster_combined", 
-                 colPairName = "neighborhood", 
-                 BPPARAM = MulticoreParam(workers = 15))
+                  group_by = "sample_id", 
+                  label = "metacluster_combined", 
+                  colPairName = "neighborhood", 
+                  BPPARAM = MulticoreParam(workers = 15))
+
+interaction_tumor_CK57_total <- testInteractions(sce_tumor, 
+                  group_by = "sample_id", 
+                  label = "CK5_7_score", 
+                  colPairName = "neighborhood", 
+                  BPPARAM = MulticoreParam(workers = 15))
 ```
 
 ```{r}
-interaction_tumor_MC8 %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>%
+interaction_tumor_MC8 %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% filter(to_label != "tumor_8") %>%
     group_by(from_label, to_label) %>%
     summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>%
     ggplot() +
@@ -2205,7 +2234,7 @@ interaction_tumor_MC8 %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %
         theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   theme_classic()
 
-interaction_tumor_MC8 %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>%
+interaction_tumor %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% filter(to_label != "tumor_8") %>%
     group_by(from_label, to_label) %>%
     summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>%
     ggplot() +
@@ -2223,7 +2252,7 @@ interaction_tumor_CK57 %>% as_tibble() %>%
         theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   theme_classic()
 
-interaction_tumor %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% filter(to_label != "tumor_8") %>%
+interaction_tumor_CK57_total %>% as_tibble() %>% filter(from_label %in% c("CK5/7+")) %>% filter(to_label != "CK5/7+") %>%
     group_by(from_label, to_label) %>%
     summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>%
     ggplot() +
@@ -2231,6 +2260,7 @@ interaction_tumor %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% f
         scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
         theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   theme_classic()
+
 ```
 
 ```{r}
@@ -3495,13 +3525,17 @@ sce <- patchDetection(sce,
 gc()
 
 ## Distance to patchAnalysis 
-sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_MC8), BPPARAM = MulticoreParam(workers = 10, stop.on.error = FALSE))
+sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_tumor_8), BPPARAM = MulticoreParam(workers = 10, stop.on.error = FALSE))
 ```
 
 ### Patch distance analysis 
 
 ```{r}
 library(ggpubr)
+
+## Distance to patchAnalysis 
+sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_tumor_8), name = "distToMC8Patch",BPPARAM = MulticoreParam(workers = 10, stop.on.error = FALSE))
+
 dist_df <- colData(sce) %>% as.data.frame %>% filter(!is.na(distToPatchMC8) & metacluster_combined != "tumor_8") %>% select(sample_id, metacluster_combined, distToPatchMC8) %>% group_by(sample_id, metacluster_combined) %>% summarize(mean = mean(distToPatchMC8))
 
 dist_df$pN_merg <- sce$pN_merg[match(dist_df$sample_id, sce$sample_id)]
@@ -4592,6 +4626,46 @@ diffabun_plot_cd8_3 <- ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_vline(xintercept = 0, linetype = "dashed")+
   labs(color = "cluster")
 ```
+
+## 5. Image visualization 
+
+```{r load images, message = FALSE}
+#Load images and masks
+images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+``` 
+
+```{r}
+##Visualize metaclusters on images - select 10 images for each category with highest number of cells
+cur_PID <- colData(sce) %>% as.data.frame %>% group_by(metacluster_combined) %>% filter(metacluster_combined == "tumor_8") %>% count(PID) %>% arrange(desc(n)) %>% slice(1:20) %>% pull(PID)
+
+cur_PID <- cur_PID[6]
+
+cur_sample <- colData(sce) %>% as.data.frame %>% filter(PID %in% cur_PID) %>% pull(sample_id) %>% unique()
+
+# Images
+cur_images <- images[cur_sample]
+cur_masks <- masks[cur_sample]
+
+#Subset sce
+cur_sce <- sce[,sce$metacluster == "tumor_8"]
+```
+
+Interactive visualization with cytoviewer 
+
+```{r}
+library(cytoviewer)
+
+app <- cytoviewer(image = cur_images, mask = cur_masks, object = sce, cell_id = "ObjectNumber",img_id = "sample_id")
+
+shiny::runApp(app, launch.browser = TRUE)
+
+```
+
+
+
+
+
 
 ## Save plots as pdf
 
