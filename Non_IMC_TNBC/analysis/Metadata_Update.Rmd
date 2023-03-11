@@ -430,6 +430,7 @@ Meta_Jana_cleaned <- Meta_Jana_TNBC %>% select("TMANr","PID","sample_ID","ID_Num
 
 #save 
 write.csv(Meta_Jana_cleaned, "/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA21_26_Jana_TNBC_LM_processed.csv")  
+Meta_Jana_cleaned <- read_csv("/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA21_26_Jana_TNBC_LM_processed.csv")
 ```
 
 ### Print heatmap based overview
@@ -488,6 +489,12 @@ sample_anno <- HeatmapAnnotation(PID = Meta_viz$PID,
 
 #Display plot
 draw(sample_anno)
+```
+
+```{r}
+pdf("/Users/lasmey/Desktop/TNBC/Metadaten/Metadata_TNBC_Jana_combined.pdf", height = 4, width = 8, onefile = FALSE)
+draw(sample_anno)
+dev.off()
 ```
 
 #4. Combined - ZTMA174, ZTMA249 and ZTMA21/26

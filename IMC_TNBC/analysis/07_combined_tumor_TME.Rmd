@@ -1954,6 +1954,34 @@ for(i in unfactor(unique(sce$metacluster_combined))){
 #plotSpatial(sce[,sce$sample_id %in% cur_sam], img_id = "sample_id", node_color_by = "milieu_tumor_6") #Milieu
 ```
 
+### MC8 patches and milieus
+
+```{r}
+## Patch detection
+sce <- patchDetection(sce,
+               patch_cells = sce$metacluster_combined == "tumor_8",
+               colPairName = "knn_interaction_graph",
+               min_patch_size = 10,
+               name = "patch_MC8",
+               expand_by = 0, 
+               img_id = "sample_id", 
+               BPPARAM = MulticoreParam(workers = 10))
+gc()
+
+sce <- patchDetection(sce,
+               patch_cells = sce$metacluster_combined == "tumor_8",
+               colPairName = "knn_interaction_graph",
+               min_patch_size = 10,
+               name = "milieu_MC8",
+               expand_by = 30, 
+               img_id = "sample_id",
+               BPPARAM = MulticoreParam(workers = 10))
+gc()
+
+## Distance to patchAnalysis 
+sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_tumor_8), BPPARAM = MulticoreParam(workers = 10, stop.on.error = FALSE))
+```
+
 ### CK5/7 score 
 
 ```{r}
@@ -1971,8 +1999,17 @@ sce <- patchDetection(sce,
                expand_by = 0, 
                img_id = "sample_id",
                BPPARAM = MulticoreParam(workers = 20))
-```
 
+sce <- patchDetection(sce,
+               patch_cells = ifelse(is.na(sce$CK5_7_score == "CK5/7+") | sce$CK5_7_score != "CK5/7+", FALSE, TRUE),
+               colPairName = "knn_interaction_graph",
+               min_patch_size = 10,
+               name = "milieu_CK57pos",
+               expand_by = 30, 
+               img_id = "sample_id",
+               BPPARAM = MulticoreParam(workers = 20))
+gc()
+```
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
@@ -2035,9 +2072,11 @@ ggplot(cur_out, aes(x = reorder(type,mean_PID), y = log2(mean_PID)))+
 ```
 
 
-## Patch abundant phenotype analysis 
+# 3.6 MC8 / CK5/7+ score analysis 
 
-### TO DO
+## Metacluster 8 
+
+### Heatmap for PID with patches 
 
 ```{r}
 patch_MC8_PID <- colData(sce) %>% as.data.frame() %>% filter(!is.na(patch_tumor_8)) %>% pull(PID) %>% unique()
@@ -2083,6 +2122,7 @@ fraction_anno <- HeatmapAnnotation(MC_fractions = anno_barplot(cur_df, gp=gpar(f
 fraction_anno + NULL
 ```
 
+### Most abundant phenotype 
 
 ```{r}
 # most abundant phenotype in patients with MC8 patches 
@@ -2092,7 +2132,7 @@ PID_patch_abundant <- PID_patch %>% #filter(metacluster_combined != "tumor_8") %
 PID_patch_abundant$metacluster_combined <- factor(PID_patch_abundant$metacluster_combined, levels = unfactor(PID_patch_abundant$metacluster_combined))
 
 ggplot(PID_patch_abundant) +
-  geom_tile(color = "black",aes(category, fra, fill = metacluster_combined), position = "stack")+
+  geom_tile(color = "black",aes(category, n, fill = metacluster_combined), position = "stack")+
   scale_fill_manual(values=metadata(sce)$colors$metacluster_combined) + 
   theme_classic(base_size = 15)+
   ylab("Density")+
@@ -2100,91 +2140,68 @@ ggplot(PID_patch_abundant) +
   theme(axis.text.x = element_blank())
 ```
 
-
-```{r}
-patch_CK57_PID <- colData(sce) %>% as.data.frame() %>% filter(!is.na(patch_CK57pos)) %>% pull(PID) %>% unique()
-cells_MC8_PID <- colData(sce) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
-
-sce$patch_CK57_classification <- ifelse(sce$PID %in% patch_CK57_PID,"patch_CK57","no_patch_CK57")
-
-PID_patch <- colData(sce) %>% as.data.frame() %>% select(CK5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
-PID_patch <- PID_patch %>% group_by(PID) %>% filter(PID %in% patch_CK57_PID) %>% mutate(fra = Freq/sum(Freq)) 
-
-cur_df <- PID_patch %>% pivot_wider(id_cols = "PID", names_from = "CK5_7_score",values_from = "fra") %>% column_to_rownames("PID")
-
-# Perform hierarchical clustering on fractions
-dd <- dist(cur_df, method = "euclidean")
-hc <- hclust(dd, method = "ward.D2")
-plot(hc)
-row_sorted <- hc$order
-
-cur_df <- cur_df[row_sorted,]
-
-# Define annotation dataframe
-anno <- colData(sce) %>% as.data.frame %>% select(PID, age_bin, grade, pT_simple, pN_simple, pM_simple) %>% unique()
-anno <- anno[match(rownames(cur_df), anno$PID),]
-
-metadata(sce)$colors$CK5_7_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("CK5/7-", "CK5/7+","CK5+", "CK7+"))
-
-# Plot annotation dataframe with ComplexHeatmap
-fraction_anno <- HeatmapAnnotation(MC_fractions = anno_barplot(cur_df, gp=gpar(fill=metadata(sce)$colors$CK5_7_score[colnames(cur_df)]),
-                                   bar_width = 1,
-                                   height = unit(25,"cm"),
-                                   width = unit(11,"cm"),
-                                   show_row_names = FALSE), 
-                          PID = anno_simple(anno$PID, col=metadata(sce)$colors$PID, border=TRUE),
-                          age = anno_simple(anno$age_bin, col = metadata(sce)$colors$age_bin, border = TRUE),
-                          grade = anno_simple(anno$grade, col = metadata(sce)$colors$grade, border = TRUE),
-                          pT = anno_simple(anno$pT_simple, col=metadata(sce)$colors$pT_simple, border=TRUE),
-                          pN = anno_simple(anno$pN_simple, col=metadata(sce)$colors$pN_simple, border=TRUE),
-                          pM = anno_simple(anno$pM_simple, col=metadata(sce)$colors$pM_simple, border = TRUE),
-                          border = TRUE, 
-                          #annotation_name_rot = 90,
-                          gap = unit(1,"mm"),
-                          which = "row")
-
-fraction_anno + NULL
-```
-
-
-```{r}
-# most abundant phenotype in patients with MC8 patches 
-PID_patch_abundant <- PID_patch %>% #filter(CK5_7_score != "CK5/7+") %>% 
-  mutate(max = max(fra)) %>% filter(fra == max) %>% ungroup() %>% count(CK5_7_score) %>% mutate(fra = n/sum(n), category = "cat") %>% arrange(fra)
-
-PID_patch_abundant$CK5_7_score <- factor(PID_patch_abundant$CK5_7_score, levels = unfactor(PID_patch_abundant$CK5_7_score))
-
-ggplot(PID_patch_abundant) +
-  geom_tile(color = "black",aes(category, fra, fill = CK5_7_score), position = "stack")+
-  scale_fill_manual(values=metadata(sce)$colors$CK5_7_score) + 
-  theme_classic(base_size = 15)+
-  ylab("Density")+
-  xlab("PID")+
-  theme(axis.text.x = element_blank())
-```
-
+### Overall frequency plot
 
 ```{r}
 PID_dom_MC8 <- PID_patch %>% mutate(max = max(fra)) %>% filter(fra == max) %>% ungroup() %>% filter(metacluster_combined == "tumor_8") %>% pull(PID)
 
 PID_overall <- colData(sce) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 
-PID_MC8_overall <- PID_overall %>% group_by(PID) %>% filter(metacluster_combined == "tumor_8") %>% mutate(cells = ifelse(Freq > 5, TRUE, FALSE)) %>% mutate(patch = ifelse(PID %in% patch_MC8_PID, TRUE, FALSE)) %>% mutate(dominated = ifelse(PID %in% PID_dom_MC8, TRUE, FALSE)) %>% mutate(PID_category = ifelse(patch && dominated, "dominated", ifelse(patch, "patch", ifelse(cells, "cells", "not_present"))))                                                                                                                                                                     
-PID_MC8_overall_plot <- PID_MC8_overall %>% group_by(PID_category) %>% count() %>% ungroup() %>% mutate(fra = n/sum(n)) %>% mutate(category = "PID")
-PID_MC8_overall_plot$PID_category <- factor(PID_MC8_overall_plot$PID_category, levels = c("not_present","cells","patch","dominated"))
+PID_MC8_overall <- PID_overall %>% group_by(PID) %>% filter(metacluster_combined == "tumor_8" & Freq > 5) %>% mutate(patch = ifelse(PID %in% patch_MC8_PID, TRUE, FALSE)) %>% mutate(dominated = ifelse(PID %in% PID_dom_MC8, TRUE, FALSE)) %>% mutate(PID_category = ifelse(patch && dominated, "dominated", ifelse(patch, "patch", "cells")))                                                                                    
+PID_MC8_overall_plot <- PID_MC8_overall %>% group_by(PID_category) %>% count() %>% ungroup() %>% mutate(fra = n/sum(n)) %>% mutate(category = "MC8")
+
+
+PID_MC8_overall_plot$PID_category <- factor(PID_MC8_overall_plot$PID_category, levels = c("cells","patch","dominated"))
 
 ggplot(PID_MC8_overall_plot) +
   geom_tile(color = "black",aes(category, n, fill = PID_category), position = "stack")+
   scale_fill_brewer(palette = "Blues")+
   theme_classic(base_size = 15)+
   ylab("Density")+
-  xlab("PID")+
-  theme(axis.text.x = element_blank())
+  theme(axis.title.x = element_blank())
 ```
 
+### Patch distance analysis 
 
+```{r}
+library(ggpubr)
 
+## Distance to patchAnalysis 
+sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_tumor_8), name = "distToMC8Patch",BPPARAM = MulticoreParam(workers = 10, stop.on.error = FALSE))
 
+dist_df <- colData(sce) %>% as.data.frame %>% filter(!is.na(distToPatchMC8) & metacluster_combined != "tumor_8") %>% select(sample_id, metacluster_combined, distToPatchMC8) %>% group_by(sample_id, metacluster_combined) %>% summarize(mean = mean(distToPatchMC8))
+
+dist_df$pN_merg <- sce$pN_merg[match(dist_df$sample_id, sce$sample_id)]
+
+# Filter for tumor phenotypes 
+dist_df <- dist_df %>% filter(str_detect(metacluster_combined, "tumor"))
+
+# 1. Difference of cell phenotype distances to patches
+test_dist <- compare_means(mean ~ metacluster_combined, data = dist_df, method = "kruskal.test")$p
+
+# Density plot 
+ggplot(dist_df, aes(mean, color = metacluster_combined))+
+  geom_density(size = 0.8)+
+  geom_rug()+
+  #facet_wrap(~B_cell_score)+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
+  xlab("Mean distance to MC8 cell patch (per image)")+
+  theme_classic()+
+  ggtitle(paste("p =",round(test_dist, 4),"(kruskal-wallis)"))
+
+# Boxplot 
+ggplot(dist_df, aes(x = reorder(metacluster_combined, mean), y = mean))+
+  geom_boxplot()+
+  geom_jitter(aes(color = metacluster_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90), axis.title.x = element_blank())+
+  ylab("Mean distance to MC8 cell patch (per image)")+
+  guides(fill = "none")+
+  stat_compare_means(method = "kruskal.test")
+```
+
+### Interaction testing 
 
 ```{r}
 sce_tumor <- sce[,sce$analysis_cat == "tumor"]
@@ -2200,29 +2217,15 @@ interaction_tumor_MC8 <- testInteractions(sce_tumor_MC8,
                  colPairName = "neighborhood", 
                  BPPARAM = MulticoreParam())
 
-# For PID with CK5/7 patch 
-patch_CK57_PID <- colData(sce) %>% as.data.frame() %>% filter(!is.na(patch_CK57pos)) %>% pull(PID) %>% unique()
-sce_tumor_CK57 <- sce_tumor[,sce_tumor$PID %in% patch_CK57_PID]
-
-interaction_tumor_CK57 <- testInteractions(sce_tumor_CK57, 
-                 group_by = "sample_id", 
-                 label = "CK5_7_score", 
-                 colPairName = "neighborhood", 
-                 BPPARAM = MulticoreParam())
-
 # Full tumor compartments
 interaction_tumor <- testInteractions(sce_tumor, 
                   group_by = "sample_id", 
                   label = "metacluster_combined", 
                   colPairName = "neighborhood", 
                   BPPARAM = MulticoreParam(workers = 15))
-
-interaction_tumor_CK57_total <- testInteractions(sce_tumor, 
-                  group_by = "sample_id", 
-                  label = "CK5_7_score", 
-                  colPairName = "neighborhood", 
-                  BPPARAM = MulticoreParam(workers = 15))
 ```
+
+Visualization 
 
 ```{r}
 interaction_tumor_MC8 %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% filter(to_label != "tumor_8") %>%
@@ -2234,34 +2237,104 @@ interaction_tumor_MC8 %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %
         theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   theme_classic()
 
-interaction_tumor %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% filter(to_label != "tumor_8") %>%
+interaction_tumor_plot <- interaction_tumor %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% filter(to_label != "tumor_8") %>%
     group_by(from_label, to_label) %>%
-    summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>%
-    ggplot() +
-        geom_tile(aes(from_label, to_label, fill = sum_sigval)) +
+    summarize(sum_sigval = sum(sigval, na.rm = TRUE))
+
+
+ggplot(interaction_tumor_plot) +
+        geom_tile(aes(reorder(to_label,sum_sigval), from_label, fill = sum_sigval)) +
         scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
         theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   theme_classic()
-
-interaction_tumor_CK57 %>% as_tibble() %>% 
-    group_by(from_label, to_label) %>%
-    summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>%
-    ggplot() +
-        geom_tile(aes(from_label, to_label, fill = sum_sigval)) +
-        scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
-        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  theme_classic()
-
-interaction_tumor_CK57_total %>% as_tibble() %>% filter(from_label %in% c("CK5/7+")) %>% filter(to_label != "CK5/7+") %>%
-    group_by(from_label, to_label) %>%
-    summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>%
-    ggplot() +
-        geom_tile(aes(from_label, to_label, fill = sum_sigval)) +
-        scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
-        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  theme_classic()
-
 ```
+
+### Milieu enrichment analysis 
+
+```{r milieu enrich}
+#Number of milieus per image
+milieu_image <- colData(sce) %>% as.data.frame %>% select(sample_id, milieu_MC8) %>% filter(!is.na(milieu_MC8)) %>% group_by(sample_id) %>% unique() %>% count()
+milieu_PID <- colData(sce) %>% as.data.frame %>% select(PID, milieu_MC8) %>% filter(!is.na(milieu_MC8)) %>% group_by(PID) %>% unique() %>% count()
+
+## Milieu enrichment analysis
+## Code adopted from Science Immunology paper
+
+cur_res_list <- list()
+cur_df <- colData(sce)
+
+# Set thresholds
+#perc_cells <- 0
+
+for (i in c("milieu_MC8")){
+  
+  cur_images <- cur_df %>% 
+    as.data.frame %>% 
+    select(sample_id, as.name(i)) %>% 
+    filter(complete.cases(.)) %>% #remove images with no milieu - also possible to use a threshold
+    group_by(sample_id) %>% 
+    unique() %>% 
+    count()
+  
+  for (j in unique(cur_df$metacluster_combined)) {
+  z <- str_split(i,"u_", simplify = TRUE)[,2]
+    cur_res <- cur_df %>% 
+      as.data.frame() %>%
+      select(sample_id, metacluster_combined, as.name(i)) %>% 
+      filter(sample_id %in% cur_images$sample_id) %>%
+      filter(metacluster_combined != z) %>%
+      group_by(sample_id) %>%
+      summarise(inside = sum(metacluster_combined == j & !is.na(.data[[i]])),
+            outside = sum(metacluster_combined == j & is.na(.data[[i]])),
+            other_inside = sum(metacluster_combined != j & !is.na(.data[[i]])),
+            other_outside = sum(metacluster_combined != j & is.na(.data[[i]])))
+    
+    out_dat <- foreach(x = seq_along(rownames(cur_res)), .combine = "rbind")%do%{
+    cur_mat <- matrix(as.numeric(as.vector(cur_res[x,2:5])),ncol = 2, nrow = 2, byrow = FALSE)
+    rownames(cur_mat) <- c("cluster", "other_cluster")
+    colnames(cur_mat) <- c("inside", "outside")
+    cur_test <- fisher.test(cur_mat)
+   
+    out_dat <- data.frame(
+      sample = as.character(as.vector(cur_res[x,1])),
+      milieu = i,
+      metacluster_combined = j,
+      p = cur_test$p.value,
+      odds = cur_test$estimate,
+      row.names = NULL)
+    }
+      
+cur_res_list[[paste0(i, "_", j)]] <- out_dat
+
+  }   
+}
+
+# Final output - Can be interpreted as "Fraction of images with significant enrichment or depletion of cell types within milieus"
+out <- do.call("rbind", cur_res_list)
+out$adj.p <- p.adjust(out$p, method = "BH")
+
+final <- out %>% mutate(sigval = ifelse(odds > 1 & adj.p < 0.1, 1, ifelse(odds < 1 & adj.p < 0.1, -1, 0))) %>%
+    group_by(milieu, metacluster_combined) %>%
+    dplyr::summarize(mean = mean(sigval))
+
+# Number of tested images
+out %>% 
+  group_by(milieu, metacluster_combined) %>% 
+  dplyr::summarize(count = n()) %>% 
+  as.data.frame()
+```
+
+```{r}
+final_plot <- final %>% filter(str_detect(metacluster_combined, "tumor"))  %>% filter(metacluster_combined != "tumor_8") %>% arrange(desc(mean))
+
+ggplot(final_plot) +
+        geom_tile(aes(milieu, reorder(metacluster_combined,mean), fill = mean)) +
+        scale_fill_gradient2(low = "blue", mid = "white", high = "red")+
+  theme_classic()+
+  theme(axis.title.x = element_blank())
+```
+
+
+### Survival analysis for MC8 patches 
 
 ```{r}
 # Survival estimations for DFS when patches of MC8 cells are present 
@@ -2388,7 +2461,7 @@ plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
 
 
 #Plot hazard ratiDFS
-#hr_prop <- 
+hr_prop <- 
 ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
 geom_point(size = 4)+
 geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
@@ -2402,8 +2475,145 @@ coord_cartesian(ylim=c(0,40))+
 #scale_y_continuous(trans = "log10")
 theme(axis.text.x = element_text(angle = 90))
 
-#hr_prop
+hr_prop
 ```
+
+
+## CK5/7+ 
+
+### Heatmap for PID with patches
+
+```{r}
+patch_CK57_PID <- colData(sce) %>% as.data.frame() %>% filter(!is.na(patch_CK57pos)) %>% pull(PID) %>% unique()
+cells_MC8_PID <- colData(sce) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+sce$patch_CK57_classification <- ifelse(sce$PID %in% patch_CK57_PID,"patch_CK57","no_patch_CK57")
+
+PID_patch <- colData(sce) %>% as.data.frame() %>% select(CK5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_patch <- PID_patch %>% group_by(PID) %>% filter(PID %in% patch_CK57_PID) %>% mutate(fra = Freq/sum(Freq)) 
+
+cur_df <- PID_patch %>% pivot_wider(id_cols = "PID", names_from = "CK5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+
+# Perform hierarchical clustering on fractions
+dd <- dist(cur_df, method = "euclidean")
+hc <- hclust(dd, method = "ward.D2")
+plot(hc)
+row_sorted <- hc$order
+
+cur_df <- cur_df[row_sorted,]
+
+# Define annotation dataframe
+anno <- colData(sce) %>% as.data.frame %>% select(PID, age_bin, grade, pT_simple, pN_simple, pM_simple) %>% unique()
+anno <- anno[match(rownames(cur_df), anno$PID),]
+
+metadata(sce)$colors$CK5_7_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("CK5/7-", "CK5/7+","CK5+", "CK7+"))
+
+# Plot annotation dataframe with ComplexHeatmap
+fraction_anno <- HeatmapAnnotation(MC_fractions = anno_barplot(cur_df, gp=gpar(fill=metadata(sce)$colors$CK5_7_score[colnames(cur_df)]),
+                                   bar_width = 1,
+                                   height = unit(25,"cm"),
+                                   width = unit(11,"cm"),
+                                   show_row_names = FALSE), 
+                          PID = anno_simple(anno$PID, col=metadata(sce)$colors$PID, border=TRUE),
+                          age = anno_simple(anno$age_bin, col = metadata(sce)$colors$age_bin, border = TRUE),
+                          grade = anno_simple(anno$grade, col = metadata(sce)$colors$grade, border = TRUE),
+                          pT = anno_simple(anno$pT_simple, col=metadata(sce)$colors$pT_simple, border=TRUE),
+                          pN = anno_simple(anno$pN_simple, col=metadata(sce)$colors$pN_simple, border=TRUE),
+                          pM = anno_simple(anno$pM_simple, col=metadata(sce)$colors$pM_simple, border = TRUE),
+                          border = TRUE, 
+                          #annotation_name_rot = 90,
+                          gap = unit(1,"mm"),
+                          which = "row")
+
+fraction_anno + NULL
+```
+
+### Most abundant phenotype 
+
+```{r}
+# most abundant phenotype in patients with CK5/7+ score 
+PID_patch_abundant <- PID_patch %>% #filter(CK5_7_score != "CK5/7+") %>% 
+  mutate(max = max(fra)) %>% filter(fra == max) %>% ungroup() %>% count(CK5_7_score) %>% mutate(fra = n/sum(n), category = "cat") %>% arrange(fra)
+
+PID_patch_abundant$CK5_7_score <- factor(PID_patch_abundant$CK5_7_score, levels = unfactor(PID_patch_abundant$CK5_7_score))
+
+ggplot(PID_patch_abundant) +
+  geom_tile(color = "black",aes(category, fra, fill = CK5_7_score), position = "stack")+
+  scale_fill_manual(values=metadata(sce)$colors$CK5_7_score) + 
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  xlab("PID")+
+  theme(axis.text.x = element_blank())
+```
+
+### Overall frequency plot 
+
+```{r}
+PID_dom_CK57 <- PID_patch %>% mutate(max = max(fra)) %>% filter(fra == max) %>% ungroup() %>% filter(CK5_7_score == "CK5/7+") %>% pull(PID)
+
+PID_overall <- colData(sce) %>% as.data.frame() %>% select(CK5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CK57_overall <- PID_overall %>% group_by(PID) %>% filter(CK5_7_score == "CK5/7+" & Freq > 5) %>% mutate(patch = ifelse(PID %in% patch_CK57_PID, TRUE, FALSE)) %>% mutate(dominated = ifelse(PID %in% PID_dom_CK57, TRUE, FALSE)) %>% mutate(PID_category = ifelse(patch && dominated, "dominated", ifelse(patch, "patch", "cells")))                                                                                    
+PID_CK57_overall_plot <- PID_CK57_overall %>% group_by(PID_category) %>% count() %>% ungroup() %>% mutate(fra = n/sum(n)) %>% mutate(category = "CK57")
+
+
+PID_CK57_overall_plot$PID_category <- factor(PID_CK57_overall_plot$PID_category, levels = c("cells","patch","dominated"))
+
+ggplot(PID_CK57_overall_plot) +
+  geom_tile(color = "black",aes(category, n, fill = PID_category), position = "stack")+
+  scale_fill_brewer(palette = "Blues")+
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  theme(axis.title.x = element_blank())
+```
+
+### Interaction testing 
+
+```{r}
+sce_tumor <- sce[,sce$analysis_cat == "tumor"]
+
+# For PID with CK5/7 patch 
+patch_CK57_PID <- colData(sce) %>% as.data.frame() %>% filter(!is.na(patch_CK57pos)) %>% pull(PID) %>% unique()
+sce_tumor_CK57 <- sce_tumor[,sce_tumor$PID %in% patch_CK57_PID]
+
+interaction_tumor_CK57 <- testInteractions(sce_tumor_CK57, 
+                 group_by = "sample_id", 
+                 label = "CK5_7_score", 
+                 colPairName = "neighborhood", 
+                 BPPARAM = MulticoreParam())
+
+
+interaction_tumor_CK57_total <- testInteractions(sce_tumor, 
+                  group_by = "sample_id", 
+                  label = "CK5_7_score", 
+                  colPairName = "neighborhood", 
+                  BPPARAM = MulticoreParam(workers = 15))
+```
+
+Visualization 
+
+```{r}
+interaction_tumor_CK57 %>% as_tibble() %>% 
+    group_by(from_label, to_label) %>%
+    summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>%
+    ggplot() +
+        geom_tile(aes(from_label, to_label, fill = sum_sigval)) +
+        scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme_classic()
+
+interaction_tumor_CK57_total %>% as_tibble() %>% filter(from_label %in% c("CK5/7+")) %>% filter(to_label != "CK5/7+") %>%
+    group_by(from_label, to_label) %>%
+    summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>%
+    ggplot() +
+        geom_tile(aes(from_label, to_label, fill = sum_sigval)) +
+        scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme_classic()
+```
+
+
+
 
 ## Patch distance analysis 
 
@@ -2436,83 +2646,6 @@ ggplot(test_df, aes(mean, color = metacluster_combined))+
   xlab("Mean distance to patch (per image)")+
   ggtitle("patch_tumor_6")+
   theme_classic()
-```
-
-
-## Detect Milieu
-
-### Milieu enrichment analysis 
-
-```{r milieu enrich}
-#Number of milieus per image
-milieu_image <- colData(sce) %>% as.data.frame %>% select(sample_id, milieu_tumor_6) %>% filter(!is.na(milieu_tumor_6)) %>% group_by(sample_id) %>% unique() %>% count()
-milieu_PID <- colData(sce) %>% as.data.frame %>% select(PID, milieu_tumor_6) %>% filter(!is.na(milieu_tumor_6)) %>% group_by(PID) %>% unique() %>% count()
-
-## Milieu enrichment analysis
-## Code adopted from Science Immunology paper
-
-cur_res_list <- list()
-cur_df <- colData(sce)
-
-# Set thresholds
-#perc_cells <- 0
-
-for (i in c("milieu_tumor_6")){
-  
-  cur_images <- cur_df %>% 
-    as.data.frame %>% 
-    select(sample_id, as.name(i)) %>% 
-    filter(complete.cases(.)) %>% #remove images with no milieu - also possible to use a threshold
-    group_by(sample_id) %>% 
-    unique() %>% 
-    count()
-  
-  for (j in unique(cur_df$metacluster_combined)) {
-  z <- str_split(i,"u_", simplify = TRUE)[,2]
-    cur_res <- cur_df %>% 
-      as.data.frame() %>%
-      select(sample_id, metacluster_combined, as.name(i)) %>% 
-      filter(sample_id %in% cur_images$sample_id) %>%
-      filter(metacluster_combined != z) %>%
-      group_by(sample_id) %>%
-      summarise(inside = sum(metacluster_combined == j & !is.na(.data[[i]])),
-            outside = sum(metacluster_combined == j & is.na(.data[[i]])),
-            other_inside = sum(metacluster_combined != j & !is.na(.data[[i]])),
-            other_outside = sum(metacluster_combined != j & is.na(.data[[i]])))
-    
-    out_dat <- foreach(x = seq_along(rownames(cur_res)), .combine = "rbind")%do%{
-    cur_mat <- matrix(as.numeric(as.vector(cur_res[x,2:5])),ncol = 2, nrow = 2, byrow = FALSE)
-    rownames(cur_mat) <- c("cluster", "other_cluster")
-    colnames(cur_mat) <- c("inside", "outside")
-    cur_test <- fisher.test(cur_mat)
-   
-    out_dat <- data.frame(
-      sample = as.character(as.vector(cur_res[x,1])),
-      milieu = i,
-      metacluster_combined = j,
-      p = cur_test$p.value,
-      odds = cur_test$estimate,
-      row.names = NULL)
-    }
-      
-cur_res_list[[paste0(i, "_", j)]] <- out_dat
-
-  }   
-}
-
-# Final output - Can be interpreted as "Fraction of images with significant enrichment or depletion of cell types within milieus"
-out <- do.call("rbind", cur_res_list)
-out$adj.p <- p.adjust(out$p, method = "BH")
-
-final <- out %>% mutate(sigval = ifelse(odds > 1 & adj.p < 0.1, 1, ifelse(odds < 1 & adj.p < 0.1, -1, 0))) %>%
-    group_by(milieu, metacluster_combined) %>%
-    dplyr::summarize(mean = mean(sigval))
-
-# Number of tested images
-out %>% 
-  group_by(milieu, metacluster_combined) %>% 
-  dplyr::summarize(count = n()) %>% 
-  as.data.frame()
 ```
 
 
@@ -3498,199 +3631,6 @@ signifPlot(spicy2,
            fdr = TRUE,
            marksToPlot = unique(sce$metacluster_combined))
 ```
-
-
-## 3.8 Basoluminal analysis 
-
-```{r}
-## Patch detection
-sce <- patchDetection(sce,
-               patch_cells = sce$metacluster_combined == "tumor_8",
-               colPairName = "knn_interaction_graph",
-               min_patch_size = 10,
-               name = "patch_MC8",
-               expand_by = 0, 
-               img_id = "sample_id", 
-               BPPARAM = MulticoreParam(workers = 10))
-gc()
-
-sce <- patchDetection(sce,
-               patch_cells = sce$metacluster_combined == "tumor_8",
-               colPairName = "knn_interaction_graph",
-               min_patch_size = 10,
-               name = "milieu_MC8",
-               expand_by = 30, 
-               img_id = "sample_id",
-               BPPARAM = MulticoreParam(workers = 10))
-gc()
-
-## Distance to patchAnalysis 
-sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_tumor_8), BPPARAM = MulticoreParam(workers = 10, stop.on.error = FALSE))
-```
-
-### Patch distance analysis 
-
-```{r}
-library(ggpubr)
-
-## Distance to patchAnalysis 
-sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_tumor_8), name = "distToMC8Patch",BPPARAM = MulticoreParam(workers = 10, stop.on.error = FALSE))
-
-dist_df <- colData(sce) %>% as.data.frame %>% filter(!is.na(distToPatchMC8) & metacluster_combined != "tumor_8") %>% select(sample_id, metacluster_combined, distToPatchMC8) %>% group_by(sample_id, metacluster_combined) %>% summarize(mean = mean(distToPatchMC8))
-
-dist_df$pN_merg <- sce$pN_merg[match(dist_df$sample_id, sce$sample_id)]
-
-# 1. Difference of cell phenotype distances to B cell patches
-test_dist <- compare_means(mean ~ metacluster_combined, data = dist_df, method = "kruskal.test")$p
-
-# Density plot 
-ggplot(dist_df, aes(mean, color = metacluster_combined))+
-  geom_density(size = 0.8)+
-  geom_rug()+
-  #facet_wrap(~B_cell_score)+
-  scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
-  xlab("Mean distance to MC8 cell patch (per image)")+
-  theme_classic()+
-  ggtitle(paste("p =",round(test_dist, 4),"(kruskal-wallis)"))
-
-# Boxplot 
-ggplot(dist_df, aes(x = reorder(metacluster_combined, mean), y = mean))+
-  geom_boxplot()+
-  geom_jitter(aes(color = metacluster_combined), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90), axis.title.x = element_blank())+
-  ylab("Mean distance to MC8 cell patch (per image)")+
-  guides(fill = "none")+
-  stat_compare_means(method = "kruskal.test")
-
-# 1. Difference of cell phenotype distances to B cell patches BETWEEN nodal status
-ggplot(dist_df, aes(mean, color = metacluster_combined))+
-  geom_density(size = 0.8)+
-  geom_rug()+
-  facet_wrap(~pN_merg)+
-  scale_color_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
-  xlab("Mean distance to MC8 cell patch (per image)")+
-  theme_classic()
-
-ggplot(dist_df, aes(x = reorder(pN_merg, mean), y = mean))+
-  geom_boxplot()+
-  geom_jitter(aes(color = pN_merg), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  facet_wrap(~metacluster_combined)+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90), axis.title.x = element_blank())+
-  ylab("Mean distance to MC8 cell patch (per image)")+
-  guides(fill = "none")+
-  stat_compare_means(method = "wilcox.test")
-```
-
-
-### Milieu enrichment analysis 
-
-```{r milieu enrich}
-#Number of milieus per image
-milieu_image <- colData(sce) %>% as.data.frame %>% select(sample_id, milieu_MC8) %>% filter(!is.na(milieu_MC8)) %>% group_by(sample_id) %>% unique() %>% count()
-milieu_PID <- colData(sce) %>% as.data.frame %>% select(PID, milieu_MC8) %>% filter(!is.na(milieu_MC8)) %>% group_by(PID) %>% unique() %>% count()
-
-## Milieu enrichment analysis
-## Code adopted from Science Immunology paper
-
-cur_res_list <- list()
-cur_df <- colData(sce)
-
-# Set thresholds
-#perc_cells <- 0
-
-for (i in c("milieu_MC8")){
-  
-  cur_images <- cur_df %>% 
-    as.data.frame %>% 
-    select(sample_id, as.name(i)) %>% 
-    filter(complete.cases(.)) %>% #remove images with no milieu - also possible to use a threshold
-    group_by(sample_id) %>% 
-    unique() %>% 
-    count()
-  
-  for (j in unique(cur_df$metacluster_combined)) {
-  z <- str_split(i,"u_", simplify = TRUE)[,2]
-    cur_res <- cur_df %>% 
-      as.data.frame() %>%
-      select(sample_id, metacluster_combined, as.name(i)) %>% 
-      filter(sample_id %in% cur_images$sample_id) %>%
-      filter(metacluster_combined != z) %>%
-      group_by(sample_id) %>%
-      summarise(inside = sum(metacluster_combined == j & !is.na(.data[[i]])),
-            outside = sum(metacluster_combined == j & is.na(.data[[i]])),
-            other_inside = sum(metacluster_combined != j & !is.na(.data[[i]])),
-            other_outside = sum(metacluster_combined != j & is.na(.data[[i]])))
-    
-    out_dat <- foreach(x = seq_along(rownames(cur_res)), .combine = "rbind")%do%{
-    cur_mat <- matrix(as.numeric(as.vector(cur_res[x,2:5])),ncol = 2, nrow = 2, byrow = FALSE)
-    rownames(cur_mat) <- c("cluster", "other_cluster")
-    colnames(cur_mat) <- c("inside", "outside")
-    cur_test <- fisher.test(cur_mat)
-   
-    out_dat <- data.frame(
-      sample = as.character(as.vector(cur_res[x,1])),
-      milieu = i,
-      metacluster_combined = j,
-      p = cur_test$p.value,
-      odds = cur_test$estimate,
-      row.names = NULL)
-    }
-      
-cur_res_list[[paste0(i, "_", j)]] <- out_dat
-
-  }   
-}
-
-# Final output - Can be interpreted as "Fraction of images with significant enrichment or depletion of cell types within milieus"
-out <- do.call("rbind", cur_res_list)
-out$adj.p <- p.adjust(out$p, method = "BH")
-
-final <- out %>% mutate(sigval = ifelse(odds > 1 & adj.p < 0.1, 1, ifelse(odds < 1 & adj.p < 0.1, -1, 0))) %>%
-    group_by(milieu, metacluster_combined) %>%
-    dplyr::summarize(mean = mean(sigval))
-
-# Number of tested images
-out %>% 
-  group_by(milieu, metacluster_combined) %>% 
-  dplyr::summarize(count = n()) %>% 
-  as.data.frame()
-```
-
-```{r}
-final_heatmap <- final %>% pivot_wider(id_cols = milieu, names_from = metacluster_combined, values_from = mean) %>% column_to_rownames("milieu")
-
-Heatmap(final_heatmap, 
-        name = "Enrichment score")
-```
-
-```{r}
-#What kind of tumor cells dominate the tumors where basal-like luminal cells are present? 
-
-#PID with at least 5 basoluminal cells 
-cur_sample <- colData(sce) %>% as.data.frame %>% filter(metacluster_combined == "tumor_8") %>% group_by(PID) %>% count() %>% filter(n>5) %>% pull(PID)
-
-cur_sce <- sce[,sce$PID %in% cur_sample]
-
-cur_sce <- cur_sce[,cur_sce$analysis_cat == "tumor"]
-
-dittoBarPlot(cur_sce, var = "metacluster_combined", group.by = "PID")+
-  scale_fill_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
-  theme(axis.text.x = element_blank())
-
-dittoBarPlot(cur_sce, var = "spatial_metacommunity", group.by = "PID")+
-  #scale_fill_manual(values = metadata(sce)$colors$metacluster_combined, limits = force)+
-  theme(axis.text.x = element_blank())
-```
-
-
-```{r save_objects, message = FALSE, warning=FALSE}
-#Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
-```
-
 
 # 4. Differential abundance analysis 
 
@@ -4764,5 +4704,84 @@ dev.off()
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TUMORmetacluster.pdf",width = 6,height = 6, onefile = FALSE)
 plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_TME_combined")+#shape_by = "analysis_cat")+
   scale_color_manual(values = color_TME, limits = force)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_OverallFreq_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
+ggplot(PID_MC8_overall_plot) +
+  geom_tile(color = "black",aes(n, category, fill = PID_category), position = "stack")+
+  scale_fill_brewer(palette = "Blues")+
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  theme(axis.title.x = element_blank())
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_Patch_Abundant_Pheno_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
+ggplot(PID_patch_abundant) +
+  geom_tile(color = "black",aes(n,category, fill = metacluster_combined), position = "stack")+
+  scale_fill_manual(values=metadata(sce)$colors$metacluster_combined) + 
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  xlab("PID")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_InteractionTesting_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
+ggplot(interaction_tumor_plot) +
+        geom_tile(aes(reorder(to_label,sum_sigval), from_label, fill = sum_sigval)) +
+        scale_fill_gradient2(low = "blue", mid = "white", high = "red")+
+  theme_classic()
+dev.off()
+
+
+
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_Patches_KaplanMeier.pdf",width = 6,height = 5, onefile = FALSE)
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c("#377EB8", "#E41A1C"),
+          #log.rank.weights = "n"
+)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_Patches_Cox_Uni.pdf",width = 4,height = 5, onefile = FALSE)
+hr_prop
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_Patches_Cox_Multi.pdf",width = 8,height = 5, onefile = FALSE)
+hr_prop
+dev.off()
+
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/CK57_OverallFreq_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
+ggplot(PID_CK57_overall_plot) +
+  geom_tile(color = "black",aes(n, category, fill = PID_category), position = "stack")+
+  scale_fill_brewer(palette = "Blues")+
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  theme(axis.title.x = element_blank())
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/CK57_Patches_MostAbundant_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
+ggplot(PID_patch_abundant) +
+  geom_tile(color = "black",aes(n, category, fill = CK5_7_score), position = "stack")+
+  scale_fill_manual(values=metadata(sce)$colors$CK5_7_score) + 
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  xlab("PID")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/CK57_InteractionTesting_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
+interaction_tumor_CK57_total %>% as_tibble() %>% filter(from_label %in% c("CK5/7+")) %>% filter(to_label != "CK5/7+") %>%
+    group_by(from_label, to_label) %>%
+    summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>%
+    ggplot() +
+        geom_tile(aes(reorder(to_label,sum_sigval) ,from_label, fill = sum_sigval)) +
+        scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme_classic()
 dev.off()
 ```
