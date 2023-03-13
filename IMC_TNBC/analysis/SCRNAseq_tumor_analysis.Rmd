@@ -337,6 +337,9 @@ Save sce
 saveRDS(sce, "/mnt/tnbc_volume/GSE161529/data_analysis/sce_scRNA_tumor.rds")
 
 sce <- readRDS("/mnt/tnbc_volume/GSE161529/data_analysis/sce_scRNA_tumor.rds")
+
+library(wesanderson)
+metadata(sce)$colors$KRT57_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("KRT5/7-", "KRT5/7+","KRT5+", "KRT7+"))
 ```
 
 
@@ -347,63 +350,83 @@ sce <- readRDS("/mnt/tnbc_volume/GSE161529/data_analysis/sce_scRNA_tumor.rds")
 library(readxl)
 breast_majorCT <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/BreastMajorCellTypeSignatures_GrayEtAl_2022.xlsx")
 
-
 breast_majorCT <- breast_majorCT %>% select(AV, HS, BA) %>% pivot_longer(cols = 1:3, names_to = "CT", values_to = "Gene")
-
 ```
 
+### Keratins 
 
 ```{r}
+# Define keratins of interest
+keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM")
+
 cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$KRT5_7_score,
                                  statistics = "mean",
                                  use.assay.type = "logcounts",
-                                 subset.row = rowData(sce)$Symbol %in%  c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17"))
-                                #rowData(sce)$Symbol %in%  c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14") & rowData(sce)$Symbol %in% breast_majorCT$Gene)
-
-# Heatmap body colors 
-col_exprs <- colorRamp2(c(0,1,2,3), c("#440154FF", "#31688EFF", "#35B779FF", "#FDE725FF"))
-
-
-#rowData(cluster_mean_sce) <- 
-
-CK_type <- data.frame(CK = c("KRT5","KRT14","KRT17","KRT7","KRT8","KRT18","KRT19","KRT15"), 
-           type = c(rep("basal_like",3), rep("luminal_like",4),"stem_like"))
-  
-rowData(cluster_mean_sce)$type <- CK_type$type[match(rowData(cluster_mean_sce)$Symbol, CK_type$CK)]  
-
+                                 subset.row = rowData(sce)$Symbol %in% keratins)
 
 scaled_mat <- t(scale(t(assay(cluster_mean_sce, "logcounts"))))
 
 column_order <- column_order(Heatmap(assay(cluster_mean_sce, "logcounts"),
         col = viridis(100),
         name = "mean logcounts",
-        row_title = c("basal_like","luminal_like","stem_like"), 
         show_column_names =  TRUE, 
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2",
-        row_split = rowData(cluster_mean_sce)$type,
         cluster_row_slices = FALSE))
 
 Heatmap(assay(cluster_mean_sce, "logcounts"),
         col = viridis(100),
         name = "mean logcounts",
-        row_title = c("basal_like","luminal_like","stem_like"), 
         show_column_names =  TRUE, 
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2",
-        row_split = rowData(cluster_mean_sce)$type,
         cluster_row_slices = FALSE)+
 Heatmap(scaled_mat,
         name = "scaled logcounts",
-        row_title = c("basal_like","luminal_like","stem_like"), 
         column_order = column_order,
         show_column_names =  TRUE, 
         clustering_method_rows = "ward.D2",
         clustering_method_columns = "ward.D2",
-        row_split = rowData(cluster_mean_sce)$type,
         cluster_row_slices = FALSE)
 
 ```
+
+```{r}
+# Define stem markers of interest
+stem <- c("SOX9","KIT","PROM1","YAP1","HDAC2","NOTCH1","TNF","NFKB1","CD44","ALDH1A3","NT5E","BRCA1","BRCA2", "TGFB2","EZH2", "ANXA8","MUC1")
+
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$KRT5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rowData(sce)$Symbol %in% stem)
+
+scaled_mat <- t(scale(t(assay(cluster_mean_sce, "logcounts"))))
+
+column_order <- column_order(Heatmap(assay(cluster_mean_sce, "logcounts"),
+        col = viridis(100),
+        name = "mean logcounts",
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        cluster_row_slices = FALSE))
+
+Heatmap(assay(cluster_mean_sce, "logcounts"),
+        col = viridis(100),
+        name = "mean logcounts",
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        cluster_row_slices = FALSE)+
+Heatmap(scaled_mat,
+        name = "scaled logcounts",
+        column_order = column_order,
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        cluster_row_slices = FALSE)
+
+```
+
 
 ## 6. Differential gene expression analysis
 

@@ -218,7 +218,7 @@ cur_cor <- cur_cor %>% select("CK5/7+")
 cur_cor$`CK5/7+_IF` <- cur_CK_out$`CK5/7+`[match(rownames(cur_cor), rownames(cur_CK_out))]
 cur_cor$PID <- rownames(cur_cor)
 
-spearman_test <- cor.test(cur_cor[,1],cur_cor[,2], method = "spearman")
+spearman_test <- cor.test(cur_cor[,1],cur_cor[,2], method = "pearson")
 
 ggplot(cur_cor, aes(x = `CK5/7+`, y = `CK5/7+_IF`))+
   geom_smooth(method='lm', formula= y~x, se = TRUE, color = "darkgrey")+
@@ -227,7 +227,7 @@ ggplot(cur_cor, aes(x = `CK5/7+`, y = `CK5/7+_IF`))+
   xlab("CK5/7 Fraction IMC")+
   theme_classic()+
   scale_color_manual(values=metadata(sce)$colors$PID)+
-  ggtitle(paste("Spearman rho = ",round(spearman_test$estimate, digits = 2),"/ p =",round(spearman_test$p.value, digits = 4)))
+  ggtitle(paste("Pearson r = ",round(spearman_test$estimate, digits = 2),"/ p =",round(spearman_test$p.value, digits = 4)))
 ```
 
 Check overlap of CK19 and CK7 positive cells
@@ -253,11 +253,11 @@ ggplot(cur_719, aes(x=CK7_19_group, y=fra))+
 ```{r}
 ## Save plots as pdf
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_Heatmap_combined.pdf",width = 12, height = 8, onefile = FALSE)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_Heatmap_combined.pdf",width = 12, height = 4, onefile = FALSE)
 draw(h_comb,annotation_legend_list = list(lgd,lgd_1))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_IF_IMC_cor.pdf", width = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_IF_IMC_cor.pdf", height = 5, width = 6)
 ggplot(cur_cor, aes(x = `CK5/7+`, y = `CK5/7+_IF`))+
   geom_smooth(method='lm', formula= y~x, se = TRUE, color = "darkgrey")+
   geom_point(aes(color = PID), size = 3)+
@@ -265,10 +265,10 @@ ggplot(cur_cor, aes(x = `CK5/7+`, y = `CK5/7+_IF`))+
   xlab("CK5/7 Fraction IMC")+
   theme_classic()+
   scale_color_manual(values=metadata(sce)$colors$PID)+
-  ggtitle(paste("Spearman rho = ",round(spearman_test$estimate, digits = 2),"/ p =",round(spearman_test$p.value, digits = 4)))
+  ggtitle(paste("Pearson r = ",round(spearman_test$estimate, digits = 2),"/ p =",round(spearman_test$p.value, digits = 4)))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_CK7_19.pdf", height = 6, width = 8)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_CK7_19.pdf", height = 5, width = 6)
 ggplot(cur_719, aes(x=CK7_19_group, y=fra))+
   geom_boxplot(outlier.colour = NA)+
   geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
