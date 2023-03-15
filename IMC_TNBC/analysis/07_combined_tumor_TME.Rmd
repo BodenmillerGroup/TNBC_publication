@@ -2709,13 +2709,15 @@ spatial_CD8_pheno_col <- setNames(c("firebrick", "steelblue1","navy"), unique(sc
 metadata(sce)$colors$spatial_CD8_pheno <- spatial_CD8_pheno_col
 ```
 
+### Kaplan-Meier 
+
 ```{r}
 #Assess survival impact 
 library(patchwork)
 library(survival)
 library(survminer)
 
-#also possible to use spatial_CD8_pheno_merg (cold/excluded vs inflamed)
+## Spatial_CD8_pheno
 cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, spatial_CD8_pheno, OS_months, DFS_months, status_DFS, status_OS) %>% unique()
 
 #Plot survival curves
@@ -2744,6 +2746,278 @@ ggsurvplot(fit,
           ggtheme = theme_classic(), # Change ggplot2 theme
           palette = c("steelblue1","navy","firebrick"),
           log.rank.weights = "n")
+
+
+## Spatial_CD8_pheno_merg
+cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, spatial_CD8_pheno_merg, OS_months, DFS_months, status_DFS, status_OS) %>% unique()
+
+#Plot survival curves
+fit <- survfit(Surv(OS_months, status_OS) ~ spatial_CD8_pheno_merg, data = cur_surv)
+print(fit)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c("steelblue1","firebrick"),
+          log.rank.weights = "n")
+
+fit <- survfit(Surv(DFS_months, status_DFS) ~ spatial_CD8_pheno_merg, data = cur_surv)
+print(fit)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c("steelblue1","firebrick"),
+          log.rank.weights = "n")
+
+```
+
+### Cox proportional Hazards model 
+
+Multivariate 
+
+A: Merged spatial CD8 phenotype
+
+```{r}
+library(survival)
+library(survminer)
+
+sce$spatial_CD8_pheno_merg[sce$spatial_CD8_pheno_merg == "cold/excluded"] <- "cold_excluded"
+
+PID_CD8 <- colData(sce) %>% as.data.frame() %>% select(spatial_CD8_pheno_merg,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CD8 <- PID_CD8 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_CD8 %>% pivot_wider(id_cols = "PID",names_from = "spatial_CD8_pheno_merg",values_from = "fra") %>% column_to_rownames("PID")
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -inflamed) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+inflamed"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratiDFS
+#hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0,40))+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
+
+#hr_prop
+```
+
+Univariate 
+
+```{r}
+library(survival)
+library(survminer)
+
+sce$spatial_CD8_pheno_merg[sce$spatial_CD8_pheno_merg == "cold/excluded"] <- "cold_excluded"
+
+PID_CD8 <- colData(sce) %>% as.data.frame() %>% select(spatial_CD8_pheno_merg,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CD8 <- PID_CD8 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_CD8 %>% pivot_wider(id_cols = "PID",names_from = "spatial_CD8_pheno_merg",values_from = "fra") %>% column_to_rownames("PID")
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -inflamed) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~", paste(covariates, collapse = " + "),"+inflamed"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratiDFS
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_manual(values = c("#377EB8"))+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0,10))+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+B: Spatial CD8 phenotypes
+
+Multivariate 
+
+```{r}
+library(survival)
+library(survminer)
+
+PID_CD8 <- colData(sce) %>% as.data.frame() %>% select(spatial_CD8_pheno,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CD8 <- PID_CD8 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_CD8 %>% pivot_wider(id_cols = "PID",names_from = "spatial_CD8_pheno",values_from = "fra") %>% column_to_rownames("PID")
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -inflamed) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+inflamed"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratiDFS
+#hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0,63))+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
+
+#hr_prop
+```
+
+Univariate 
+
+```{r}
+library(survival)
+library(survminer)
+
+PID_CD8 <- colData(sce) %>% as.data.frame() %>% select(spatial_CD8_pheno,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CD8 <- PID_CD8 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_CD8 %>% pivot_wider(id_cols = "PID",names_from = "spatial_CD8_pheno",values_from = "fra") %>% column_to_rownames("PID")
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -inflamed) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~", paste(covariates, collapse = " + "),"+inflamed"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratiDFS
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_manual(values = c("#377EB8"))+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0,8))+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
 ```
 
 ### spicyR - Test for differential interaction of CD8 T cells between conditions 
@@ -2882,6 +3156,7 @@ signifPlot(spicyTest3,
            fdr = TRUE,
            marksToPlot = unfactor(unique(sce$metacluster_combined)))
 ```
+
 ### B cell patch analysis 
 
 ```{r}
@@ -2983,16 +3258,26 @@ plot <- plot_df %>%
   mutate(fraction = n / sum(n)) %>%
   ungroup()
 
+
+plot_test <- plot %>% pivot_wider(names_from = spatial_CD8_pheno, id_cols = B_cell_score, values_from = n) %>% column_to_rownames("B_cell_score")
+
+plot_test_out <- fisher.test(plot_test, simulate.p.value = TRUE)
+
+round(plot_test_out$p.value, 4)
+
 ggplot(plot) + 
   geom_col(aes(y=spatial_CD8_pheno, x=fraction, fill=B_cell_score), color = "black") +
   theme_classic() + 
   xlab("Fraction of PID") +
-  ylab("")
+  ylab("")+
+  scale_fill_brewer(palette = "Paired")+
+  ggtitle(paste0("p (Fisher) = ", plot_test_out$p.value))
 
 
 ## 4. Add to sce
 sce$B_cell_score <- plot_df$B_cell_score[match(sce$PID, plot_df$PID)]
 ```
+
 ### B patch distance analysis 
 
 ```{r}
@@ -3091,32 +3376,49 @@ ggplot(dist_tumor_df, aes(x = reorder(metacluster_combined, mean), y = mean))+
 # Subset to CD8_T_cells
 cur_sce <- sce[,sce$metacluster_combined == "CD8_T_cell"]
 
+
+# Define Ki67 positivity cut-off based on GMM (exprs)
+GMM_Ki67 <- Mclust(assay(sce, "exprs")["Ki67",], G = 2)
+
+GMM_df <- data.frame(class_Ki67 = ifelse(GMM_Ki67$classification == 2 & GMM_Ki67$uncertainty == 0, 
+                                        "Ki67+",
+                                        "Ki67-"), 
+                     Ki67_exprs = assay(sce, "exprs")["Ki67",],
+                     uncertainty = GMM_Ki67$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = Ki67_exprs, fill = class_Ki67))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_Ki67 <- GMM_df$class_Ki67
+
 # Violin plot
 cur_dat <- t(assay(cur_sce, "exprs")) %>% as.data.frame
 cur_dat$CD8Tcell_type <- sce$CD8Tcell_type[match(rownames(cur_dat),colnames(sce))]
 cur_dat$CD8Tcell_type <- factor(cur_dat$CD8Tcell_type, levels = c("ignored","bystanding","infiltrating"))
- 
-ggplot(cur_dat, aes(x = CD8Tcell_type, y = Ki67))+
-  geom_boxplot()+
-  stat_compare_means(method = "kruskal.test")+
-  theme_classic()+
-  ylab("Ki67 expression")
-  
-# Aggregate expression per PID 
-T_mean_PID <- aggregateAcrossCells(cur_sce, ids = cur_sce$PID,
-                                 statistics = "mean",
-                                 use.assay.type = "exprs",
-                                 subset.row = rowData(cur_sce)$use_channel)
+cur_dat$Ki67_GMM <- sce$GMM_Ki67[match(rownames(cur_dat),colnames(sce))]
 
-plotExpression(T_mean_PID, 
-               features = c("Ki67"),
-               x = "spatial_CD8_pheno", exprs_values = "exprs", 
-               colour_by = "spatial_CD8_pheno") +
-    theme(axis.text.x =  element_text(angle = 90))+
-    scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno)+
-  stat_compare_means(method = "kruskal.test")
+cur_out <- cur_dat %>% select(CD8Tcell_type, Ki67_GMM) %>% group_by(CD8Tcell_type, Ki67_GMM) %>% count()
 
-### Could use GMM to divide between Ki67+ and negative and then compare?
+cur_plot <- cur_out %>% group_by(CD8Tcell_type) %>% mutate(fra = n/sum(n))
+
+cur_test <- cur_plot %>% pivot_wider(names_from = CD8Tcell_type, id_cols = Ki67_GMM, values_from = n) %>% column_to_rownames("Ki67_GMM")
+
+cur_test_out <- chisq.test(cur_test)
+
+cur_test_out$p.value
+
+ggplot(cur_plot) +
+  geom_tile(color = "black",aes(CD8Tcell_type, fra, fill = Ki67_GMM), position = "stack")+
+  scale_fill_brewer(palette = "Paired")+
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  theme(axis.title.x = element_blank())+
+  ggtitle(paste("p (Chi-Square) = ",cur_test_out$p.value))
 ```
 
 ### Tumor expression analysis 
@@ -3176,6 +3478,7 @@ plotExpression(spatialpheno_mean_PID,
     theme(axis.text.x =  element_text(angle = 90))+
     scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno)
 ```
+
 ### Tumor patch analysis 
 
 ```{r}
@@ -3259,6 +3562,7 @@ ggplot(dist_df, aes(x = reorder(spatial_CD8_pheno, mean), y = mean))+
   ggtitle("CD8_T_cells")+
   stat_compare_means(method = "kruskal.test")
 ```
+
 ### HLADR Tumor analysis 
 
 ```{r}
@@ -3453,6 +3757,7 @@ mix_DFS <- ggsurvplot(fit,
 mix_OS
 mix_DFS
 ```
+
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
 saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
@@ -4225,12 +4530,13 @@ DA <- res$table
 
 DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
 
-DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
-  arrange(desc(logFC))
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% arrange(desc(logFC)) %>% mutate(category = ifelse(str_detect(cluster,"tumor"),"tumor","non_tumor"))
 
 DA$cluster <- factor(DA$cluster, levels = DA$cluster)
 
 sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
+
+
 
 ## Visualize
 #Barplot
@@ -4257,7 +4563,7 @@ ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
 #Abundance vs log fold change (best?)
 ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
-                 size = -log10(FDR)))+
+                 size = -log10(FDR), shape = category))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
   scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
   xlab("logFC (cold/excluded vs inflamed)")+
@@ -4266,6 +4572,7 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_vline(xintercept = 0, linetype = "dashed")+
   labs(color = "cluster")
 ```
+
 ### For spatial communities
 
 ```{r}
@@ -4784,4 +5091,163 @@ interaction_tumor_CK57_total %>% as_tibble() %>% filter(from_label %in% c("CK5/7
         theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   theme_classic()
 dev.off()
+
+
+
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_DFS_Kaplan.pdf",width = 5,height = 7, onefile = FALSE)
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c("steelblue1","navy","firebrick"),
+          log.rank.weights = "n")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_OS_Kaplan.pdf",width = 5,height = 7, onefile = FALSE)
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c("steelblue1","navy","firebrick"),
+          log.rank.weights = "n")
+dev.off()
+
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_merg_OS_Kaplan.pdf",width = 5,height = 7, onefile = FALSE)
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c("steelblue1","firebrick"),
+          log.rank.weights = "n")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_merg_DFS_Kaplan.pdf",width = 5,height = 7, onefile = FALSE)
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c("steelblue1","firebrick"),
+          log.rank.weights = "n")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_merg_DFS_Cox_Multi.pdf",width = 7,height = 5, onefile = FALSE)
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0,63))+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_merg_DFS_Cox_Uni.pdf",width = 4,height = 5, onefile = FALSE)
+hr_prop
+dev.off()
+
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_DiffAbun.pdf",width = 8,height = 7, onefile = FALSE)
+ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR), shape = category))+
+  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
+  scale_color_manual(values = metadata(sce)$colors$metacluster_combined)+
+  xlab("logFC (cold/excluded vs inflamed)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+dev.off()
+
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_spiyR_tumor_CD8.pdf",width = 5,height = 4, onefile = FALSE)
+signifPlot(spicyTest,
+           type = "heatmapbliblablub",
+           breaks=c(-3, 3, 0.5),
+           fdr = TRUE,
+           marksToPlot = c("tumor","CD8_T_cell"))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_spiyR_tumorpheno_CD8.pdf",width = 6,height = 5, onefile = FALSE)
+signifPlot(spicyTest2,
+           type = "heatmapbliblablub",
+           breaks=c(-3, 3, 0.5),
+           fdr = TRUE,
+           marksToPlot = unfactor(unique(cur_sce$metacluster_combined)))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_spiyR_tumorpheno_TME_CD8.pdf",width = 9,height = 6, onefile = FALSE)
+signifPlot(spicyTest3,
+           type = "heatmapbliblablub",
+           breaks=c(-3, 3, 0.5),
+           fdr = TRUE,
+           marksToPlot = unfactor(unique(sce$metacluster_combined)))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_Ki67_phenotype.pdf",width = 5,height = 4, onefile = FALSE)
+ggplot(cur_plot) +
+  geom_tile(color = "black",aes(CD8Tcell_type, fra, fill = Ki67_GMM), position = "stack")+
+  scale_fill_brewer(palette = "Paired")+
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  theme(axis.title.x = element_blank())+
+  ggtitle(paste("p (Chi-Square) = ",cur_test_out$p.value))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_Tumor_expression.pdf",width = 7,height = 6, onefile = FALSE)
+Heatmap(assay(spatialpheno_mean_sce, "exprs"), col = viridis(100), name = "exprs", cluster_columns = FALSE, row_names_side = "left", show_row_dend = FALSE)+
+  Heatmap(mat_scaled, name = "scaled exprs", cluster_columns = FALSE)+
+  rowAnnotation(test = anno_text(test_result$psignif.adj))
+dev.off()
+
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_NumberBpatches.pdf",width = 7,height = 4, onefile = FALSE)
+ggplot(plot_df, aes(x = spatial_CD8_pheno, y = n_Bpatch))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = spatial_CD8_pheno), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno)+
+  theme_classic(base_size = 12)+
+  coord_cartesian(ylim = c(0,15))+
+  theme(axis.title.x = element_blank())+
+  ylab("Number of B cell patches per PID")+
+  stat_compare_means(method = "kruskal.test")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_Bpatchsize.pdf",width = 7,height = 4, onefile = FALSE)
+ggplot(plot) + 
+  geom_col(aes(x=spatial_CD8_pheno, y=fraction, fill=B_cell_score), color = "black") +
+  theme_classic() + 
+  xlab("Fraction of PID") +
+  ylab("")+
+  scale_fill_brewer(palette = "Paired")+
+  ggtitle(paste0("p (Fisher) = ", plot_test_out$p.value))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Mixing_score_OS.pdf",width = 5,height = 6, onefile = FALSE)
+mix_OS
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Mixing_score_DFS.pdf",width = 5,height = 6, onefile = FALSE)
+mix_DFS
+dev.off()
+
 ```
