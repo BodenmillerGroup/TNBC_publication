@@ -73,6 +73,7 @@ sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
 
 ```{r pgroups, eval = F}
 #sce_tumor$metacluster_combined <- unfactor(sce_tumor$metacluster_combined)
+#sce_tumor <- sce[,sce$analysis_cat == "tumor"]
 
 PID_metacluster_combined <- colData(sce_tumor) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 PID_metacluster_combined <- PID_metacluster_combined %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
@@ -102,7 +103,7 @@ plot(testCL_1, legend = FALSE)
 
 library(dendextend)
 avg_dend_obj_MCP <- as.dendrogram(agnes(PID_metagroups,metric = "euclidean",method = "ward"))
-avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 11)
+avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 10)
 plot(avg_col_dend_MCP)
 
 # Print heatmap
@@ -111,19 +112,13 @@ h_g <- Heatmap(PID_metagroups, name = "Cluster fraction",
         cluster_rows = avg_col_dend_MCP,
         row_split = 10,
         clustering_method_columns = "ward.D2",
-        clustering_method_rows = "ward.D2")+
-  Heatmap(PID_metagroups_scaled, name = "Scaled metacluster fraction", 
-        col = col_scaled,
-        #cluster_rows = avg_col_dend_MCP,
-        #row_split = 8,
-        clustering_method_columns = "ward.D2",
         clustering_method_rows = "ward.D2")
 
 h_g <- draw(h_g)
 draw(h_g)
 
 #Retrieve PID groups (for agnes)
-row_groups <- foreach(i = 1:11, .combine = rbind) %do%{
+row_groups <- foreach(i = 1:10, .combine = rbind) %do%{
 data.frame(PID = rownames(PID_metagroups[row_order(h_g)[[i]],]), PID_group = i)
 }
 
@@ -140,7 +135,7 @@ library(survminer)
 cur_surv <- colData(sce) %>% as.data.frame() %>% 
   select(PID, PID_metagroups, OS_months, DFS_months, status_DFS, status_OS) %>% 
   #mutate(PID_metagroups_2 = ifelse(PID_metagroups == "6","6","Not_6")) %>% unique()
-  filter(!PID_metagroups %in% c("1")) %>% 
+  filter(PID_metagroups %in% c("5","9")) %>% 
   unique()
 
 #Plot survival curves
@@ -167,6 +162,7 @@ PID_DFS_1 <- ggsurvplot(fit,
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
+          conf.int = FALSE,
           #palette = "Set1",
           log.rank.weights = "S2") 
 
@@ -494,70 +490,6 @@ theme(axis.text.x = element_text(angle = 90))
 hr_prop
 ```
 
-## Based on cellular neighborhood densities
-
-```{r}
-#create density matrix
-PID_metacluster <- colData(sce) %>% as.data.frame() %>% select(cellular_neighborhood,PID) %>% group_by(PID) %>% table() %>% as.data.frame
-PID_area <- colData(sce) %>% as.data.frame() %>% select(tissue_area,PID) %>% unique() %>% group_by(PID) %>% mutate(mean_tissue_area = mean(tissue_area))
-
-PID_metacluster$mean_tissue_area <- PID_area$mean_tissue_area[match(PID_metacluster$PID, PID_area$PID)]
-PID_metacluster <- PID_metacluster %>% group_by(PID) %>% mutate(density = Freq/(mean_tissue_area/1000000))  
-
-PID_metagroups <- PID_metacluster %>% pivot_wider(id_cols = "PID",names_from = "cellular_neighborhood",values_from = "density") %>% column_to_rownames("PID")
-
-#Option: Column-scaled
-PID_metagroups_scaled <- scale(as.matrix(PID_metagroups))
-col_scaled <- colorRamp2(c(-1, 0, 2, 3), c("#A278FAFF", "#F1E9E7FF", "#FF8061FF", "#FF0000FF"))
-
-### 1. Cluster-testing
-library(clValid)
-#Internal measures
-testCL<- clValid(PID_metagroups,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
-summary(testCL)
-plot(testCL)
-
-#Stability measures 
-testCL_1<- clValid(PID_metagroups,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans"),validation="stability",metric="euclidean", method = "ward")
-summary(testCL_1)
-plot(testCL_1, legend = FALSE)
-
-#Selected method: kmeans, 6
-
-### 2. Plot heatmap 
-library(dendextend)
-avg_dend_obj_MCP <- as.dendrogram(diana(PID_metagroups,metric = "euclidean"))
-avg_col_dend_MCP <- color_branches(avg_dend_obj_MCP, k = 9)
-plot(avg_col_dend_MCP)
-
-set.seed(23)
-h_g <- Heatmap(PID_metagroups, name = "Cluster fraction", 
-        col = viridis(100),
-        #cluster_rows = avg_col_dend_MCP,
-        #row_split = 8,
-        row_km = 13,
-        row_km_repeats = 100,
-        clustering_method_columns = "ward.D2",
-        clustering_method_rows = "ward.D2",
-        cluster_row_slices = FALSE)+
-  Heatmap(PID_metagroups_scaled, name = "Scaled metacluster fraction", 
-        col = col_scaled,
-        #cluster_rows = avg_col_dend_MCP,
-        #row_split = 8,
-        clustering_method_columns = "ward.D2",
-        clustering_method_rows = "ward.D2")
-
-h_g <- draw(h_g)
-draw(h_g)
-
-### 3. Retrieve PID groups
-row_groups <- foreach(i = 1:13, .combine = rbind) %do%{
-data.frame(PID = rownames(PID_metagroups[row_order(h_g)[[i]],]), PID_group = i)
-}
-
-#Add to sce
-sce$PID_CN_density <- row_groups$PID_group[match(sce$PID,row_groups$PID)]
-```
 
 ## Compare between patient grouping 
 
@@ -588,20 +520,27 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/08_sce_PIDgroup.rds")
 ## Immune scores
 
 ```{r}
-# mixing pheno
-#mixing_pheno <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,mixing_pheno) %>% group_by(PID_metagroups) %>% table() %>% as.data.frame
-#mixing_pheno <- mixing_pheno %>% group_by(PID_metagroups) %>% mutate(fra = Freq/sum(Freq)) 
-#mixing_pheno <- mixing_pheno %>% select(-Freq) %>% pivot_wider(id_cols = PID_metagroups,names_from = mixing_pheno,values_from = fra) %>% column_to_rownames("PID_metagroups")
+spatial_CD8 <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,spatial_CD8_pheno) %>% group_by(PID_metagroups) %>% table() %>% as.data.frame
+spatial_CD8 <- spatial_CD8 %>% group_by(PID_metagroups) %>% mutate(fra = Freq/sum(Freq))
 
-# ## mixing pheno per group
-# mixing_group <- colData(sce) %>% as.data.frame() %>% select(PID,PID_metagroups,mixing_pheno_merg) %>% unique() %>% select(-PID) %>% group_by(mixing_pheno_merg) %>% table() %>% as.data.frame
-# mixing_group <- mixing_group %>% group_by(mixing_pheno_merg) %>% mutate(fra = Freq/sum(Freq)) 
-# ggplot(mixing_group, aes(x = mixing_pheno_merg, y = fra, fill = PID_metagroups))+
-#   geom_bar(stat = "identity", color = "black")+
-#   theme_classic()+
-#   ylab("Fraction of PID")+
-#   scale_fill_manual(values = metadata(sce)$colors$PID_metagroups)
+ggplot(spatial_CD8, aes(x = PID_metagroups, y = fra, fill = spatial_CD8_pheno))+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  ylab("Fraction of PID")+
+  scale_fill_manual(values = metadata(sce)$colors$spatial_CD8_pheno)
+```
 
+## CK5/7 score
+
+```{r}
+CK5_7 <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,CK5_7_score) %>% group_by(PID_metagroups) %>% table() %>% as.data.frame
+CK5_7 <- CK5_7 %>% group_by(PID_metagroups) %>% mutate(fra = Freq/sum(Freq))
+
+ggplot(CK5_7, aes(x = PID_metagroups, y = fra, fill = CK5_7_score))+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  ylab("Fraction of PID")
+  #scale_fill_manual(values = metadata(sce)$colors$CK5_7_score)
 ```
 
 ## Shannon diversity index
@@ -683,6 +622,7 @@ clrDR(sce_cat, dr = "PCA",
   guides(color = "none")+
   theme_classic()
 ```
+
 ## Rich heatmap visualization
 
 ```{r heatmap sce_1, message=FALSE, warning=FALSE}
