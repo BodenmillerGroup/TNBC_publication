@@ -64,7 +64,7 @@ library(batchelor)
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 ```
 
-# IF Quantification - Basoluminal 
+# 1. IF Basoluminal - Quantification 
 
 Data generated with QuPath. 
 Steps included tumor region designation, single-cell segmentation (nuclei detection + expansion), thresholding on markers (CK5/7/19)
@@ -250,6 +250,145 @@ ggplot(cur_719, aes(x=CK7_19_group, y=fra))+
   scale_color_manual(values = metadata(sce)$colors$PID)+
   theme_classic()
 ```
+
+# 2. IF BL Stem - Quantification 
+
+Data generated with QuPath. 
+Steps included tumor region designation, single-cell segmentation (nuclei detection + expansion), thresholding on markers (CK5/19/SOX9)
+
+```{r}
+# read in data 
+#dat <- read_csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/TNBC_IF_BasolumStem_Anno.csv")
+#dat <- read_csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/IF_TNBC_BasoLum_Stem_2.csv")
+
+colnames(dat) <- str_replace(colnames(dat),"Num ","")
+colnames(dat) <- str_replace(colnames(dat),"Cy3","CK5")
+colnames(dat) <- str_replace(colnames(dat),"Cy5","CK19")
+colnames(dat) <- str_replace(colnames(dat),"Cy7","SOX9")
+colnames(dat) <- str_replace(colnames(dat)," ","")
+colnames(dat) <- str_replace(colnames(dat)," ","")
+
+dat$PID <- str_split(dat$Image,".czi", simplify = TRUE)[,1]
+
+dat$PID
+
+# Optional: Kick out samples for which tumor selection was difficult in QuPath / low basal/luminal cells present
+dat <- dat %>% filter(!PID %in% c("B10_23314","B07_1959","B10_59762")) %>% filter(!is.na(PID))
+```
+
+
+```{r}
+cur_dat <- dat %>% select(c("CK5", "CK5:CK19", "CK5:CK19:SOX9", 
+"CK5:SOX9", "CK19", "CK19:SOX9", "SOX9", "PID")) %>% pivot_longer(1:7,values_to = "n", names_to = "CK_group")
+```
+
+```{r}
+#Focus: Stem-like basoluminal cells
+cur_out <- cur_dat %>% filter(CK_group %in% c("CK5:CK19:SOX9", "CK5:CK19")) %>% group_by(PID) %>% mutate(sum = sum(n)) %>% mutate(fra = n/sum) %>% group_by(PID, CK_group) %>% mutate(fra = sum(n)/sum) %>% filter(CK_group == "CK5:CK19:SOX9") %>% select(PID, fra) %>% unique()
+
+cur_out$PID <- str_replace(cur_out$PID, "_", ".")
+
+# Fraction of stem-like vs. not stem-like
+ggplot(cur_out, aes(x=CK_group, y=fra))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  coord_cartesian(ylim = c(0,1))+
+  theme_classic()
+```
+
+```{r}
+#General: Stem-like cells of basal, luminal and basoluminal 
+cur_out <- cur_dat %>% 
+  mutate(CK_subgroup = ifelse(CK_group %in% c("CK5:CK19:SOX9", "CK5:CK19"), "BL", 
+                                                   ifelse(CK_group %in% c("CK5:SOX9", "CK5"), "B",
+                                                          ifelse(CK_group %in% c("CK19:SOX9", "CK19"), "L",NA)))) %>% 
+  filter(!is.na(CK_subgroup)) %>% 
+  group_by(PID, CK_subgroup) %>% 
+  mutate(sum = sum(n)) %>% 
+  group_by(PID, CK_subgroup, CK_group) %>% 
+  mutate(fra = sum(n)/sum) %>% 
+  select(PID, CK_group, CK_subgroup, sum,fra) %>% filter(str_detect(CK_group, "SOX9")) %>% unique()
+
+cur_out$PID <- str_replace(cur_out$PID, "_", ".")
+cur_out$CK_subgroup <- factor(cur_out$CK_subgroup, levels = c("BL","L","B"))
+
+# Fraction of stem-like vs. not stem-like
+ggplot(cur_out, aes(x=CK_subgroup, y=fra))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  coord_cartesian(ylim = c(0,1))+
+  theme_classic()+
+  stat_compare_means(method = "kruskal.test") # group differences
+
+compare_means(fra ~ CK_subgroup, cur_out, method = "wilcox.test") # between group differences
+
+# Number of cells per PID analyzed 
+ggplot(cur_out, aes(x=CK_subgroup, y=sum))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  #coord_cartesian(ylim = c(0,1))+
+  theme_classic()
+
+```
+
+
+```{r}
+# Heatmap for basal-luminal overview
+cur_in <- cur_dat %>% 
+  mutate(CK_subgroup = ifelse(CK_group %in% c("CK5:CK19:SOX9", "CK5:CK19"), "BL", 
+                                                   ifelse(CK_group %in% c("CK5:SOX9", "CK5"), "B",
+                                                          ifelse(CK_group %in% c("CK19:SOX9", "CK19"), "L",NA)))) %>% 
+  filter(!is.na(CK_subgroup)) %>% 
+  group_by(PID, CK_subgroup) %>% 
+  mutate(sum_sub = sum(n)) %>% 
+  group_by(PID) %>% 
+  mutate(fra = sum_sub/sum(n)) %>% 
+  select(PID, CK_subgroup ,fra) %>% 
+  unique()
+
+cur_df <- cur_in %>% pivot_wider(id_cols = "PID", names_from = "CK_subgroup",values_from = "fra") %>% column_to_rownames("PID")
+
+# Option: Perform hierarchical clustering on fractions
+dd <- dist(cur_df, method = "euclidean")
+hc <- hclust(dd, method = "ward.D2")
+plot(hc)
+row_sorted <- hc$order
+
+# Option: order by triple-positive cell fraction
+row_sorted_fra <- cur_in %>% filter(CK_subgroup == "BL") %>% arrange(desc(fra)) %>% pull(PID)
+
+# Define annotation dataframe
+cur_df <- cur_df[row_sorted_fra,]
+cur_df <- cur_df[,c("BL","L","B")]
+
+anno <- cur_in
+anno <- anno[match(rownames(cur_df), anno$PID),]
+
+# Color
+cur_color <- setNames(brewer.pal(7, "Paired"), colnames(cur_df))
+
+# Plot annotation dataframe with ComplexHeatmap
+fraction_anno <- HeatmapAnnotation(PID = anno_text(anno$PID), 
+                                   CK_fractions = anno_barplot(cur_df, gp=gpar(fill=cur_color),
+                                                               bar_width = 1, height = unit(25,"cm"), width = unit(11,"cm"),
+                                                               show_row_names = TRUE, row_names_side = "left"),
+                                   #total_n = anno_barplot(anno$total_n, border = TRUE),
+                                   gap = unit(1,"mm"),
+                                   which = "row")
+h <- fraction_anno + NULL
+
+lgd <- Legend(title = "CK_group", at = colnames(cur_df), 
+              legend_gp = gpar(fill = cur_color))
+             
+# Plot
+draw(h,annotation_legend_list = list(lgd))
+```
+
+## Save plots
+
 ```{r}
 ## Save plots as pdf
 
