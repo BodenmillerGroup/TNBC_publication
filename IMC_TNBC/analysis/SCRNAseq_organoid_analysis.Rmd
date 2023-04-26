@@ -1,0 +1,150 @@
+---
+title: "SCRNAseq_organoid_analysis"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# scRNAseq dataset from Haithem
+
+## Load data 
+
+```{r}
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/03_data/sce_scRNA_organoid_final.rds")
+sce
+```
+
+## Explore dataset 
+
+```{r}
+# UMAP 
+plotUMAP(sce, colour_by="celltypes")
+plotUMAP(sce, colour_by="Patient_ID")
+
+#Visualize genes of interest
+keratins <- c("KRT5", "KRT7", "KRT8", "KRT14","KRT18","KRT19", "KRT15","ITGA6","EPCAM")
+all_plots_UMAP <- lapply(keratins,
+                    function(x){
+                      p <- plotReducedDim(sce, dimred = "UMAP", colour_by = x, by_exprs_values = "logcounts", point_size = 0.3)
+                      return(p)                    
+                    })
+
+library(cowplot)
+all_plots_UMAP_exprs <- plot_grid(plotlist = all_plots_UMAP)
+all_plots_UMAP_exprs
+```
+
+## Subset to tumor cells 
+
+```{r}
+sce <- sce[,!sce$celltypes %in% c("endothelial", "B_cell", "T_cell","macrophage","fibroblast")]
+```
+
+
+```{r}
+## add CK5 and CK7 GMM
+# 1. CK5
+GMM_CK5 <- Mclust(assay(sce, "logcounts")["KRT5",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK5$classification == 2, 
+                                        "KRT5+",
+                                        "KRT5-"), 
+                     KRT5_exprs = assay(sce, "logcounts")["KRT5",],
+                     uncertainty = GMM_CK5$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT5_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_tumor_KRT5 <- GMM_df$class_epi
+
+# 2. CK7
+GMM_CK7 <- Mclust(assay(sce, "logcounts")["KRT7",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK7$classification == 2,
+                                        "KRT7+",
+                                        "KRT7-"), 
+                     KRT7_exprs = assay(sce, "logcounts")["KRT7",],
+                     uncertainty = GMM_CK7$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT7_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_tumor_KRT7 <- GMM_df$class_epi
+
+## Combine KRT5/7 GMM scores 
+sce$KRT5_7_score <- ifelse(sce$GMM_tumor_KRT5 == "KRT5+" & sce$GMM_tumor_KRT7 == "KRT7+", "KRT5/7+", 
+       ifelse(sce$GMM_tumor_KRT5 == "KRT5+" & sce$GMM_tumor_KRT7 == "KRT7-", "KRT5+",
+              ifelse(sce$GMM_tumor_KRT5 == "KRT5-" & sce$GMM_tumor_KRT7 == "KRT7+", "KRT7+","KRT5/7-")))
+
+## Visualization 
+cur_dat <- t(assay(sce,"logcounts")) %>% as.matrix %>% as.data.frame %>% select("KRT5","KRT7")
+
+colData(sce)
+
+cur_dat$KRT5_7_score <- sce$KRT5_7_score[match(rownames(cur_dat), rownames(colData(sce)))]
+
+main <- ggplot(cur_dat, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
+  geom_point(alpha = 0.5)+
+  stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
+  theme_classic()+
+  xlab("KRT7 logcounts")+
+  ylab("KRT5 logcounts")
+  #scale_color_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+cur_dat$GMM_tumor_KRT5 <- sce$GMM_tumor_KRT5[match(rownames(cur_dat),sce$cell_id)]
+y <- ggplot(cur_dat, aes(x=KRT5, fill=GMM_tumor_KRT5)) + 
+  geom_density(alpha=0.5) + 
+  #scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)+
+  guides(fill = "none")+
+  theme_classic()
+
+cur_dat$GMM_tumor_KRT7 <- sce$GMM_tumor_KRT7[match(rownames(cur_dat),sce$cell_id)]
+x <- ggplot(cur_dat, aes(x=KRT7, fill=GMM_tumor_KRT7)) + 
+  geom_density(alpha=0.5) + 
+  #scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)+
+  guides(fill = "none")+
+  theme_classic()
+
+main/(y+x)
+
+#Dim Red:
+plotReducedDim(sce, dimred="UMAP", colour_by="KRT5_7_score")
+```
+
+
+```{r}
+# Define stem markers of interest
+stem <- c("SOX9","KIT","PROM1","YAP1","HDAC2","NOTCH1","NFKB1","CD44","ALDH1A3", "TGFB2","EZH2", "ANXA8")
+
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$KRT5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rowData(sce)$Symbol %in% stem)
+
+scaled_mat <- t(scale(t(assay(cluster_mean_sce, "logcounts"))))
+
+
+
+## Print heatmap 
+Heatmap(assay(cluster_mean_sce, "logcounts"), name = "Mean Expression")
+Heatmap(scaled_mat, name = "Scaled mean expression")
+```
+```{r}
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "Patient_ID",scale="count")
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "Patient_ID",scale="percent")
+```
+
