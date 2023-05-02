@@ -71,7 +71,7 @@ Steps included tumor region designation, single-cell segmentation (nuclei detect
 
 ```{r}
 # read in data 
-dat <- read_csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/QuPath_Basoluminal_Quantification_Annotation.csv")
+dat <- read_csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/QuPath_Basoluminal_Quantification_Annotation_2.csv")
 
 colnames(dat) <- str_replace(colnames(dat),"Num ","")
 colnames(dat) <- str_replace(colnames(dat),"Cy3","CK7")
@@ -148,13 +148,13 @@ cur_CK <- cur_in %>% group_by(PID) %>% mutate(fra = mean_n/sum(mean_n))
 cur_CK <- cur_CK %>% pivot_wider(id_cols = "PID", names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("PID")
 
 # Option: order by triple-positive cell fraction
-row_sorted_fra <- cur_dat %>% group_by(PID) %>% mutate(fra = mean_n/sum(mean_n)) %>% filter(CK5_7_group == "CK5/7+") %>% arrange(desc(fra)) %>% pull(PID)
+row_sorted_fra <- cur_in %>% group_by(PID) %>% mutate(fra = mean_n/sum(mean_n)) %>% filter(CK5_7_group == "CK5/7+") %>% arrange(desc(fra)) %>% pull(PID)
 
 # Define annotation dataframe
 cur_CK <- cur_CK[row_sorted_fra,]
 cur_CK <- cur_CK[,c("CK5/7+", "CK5+", "CK7+")]
 
-anno <- cur_dat 
+anno <- cur_in 
 anno <- anno[match(rownames(cur_CK), anno$PID),]
 
 # Color
@@ -232,6 +232,7 @@ ggplot(cur_cor, aes(x = `CK5/7+`, y = `CK5/7+_IF`))+
 Check overlap of CK19 and CK7 positive cells
 
 ```{r}
+library(ggpubr)
 cur_719 <- cur_in %>% filter(CK_group != "CK5") %>% mutate(CK7_19_group = ifelse(CK_group %in% c("CK5:CK19","CK19"),"CK19+", 
                                                 ifelse(CK_group %in% c("CK5:CK7","CK7"),"CK7+", "CK7_19+"))) 
 
@@ -247,7 +248,9 @@ ggplot(cur_719, aes(x=CK7_19_group, y=fra))+
   geom_boxplot(outlier.colour = NA)+
   geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
   scale_color_manual(values = metadata(sce)$colors$PID)+
-  theme_classic()
+  theme_classic()+
+  ylab("Fraction of luminal cells per PID")+
+  stat_compare_means(method = "kruskal.test")
 ```
 
 Check results of IF run 1 (CK5/7/19; Basolum) for IF run 2 markers (CK5/19/SOX9; Basolum-Stem) 
@@ -466,15 +469,21 @@ Check for correlation between IF run1/run2
 ```{r}
 cur_IF_2 #IF Basolum
 
-cur_IF_1 <- cur_IF_1[match(rownames(cur_df), rownames(cur_IF_1)),] #IF Basolum - Stem 
-match(rownames(cur_df), rownames(cur_IF_1))
+cur_IF_1 <- cur_IF_1[match(rownames(cur_IF_2), rownames(cur_IF_1)),] #IF Basolum - Stem 
 
-paste0("BL:", cor(cur_df$BL, cur_IF_1$BL), " B:", cor(cur_df$B, cur_IF_1$B), " L:", cor(cur_df$L, cur_IF_1$L))
+paste0("BL:", cor(cur_IF_2$BL, cur_IF_1$BL), " B:", cor(cur_IF_2$B, cur_IF_1$B), " L:", cor(cur_IF_2$L, cur_IF_2$L))
+
+corrplot(cor(cur_IF_1, cur_IF_2,method = "spearman"), method="color", col=brewer.pal(n=8, name="RdBu"),  
+         type="upper", order="hclust",hclust.method = "ward.D2", 
+         addCoef.col = "black", addCoefasPercent = F,# Add coefficient of correlation
+         tl.col="black", tl.srt=40, #Text label color and rotation
+         # Combine with significance
+         #p.mat = p.mat, sig.level = 0.01, insig = "blank", 
+         # hide correlation coefficient on the principal diagonal
+         diag=TRUE
+)
+
 ```
-
-
-
-
 
 ## Save plots
 

@@ -9,6 +9,55 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(scuttle)
+library(scater)
+library(scran)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(circlize)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(parallel)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(Rphenograph)
+library(igraph)
+library(RColorBrewer)
+library(foreach)
+library(clValid)
+library(bluster)
+library(psych)
+library(corrplot)
+library(psych)
+
+#Batch correction
+library(batchelor)
+```
+
 # scRNAseq dataset from Haithem
 
 ## Load data 
@@ -34,14 +83,20 @@ all_plots_UMAP <- lapply(keratins,
                     })
 
 library(cowplot)
-all_plots_UMAP_exprs <- plot_grid(plotlist = all_plots_UMAP)
-all_plots_UMAP_exprs
+all_plots_UMAP_keratins <- plot_grid(plotlist = all_plots_UMAP)
+all_plots_UMAP_keratins
 ```
+
+Observation: Strong overlap of CK7 and CK5 in the "basal" compartment 
 
 ## Subset to tumor cells 
 
 ```{r}
+# Select epithelial cells
 sce <- sce[,!sce$celltypes %in% c("endothelial", "B_cell", "T_cell","macrophage","fibroblast")]
+
+# Select tumor samples
+sce <- sce[,str_detect(sce$Patient_ID, "T")]
 ```
 
 
@@ -50,7 +105,7 @@ sce <- sce[,!sce$celltypes %in% c("endothelial", "B_cell", "T_cell","macrophage"
 # 1. CK5
 GMM_CK5 <- Mclust(assay(sce, "logcounts")["KRT5",], G = 2)
 
-GMM_df <- data.frame(class_epi = ifelse(GMM_CK5$classification == 2, 
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK5$classification == 2, #& GMM_CK5$uncertainty < 0.05, 
                                         "KRT5+",
                                         "KRT5-"), 
                      KRT5_exprs = assay(sce, "logcounts")["KRT5",],
@@ -69,7 +124,7 @@ sce$GMM_tumor_KRT5 <- GMM_df$class_epi
 # 2. CK7
 GMM_CK7 <- Mclust(assay(sce, "logcounts")["KRT7",], G = 2)
 
-GMM_df <- data.frame(class_epi = ifelse(GMM_CK7$classification == 2,
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK7$classification == 2, #& GMM_CK7$uncertainty < 0.05,
                                         "KRT7+",
                                         "KRT7-"), 
                      KRT7_exprs = assay(sce, "logcounts")["KRT7",],
@@ -90,39 +145,51 @@ sce$KRT5_7_score <- ifelse(sce$GMM_tumor_KRT5 == "KRT5+" & sce$GMM_tumor_KRT7 ==
        ifelse(sce$GMM_tumor_KRT5 == "KRT5+" & sce$GMM_tumor_KRT7 == "KRT7-", "KRT5+",
               ifelse(sce$GMM_tumor_KRT5 == "KRT5-" & sce$GMM_tumor_KRT7 == "KRT7+", "KRT7+","KRT5/7-")))
 
-## Visualization 
+## Colors 
+library(wesanderson)
+metadata(sce)$colors$KRT57_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("KRT5/7-", "KRT5/7+","KRT5+", "KRT7+"))
+
+# Visualization 
+
+## Number of cells per category 
+n_cat <- colData(sce) %>% as.data.frame() %>% group_by(KRT5_7_score) %>% count()
+n_cat <- n_cat %>% ungroup() %>% mutate(sum = sum(n)) %>% mutate(fra = (n/sum)*100)
+
+ggplot(n_cat, aes(KRT5_7_score, n))+
+  geom_bar(stat = "identity", aes(fill = KRT5_7_score))+
+  theme_classic()+
+  scale_fill_manual(values = metadata(sce)$colors$KRT57_score)
+
+## Scatterplot
 cur_dat <- t(assay(sce,"logcounts")) %>% as.matrix %>% as.data.frame %>% select("KRT5","KRT7")
-
-colData(sce)
-
 cur_dat$KRT5_7_score <- sce$KRT5_7_score[match(rownames(cur_dat), rownames(colData(sce)))]
 
-main <- ggplot(cur_dat, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
+ggplot(cur_dat, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
   geom_point(alpha = 0.5)+
-  stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
   theme_classic()+
   xlab("KRT7 logcounts")+
-  ylab("KRT5 logcounts")
-  #scale_color_manual(values = metadata(sce)$colors$KRT5_7_score)
+  ylab("KRT5 logcounts")+
+  scale_color_manual(values = metadata(sce)$colors$KRT57_score)
 
-cur_dat$GMM_tumor_KRT5 <- sce$GMM_tumor_KRT5[match(rownames(cur_dat),sce$cell_id)]
-y <- ggplot(cur_dat, aes(x=KRT5, fill=GMM_tumor_KRT5)) + 
-  geom_density(alpha=0.5) + 
-  #scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)+
-  guides(fill = "none")+
-  theme_classic()
 
-cur_dat$GMM_tumor_KRT7 <- sce$GMM_tumor_KRT7[match(rownames(cur_dat),sce$cell_id)]
-x <- ggplot(cur_dat, aes(x=KRT7, fill=GMM_tumor_KRT7)) + 
-  geom_density(alpha=0.5) + 
-  #scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)+
-  guides(fill = "none")+
-  theme_classic()
+## Dim Red
+plotReducedDim(sce, dimred="UMAP", colour_by="KRT5_7_score")+
+    scale_color_manual(values = metadata(sce)$colors$KRT57_score)
+```
+```{r}
+keratins <- c("KRT5", "KRT7", "KRT8", "KRT14","KRT18","KRT19", "KRT15","ITGA6","EPCAM")
 
-main/(y+x)
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$KRT5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rowData(sce)$Symbol %in% keratins)
 
-#Dim Red:
-plotReducedDim(sce, dimred="UMAP", colour_by="KRT5_7_score")
+scaled_mat <- t(scale(t(assay(cluster_mean_sce, "logcounts"))))
+
+
+## Print heatmap 
+Heatmap(assay(cluster_mean_sce, "logcounts"), col = viridis(100),name = "Mean Expression")
+Heatmap(scaled_mat, name = "Scaled mean expression")
 ```
 
 
@@ -140,11 +207,34 @@ scaled_mat <- t(scale(t(assay(cluster_mean_sce, "logcounts"))))
 
 
 ## Print heatmap 
-Heatmap(assay(cluster_mean_sce, "logcounts"), name = "Mean Expression")
+Heatmap(assay(cluster_mean_sce, "logcounts"), col = viridis(100),name = "Mean Expression")
 Heatmap(scaled_mat, name = "Scaled mean expression")
+
+# UMAP with stem/progenitor markers
+all_plots_UMAP <- lapply(stem,
+                    function(x){
+                      p <- plotReducedDim(sce, dimred = "UMAP", colour_by = x, by_exprs_values = "logcounts", point_size = 0.3)
+                      return(p)                    
+                    })
+
+library(cowplot)
+all_plots_UMAP_exprs <- plot_grid(plotlist = all_plots_UMAP)
+all_plots_UMAP_exprs
 ```
 ```{r}
-dittoBarPlot(sce, var = "KRT5_7_score", group.by = "Patient_ID",scale="count")
-dittoBarPlot(sce, var = "KRT5_7_score", group.by = "Patient_ID",scale="percent")
+# PID
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "Patient_ID",scale="count")+
+    scale_fill_manual(values = metadata(sce)$colors$KRT57_score)
+
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "Patient_ID",scale="percent")+
+    scale_fill_manual(values = metadata(sce)$colors$KRT57_score)
+
+
+# Cell types
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "celltypes",scale="percent")+
+    scale_fill_manual(values = metadata(sce)$colors$KRT57_score)
+
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "celltypes",scale="count")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT57_score)
 ```
 
