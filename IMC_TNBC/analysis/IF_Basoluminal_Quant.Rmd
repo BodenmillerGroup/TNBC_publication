@@ -180,7 +180,7 @@ fraction_anno <- HeatmapAnnotation(PID = anno_text(rownames(anno)),
                                    CK_fractions = anno_barplot(cur_CK, gp=gpar(fill=cur_color_CK),
                                                                bar_width = 1, height = unit(25,"cm"), width = unit(11,"cm"),
                                                                show_row_names = TRUE, row_names_side = "left"),
-                                   total_n = anno_barplot(anno, border = TRUE, gp = gpar(fill = cur_color_CK), width = unit(3,"cm")),
+                                   total_n = anno_barplot(rowSums(anno), border = TRUE, gp = gpar(fill = "#440154FF"), width = unit(3,"cm")),
                                    gap = unit(1,"mm"),
                                    which = "row")
 h_1 <- fraction_anno + NULL
@@ -514,8 +514,9 @@ corrplot(cor(cur_IF_1, cur_IF_2,method = "spearman"), method="color", col=brewer
 ```{r}
 ## Save plots as pdf
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_Heatmap_combined.pdf",width = 12, height = 4, onefile = FALSE)
-draw(h_comb,annotation_legend_list = list(lgd,lgd_1))
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_Heatmap_CK57.pdf",height = 4, width = 10, onefile = FALSE)
+draw(h_1,annotation_legend_list = list(lgd_1))
 dev.off()
 
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_IF_IMC_cor.pdf", height = 5, width = 6)
@@ -526,15 +527,18 @@ ggplot(cur_cor, aes(x = `CK5/7+`, y = `CK5/7+_IF`))+
   xlab("CK5/7 Fraction IMC")+
   theme_classic()+
   scale_color_manual(values=metadata(sce)$colors$PID)+
-  ggtitle(paste("Pearson r = ",round(spearman_test$estimate, digits = 2),"/ p =",round(spearman_test$p.value, digits = 4)))
+  ggtitle(paste("Spearman rho = ",round(spearman_test$estimate, digits = 2),"/ p =",round(spearman_test$p.value, digits = 4)))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_CK7_19.pdf", height = 5, width = 6)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_CK7_19.pdf", height = 5, width = 4)
 ggplot(cur_719, aes(x=CK7_19_group, y=fra))+
   geom_boxplot(outlier.colour = NA)+
   geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
   scale_color_manual(values = metadata(sce)$colors$PID)+
-  theme_classic()
+  theme_classic()+
+  ylab("Fraction of luminal cells per PID")+
+  stat_compare_means(method = "kruskal.test")
 dev.off()
+
 ```
 

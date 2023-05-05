@@ -818,7 +818,7 @@ Heatmap(scale(ht), name = "Scaled mean Z-scores")
 
 ```{r}
 # Define stem markers of interest
-stem <- c("SOX9","KIT","PROM1","YAP1","HDAC2","NOTCH1","TNF","NFKB1","CD44","ALDH1A3","NT5E","BRCA1","BRCA2", "TGFB2","EZH2", "ANXA8","MUC1")
+stem <- c("SOX9","KIT","PROM1","YAP1","HDAC2","NOTCH1","CD44","ALDH1A3","BRCA1","BRCA2", "TGFB2", "ANXA8","MUC1")#"NT5E","TNF","NFKB1","EZH2"
 
 # Define heatmap based on normalized counts 
 ## Option 1: size-factor normalized counts 
