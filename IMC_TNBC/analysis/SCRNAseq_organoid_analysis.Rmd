@@ -287,7 +287,7 @@ AP_sig_up <- AP_sig_up[!is.na(AP_sig_up)]
 ## 1. pan AV signature per PID group 
 panAV_sig_up_rel <- panAV_sig_up[panAV_sig_up %in% rownames(assay(sce))]
 
-stem_mean_sce <- aggregateAcrossCells(sce, ids = DataFrame(sce$KRT5_7_score,sce$Patient_ID),
+stem_mean_sce <- aggregateAcrossCells(sce, ids = DataFrame(sce$KRT5_7_score,sce$Patient_ID), #Aggregate for score AND per PID
                                  statistics = "mean",
                                  use.assay.type = "logcounts",
                                  subset.row = rowData(sce)$Symbol %in% panAV_sig_up_rel)
@@ -319,7 +319,7 @@ Heatmap(test_plot)
 ## 2. BL signature per PID group 
 BL_sig_up_rel <- BL_sig_up[BL_sig_up %in% rownames(assay(sce))]
 
-stem_mean_sce <- aggregateAcrossCells(sce, ids = DataFrame(sce$KRT5_7_score,sce$Patient_ID),
+stem_mean_sce <- aggregateAcrossCells(sce, ids = DataFrame(sce$KRT5_7_score,sce$Patient_ID), #Aggregate for score AND per PID
                                  statistics = "mean",
                                  use.assay.type = "logcounts",
                                  subset.row = rowData(sce)$Symbol %in% BL_sig_up_rel)
@@ -376,7 +376,7 @@ basal_sig_down <- basal_sig_down[!is.na(basal_sig_down)]
 ## 1. Luminal progenitor signature per PID group 
 lum_progenitor_sig_up_rel <- lum_progenitor_sig_up[lum_progenitor_sig_up %in% rownames(assay(sce))]
 
-stem_mean_sce <- aggregateAcrossCells(sce, ids = DataFrame(sce$KRT5_7_score,sce$Patient_ID),
+stem_mean_sce <- aggregateAcrossCells(sce, ids = DataFrame(sce$KRT5_7_score,sce$Patient_ID), #Aggregate for score AND per PID
                                  statistics = "mean",
                                  use.assay.type = "logcounts",
                                  subset.row = rowData(sce)$Symbol %in% lum_progenitor_sig_up_rel)
@@ -438,5 +438,52 @@ Heatmap(t(scaled_mat), name = "Scaled mean expression")+
   rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
   rowAnnotation(anno = anno_text(anno$KRT5_7_score))
 dev.off()
+
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_PanAV_Boxplot.pdf",height = 5, width = 5, onefile = FALSE)
+ggplot(plot_df, aes(x = cat, y = signature_score))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Pan-Alveolar signature (Li et al.)")+
+  stat_compare_means()
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_BLSignature_Boxplot.pdf",height = 5, width = 5, onefile = FALSE)
+ggplot(plot_df, aes(x = cat, y = signature_score))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Basal luminal signature (Li et al.)")+
+  stat_compare_means()
+dev.off()
+
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_BLSignature_Boxplot.pdf",height = 5, width = 5, onefile = FALSE)
+ggplot(plot_df, aes(x = cat, y = signature_score))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Basal luminal signature (Li et al.)")+
+  stat_compare_means()
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_BLSignature_Heaptmap.pdf",height = 4, width = 9, onefile = FALSE)
+Heatmap(test_plot, name = "Expression")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_LumProgenitorLIM_Boxplot.pdf",height = 5, width = 5, onefile = FALSE)
+ggplot(plot_df, aes(x = cat, y = signature_score))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Luminal progenitor signature (Lim et al.)")+
+  stat_compare_means()
+dev.off()
+
 ```
 

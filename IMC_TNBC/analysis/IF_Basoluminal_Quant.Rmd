@@ -60,6 +60,8 @@ library(psych)
 library(batchelor)
 ```
 
+# Read in SCE 
+
 ```{r}
 sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 ```
@@ -540,5 +542,34 @@ ggplot(cur_719, aes(x=CK7_19_group, y=fra))+
   stat_compare_means(method = "kruskal.test")
 dev.off()
 
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_BL_SOX9_Boxplot.pdf", height = 5, width = 4)
+ggplot(cur_out, aes(x=CK_group, y=fra))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  coord_cartesian(ylim = c(0,1))+
+  ylab("SOX9+ cell fraction")+
+  xlab("Group")+
+  theme_classic()
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_AllGroups_SOX9_Boxplot.pdf", height = 5, width = 5)
+ggplot(cur_out, aes(x=CK_subgroup, y=fra))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$PID)+
+  coord_cartesian(ylim = c(0,1))+
+  theme_classic()+
+  ylab("SOX9+ cell fraction")+
+  stat_compare_means(method = "kruskal.test")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/IF_Basoluminal/TNBC_QuPath_Basoluminal_IF1_2_Correlation.pdf", height = 5, width = 4)
+corrplot(cor(cur_IF_1, cur_IF_2,method = "spearman"), method="color", col=brewer.pal(n=8, name="RdBu"),  
+         type="upper", order="hclust",hclust.method = "ward.D2", 
+         addCoef.col = "black", addCoefasPercent = F,
+         tl.col="black", tl.srt=40,
+         diag=TRUE)
+dev.off()
 ```
 
