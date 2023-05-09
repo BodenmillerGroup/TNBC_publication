@@ -69,11 +69,203 @@ sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
 
 # 1. Patient grouping 
 
+```{r}
+# Add CK5_7_group
+sce_tumor <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+sce$CK5_7_group <- sce_tumor$CK5_7_group[match(sce$PID, sce_tumor$PID)]
+```
+
+## Based on spatial CD8 phenotype and CK5/7 scores 
+
+```{r}
+# Combine information from spatial CD8 phenotype and CK5/7 scores
+sce$BL_CD8_group <- paste0(sce$CK5_7_group, "_",sce$spatial_CD8_pheno_merg)
+
+# Merge
+sce$BL_CD8_group_merg <- sce$BL_CD8_group
+
+sce$BL_CD8_group_merg <- str_replace(sce$BL_CD8_group_merg, "1", "BL") 
+sce$BL_CD8_group_merg <- str_replace(sce$BL_CD8_group_merg, "2", "B") 
+sce$BL_CD8_group_merg <- str_replace(sce$BL_CD8_group_merg, "3", "L") 
+sce$BL_CD8_group_merg <- str_replace(sce$BL_CD8_group_merg, "4", "N") 
+
+# Groups: Inflamed (Good prognostic)
+sce$BL_CD8_group_merg[str_detect(sce$BL_CD8_group_merg,"inflamed")] <- "inflamed"
+
+## Multiple options for further merge: 
+# Groups: Inflamed + BL + B/L + N
+sce$BL_CD8_group_merg[sce$BL_CD8_group_merg %in% c("B_cold/excluded","L_cold/excluded")] <- "B_L"
+
+# Groups: Inflamed + BL + B/L/N
+sce$BL_CD8_group_merg[sce$BL_CD8_group_merg %in% c("B_cold/excluded","L_cold/excluded","N_cold/excluded")] <- "B_L_N"
+
+# Groups: Inflamed + N + BL/L/B
+sce$BL_CD8_group_merg[sce$BL_CD8_group_merg %in% c("B_cold/excluded","L_cold/excluded","BL_cold/excluded")] <- "B_L_BL"
+
+# Groups: Inflamed + BL/L + B/N
+sce$BL_CD8_group_merg[sce$BL_CD8_group_merg %in% c("L_cold/excluded","BL_cold/excluded")] <- "L_BL"
+sce$BL_CD8_group_merg[sce$BL_CD8_group_merg %in% c("B_cold/excluded","N_cold/excluded")] <- "B_N"
+```
+
+```{r}
+#Assess survival impact 
+
+library(survival)
+library(survminer)
+
+cur_surv <- colData(sce) %>% as.data.frame() %>% 
+  select(PID, BL_CD8_group_merg, OS_months, DFS_months, status_DFS, status_OS) %>% 
+  #filter(BL_CD8_group %in% c("4_inflamed","4_cold/excluded")) %>%
+  unique()
+
+#Plot survival curves
+fit <- survfit(Surv(OS_months, status_OS) ~ BL_CD8_group_merg, data = cur_surv)
+print(fit)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = "Set1")
+
+fit <- survfit(Surv(DFS_months, status_DFS) ~ BL_CD8_group_merg, data = cur_surv)
+print(fit)
+
+PID_DFS_1 <- ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          #conf.int = TRUE,
+          palette = "Set1")
+          #log.rank.weights = "S2") 
+
+PID_DFS_1
+```
+
+### Multivariate 
+
+```{r coxph dfs}
+### Multivariate cox proportional hazard model on multiple covariates (here PID groups)
+BL_CD8_group <- colData(sce) %>% as.data.frame() %>% select(BL_CD8_group_merg,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+BL_CD8_group <- BL_CD8_group %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+BL_CD8_group <- BL_CD8_group %>% pivot_wider(id_cols = "PID",names_from = "BL_CD8_group_merg",values_from = "fra") %>% column_to_rownames("PID")
+
+colnames(BL_CD8_group) <- paste0("SCP_",colnames(BL_CD8_group))
+colnames(BL_CD8_group) <- str_replace(colnames(BL_CD8_group), "/","_")
+
+## 1. Based on SCP assignments
+Cox_df <- BL_CD8_group
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -SCP_inflamed) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "), "+ SCP_inflamed"))
+
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,30))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("SCP")+
+ylab("HR for PID groups")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+
+### Univariate 
+
+```{r}
+### Multivariate cox proportional hazard model on multiple covariates (here PID groups)
+BL_CD8_group <- colData(sce) %>% as.data.frame() %>% select(BL_CD8_group_merg,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+BL_CD8_group <- BL_CD8_group %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+BL_CD8_group <- BL_CD8_group %>% pivot_wider(id_cols = "PID",names_from = "BL_CD8_group_merg",values_from = "fra") %>% column_to_rownames("PID")
+
+colnames(BL_CD8_group) <- paste0("SCP_",colnames(BL_CD8_group))
+colnames(BL_CD8_group) <- str_replace(colnames(BL_CD8_group), "/","_")
+
+## 1. Based on SCP assignments
+Cox_df <- BL_CD8_group
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -SCP_inflamed) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~", paste(covariates, collapse = " + "), "+ SCP_inflamed"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,20))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("SCP")+
+ylab("HR for PID groups")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+
 ## Based on metacluster fractions (tumor)
 
 ```{r pgroups, eval = F}
 #sce_tumor$metacluster_combined <- unfactor(sce_tumor$metacluster_combined)
-#sce_tumor <- sce[,sce$analysis_cat == "tumor"]
+sce_tumor <- sce[,sce$analysis_cat == "tumor"]
 
 PID_metacluster_combined <- colData(sce_tumor) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 PID_metacluster_combined <- PID_metacluster_combined %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
@@ -135,7 +327,7 @@ library(survminer)
 cur_surv <- colData(sce) %>% as.data.frame() %>% 
   select(PID, PID_metagroups, OS_months, DFS_months, status_DFS, status_OS) %>% 
   #mutate(PID_metagroups_2 = ifelse(PID_metagroups == "6","6","Not_6")) %>% unique()
-  filter(PID_metagroups %in% c("5","9")) %>% 
+  #filter(PID_metagroups %in% c("5","9")) %>% 
   unique()
 
 #Plot survival curves
@@ -149,8 +341,8 @@ ggsurvplot(fit,
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          palette = "Set1",
-          log.rank.weights = "S2")
+          palette = "Set1")
+#          log.rank.weights = "S2")
 
 fit <- survfit(Surv(DFS_months, status_DFS) ~ PID_metagroups, data = cur_surv)
 print(fit)
@@ -162,9 +354,9 @@ PID_DFS_1 <- ggsurvplot(fit,
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
-          conf.int = FALSE,
+          conf.int = FALSE)
           #palette = "Set1",
-          log.rank.weights = "S2") 
+#          log.rank.weights = "S2") 
 
 PID_DFS_1
 ```
@@ -520,23 +712,36 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/08_sce_PIDgroup.rds")
 ## Immune scores
 
 ```{r}
-spatial_CD8 <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,spatial_CD8_pheno) %>% group_by(PID_metagroups) %>% table() %>% as.data.frame
-spatial_CD8 <- spatial_CD8 %>% group_by(PID_metagroups) %>% mutate(fra = Freq/sum(Freq))
+spatial_CD8 <- colData(sce) %>% as.data.frame() %>% select(BL_CD8_group_merg,spatial_CD8_pheno) %>% group_by(BL_CD8_group_merg) %>% table() %>% as.data.frame
+spatial_CD8 <- spatial_CD8 %>% group_by(BL_CD8_group_merg) %>% mutate(fra = Freq/sum(Freq))
 
-ggplot(spatial_CD8, aes(x = PID_metagroups, y = fra, fill = spatial_CD8_pheno))+
+ggplot(spatial_CD8, aes(x = BL_CD8_group_merg, y = fra, fill = spatial_CD8_pheno))+
   geom_bar(stat = "identity", color = "black")+
   theme_classic()+
   ylab("Fraction of PID")+
   scale_fill_manual(values = metadata(sce)$colors$spatial_CD8_pheno)
 ```
 
+
+```{r}
+spatial_CD8 <- colData(sce) %>% as.data.frame() %>% select(BL_CD8_group_merg,B_cell_score) %>% group_by(BL_CD8_group_merg) %>% table() %>% as.data.frame
+spatial_CD8 <- spatial_CD8 %>% group_by(BL_CD8_group_merg) %>% mutate(fra = Freq/sum(Freq))
+
+ggplot(spatial_CD8, aes(x = BL_CD8_group_merg, y = Freq, fill = B_cell_score))+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  ylab("Fraction of PID")
+  #scale_fill_manual(values = metadata(sce)$colors$B_cell_score)
+```
+
+
 ## CK5/7 score
 
 ```{r}
-CK5_7 <- colData(sce) %>% as.data.frame() %>% select(PID_metagroups,CK5_7_score) %>% group_by(PID_metagroups) %>% table() %>% as.data.frame
-CK5_7 <- CK5_7 %>% group_by(PID_metagroups) %>% mutate(fra = Freq/sum(Freq))
+CK5_7 <- colData(sce) %>% as.data.frame() %>% select(BL_CD8_group_merg,CK5_7_score) %>% group_by(BL_CD8_group_merg) %>% table() %>% as.data.frame
+CK5_7 <- CK5_7 %>% group_by(BL_CD8_group_merg) %>% mutate(fra = Freq/sum(Freq))
 
-ggplot(CK5_7, aes(x = PID_metagroups, y = fra, fill = CK5_7_score))+
+ggplot(CK5_7, aes(x = BL_CD8_group_merg, y = fra, fill = CK5_7_score))+
   geom_bar(stat = "identity", color = "black")+
   theme_classic()+
   ylab("Fraction of PID")
@@ -590,10 +795,10 @@ library(CATALYST)
 # new metadata information
 sce_cat <- sce 
 sce_cat$sample_id <- factor(sce$PID)
-sce_cat$cluster_id <- factor(sce$PID_SC_groups)
+sce_cat$cluster_id <- factor(sce$BL_CD8_group_merg)
 
 #add celltype information to metadata
-metadata(sce_cat)$cluster_codes <- data.frame(PID_SC_groups = factor(sce_cat$PID_SC_groups))
+metadata(sce_cat)$cluster_codes <- data.frame(PID_SC_groups = factor(sce_cat$BL_CD8_group_merg))
 ```
 
 ```{r CATALYST pbmds and clrDR, message=FALSE}
@@ -601,7 +806,7 @@ metadata(sce_cat)$cluster_codes <- data.frame(PID_SC_groups = factor(sce_cat$PID
 pbMDS(sce_cat, by = "cluster_id", 
       features = rownames(sce_cat)[rowData(sce_cat)$use_channel], 
       label_by = "cluster_id", k = "PID_SC_groups") +
-  scale_color_manual(values = metadata(sce_cat)$colors$PID_SC_groups)+
+  #scale_color_manual(values = metadata(sce_cat)$colors$PID_SC_groups)+
   theme_classic()
 
 # MDS pseudobulk by metacluster
@@ -623,21 +828,74 @@ clrDR(sce_cat, dr = "PCA",
   theme_classic()
 ```
 
+```{r}
+tumor_sce <- sce[,sce$analysis_cat == "tumor"]
+cluster_mean_sce <- aggregateAcrossCells(tumor_sce, ids = tumor_sce$BL_CD8_group_merg,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(tumor_sce)$clean_target %in% c("HLADR", "CK5","CK7","KRT14","CK8_18"))
+
+Heatmap(t(assay(cluster_mean_sce, "exprs")), col = viridis(100))
+Heatmap(scale(t(assay(cluster_mean_sce, "exprs"))))
+```
+
+```{r}
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$BL_CD8_group_merg,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$clean_target %in% c("CK5","CK7","CD8a"))
+
+Heatmap(scale(t(assay(cluster_mean_sce, "exprs"))))
+
+Heatmap(t(assay(cluster_mean_sce, "exprs")), col = viridis(100))
+
+```
+
+```{r}
+n_Bpatch_PID <- colData(sce) %>% as.data.frame %>% select(PID, BL_CD8_group_merg, patch_B_cell) %>% 
+  filter(!is.na(patch_B_cell)) %>% 
+  unique() %>% 
+  group_by(BL_CD8_group_merg, PID) %>% 
+  count()
+
+plot_df <- colData(sce) %>% as.data.frame %>% select(PID, BL_CD8_group_merg) %>% 
+  unique() 
+rownames(plot_df) <- NULL
+plot_df$n_Bpatch <- n_Bpatch_PID$n[match(plot_df$PID, n_Bpatch_PID$PID)]
+plot_df$n_Bpatch[is.na(plot_df$n_Bpatch)] <- 0
+
+plot_df$BL_CD8_group_merg <- sce$BL_CD8_group_merg[match(plot_df$PID, sce$PID)]
+
+library(ggpubr)
+ggplot(plot_df, aes(x = BL_CD8_group_merg, y = n_Bpatch))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = BL_CD8_group_merg), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  guides(color = "none")+
+  theme_classic(base_size = 12)+
+  coord_cartesian(ylim = c(0,15))+
+  theme(axis.title.x = element_blank())+
+  ylab("Number of B cell patches per PID")+
+  stat_compare_means(method = "kruskal.test")
+```
+
 ## Rich heatmap visualization
 
 ```{r heatmap sce_1, message=FALSE, warning=FALSE}
 
 ### 1. Heatmap body ###
 
-# Tumor communities 
-PID_spatial_tumor <- colData(tumor_sce) %>% as.data.frame() %>% select(spatial_metacommunity,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+# Tumor metacluster
+PID_spatial_tumor <- colData(sce) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 PID_spatial_tumor <- PID_spatial_tumor %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
-PID_spatial_tumor$PID_SC_groups <- sce$PID_SC_groups[match(PID_spatial_tumor$PID, sce$PID)]
-PID_spatial_tumor <- PID_spatial_tumor[!is.na(PID_spatial_tumor$PID_SC_groups),]
+PID_spatial_tumor$BL_CD8_group_merg <- sce$BL_CD8_group_merg[match(PID_spatial_tumor$PID, sce$PID)]
+PID_spatial_tumor <- PID_spatial_tumor[!is.na(PID_spatial_tumor$BL_CD8_group_merg),]
   
-hb <- PID_spatial_tumor %>% ungroup %>% select(spatial_metacommunity,PID_SC_groups,fra) %>% group_by(PID_SC_groups, spatial_metacommunity) %>% summarize(mean = mean(fra)) %>% pivot_wider(names_from = spatial_metacommunity, values_from = mean) %>% column_to_rownames("PID_SC_groups")
+hb <- PID_spatial_tumor %>% ungroup %>% select(metacluster_combined,BL_CD8_group_merg,fra) %>% group_by(BL_CD8_group_merg, metacluster_combined) %>% summarize(mean = mean(fra)) %>% pivot_wider(names_from = metacluster_combined, values_from = mean) %>% column_to_rownames("BL_CD8_group_merg")
 
 hb_scaled <- scale(as.matrix(hb))
+
+Heatmap(hb, col = viridis(100))
+Heatmap(hb_scaled)
 
 # TME communities 
 TME_sce <- stroma_sce
@@ -806,7 +1064,6 @@ registerDoParallel(cores = 7)
 
 foreach(i = "4")%dopar%{
 
-i = "4"
 ##Visualize clusters on images - select 10 images for each category with highest number of cells
 cur_sample <- colData(sce) %>% as.data.frame %>% group_by(PID_SC_groups) %>% filter(PID_SC_groups == i) %>% pull(sample_id) %>% unique() #slice(1:10) %>% pull(sample_id)
 
@@ -814,6 +1071,7 @@ cur_sample <- colData(sce) %>% as.data.frame %>% group_by(PID_SC_groups) %>% fil
 cur_images <- images[cur_sample]
 cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
 cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
+
 
 #Subset sce
 #cur_sce <- sce[,sce$PID_SC_groups == i]
