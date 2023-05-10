@@ -1038,6 +1038,57 @@ draw(h)
 #draw(h,annotation_legend_list = list(lgd,lgd_1,lgd_2))
 ```
 
+
+
+```{r}
+## Predict groups with PCA 
+# Expression of CK5,CK7, CD8a 
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$BL_CD8_group_merg,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$clean_target %in% c("CK5","CK7","CD8a"))
+
+exprs_out <- scale(t(assay(cluster_mean_sce, "exprs")))
+
+# Calculate PCA 
+pca <- prcomp(exprs_out)
+
+# Plot PCA 
+scores <- data.frame(pca$x[,1:2])
+scores$group <- rownames(scores)
+
+ggplot(scores,aes(x=PC1,y=PC2,color=group))+ 
+  geom_point(size =2)
+
+
+# Load TCGA data
+vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Combined_VST.rds")
+
+GOI <- c("KRT5","KRT7","CD8A")
+
+df <- t(assay(vsd)[GOI,]) %>% as.data.frame 
+
+df <- as.data.frame(scale(df))
+
+colnames(df) <- colnames(exprs_out)
+
+
+# Predict 
+predict_out <- as.data.frame(predict(pca, newdata = df))
+
+
+#Plot
+predict_out$group <- "TCGA"
+predict_out <- predict_out %>% select(PC1,PC2,group)
+plot <- rbind(predict_out, scores)
+
+
+ggplot(plot,aes(x=PC1,y=PC2,color=group))+ 
+  geom_point(size =2)
+```
+
+
+
 # 3. Image visualization
 
 ```{r}
