@@ -1574,6 +1574,202 @@ saveRDS(res_QS, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_Quantiseq.rds")
 ```
 
 
+## 13. Clustering for PID groups
+
+Idea: Cluster TCGA BRCA patients based on informative markers from IMC analysis - CK5/7/8/14/18/CD8a/HLADR - to potentially find the same PID groups
+
+```{r}
+library(Rphenoannoy)
+set.seed(22)
+
+# Load TCGA data
+vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Combined_VST.rds")
+
+
+GOI <- c("KRT5","KRT14","KRT7","KRT8","KRT18","CD8A","HLA-DRA") #KRT19 
+#GOI <- c("KRT5","KRT7","CD8A")
+
+
+mat <- t(assay(vsd)[GOI,])
+
+#k=20
+out <- Rphenoannoy(mat, k = 20)
+
+clusters <- factor(membership(out[[2]]))
+
+vsd$cluster_20 <- clusters
+
+unique(vsd$cluster_20)
+
+#Save SCEs after clustering
+#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+
+gc()
+
+#k=30
+out <- Rphenoannoy(mat, k = 30)
+
+clusters <- factor(membership(out[[2]]))
+
+vsd$cluster_30 <- clusters
+
+unique(vsd$cluster_30)
+
+#Save SCEs after clustering
+#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+
+gc()
+
+#k=50
+out <- Rphenoannoy(mat, k = 50)
+
+clusters <- factor(membership(out[[2]]))
+
+vsd$cluster_50 <- clusters
+
+unique(vsd$cluster_50)
+
+#Save SCEs after clustering
+#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+
+gc()
+
+#k=70
+out <- Rphenoannoy(mat, k = 70)
+
+clusters <- factor(membership(out[[2]]))
+
+vsd$cluster_70 <- clusters
+
+unique(vsd$cluster_70)
+
+#Save SCEs after clustering
+#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+
+gc()
+
+#k=90
+out <- Rphenoannoy(mat, k = 90)
+
+clusters <- factor(membership(out[[2]]))
+
+vsd$cluster_90 <- clusters
+
+unique(vsd$cluster_90)
+
+#Save SCEs after clustering
+#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+
+gc()
+```
+
+```{r}
+#Over different resolution parameters - Silhouette width [-1,1,max], Purity[0,1,max], Root-mean-squared difference [min]
+assayNames(vsd) <- "vst"
+clusters <- colnames(colData(vsd))[str_detect(colnames(colData(vsd)),"cluster_[:digit:]")]
+df <- foreach(i = seq_along(clusters),.combine = rbind) %do% {
+num_clus <- length(unique(colData(vsd)[,clusters[i]]))
+sil <- approxSilhouette(t(assay(vsd, "vst")), clusters=colData(vsd)[,clusters[i]])
+#purity <- neighborPurity(t(assay(vsd, "exprs")), clusters=colData(vsd)[,clusters[i]]) #takes very long to compute - do once and then save figure
+rmsd <- clusterRMSD(t(assay(vsd, "vst")), clusters=colData(vsd)[,clusters[i]])
+data.frame(num_clus = num_clus,
+           k = as.numeric(str_split(clusters[i],"_",simplify = TRUE)[,2]), 
+           sil = mean(sil$width), 
+#           purity = mean(purity$purity),
+           rmsd = sum(rmsd))
+}
+
+
+p1 <- ggplot(df, aes(x=k, y=num_clus))+
+  geom_point(aes(k, num_clus, col = num_clus))+
+  geom_line(aes(k, num_clus,col=num_clus))+
+  theme_classic()+
+  scale_color_continuous(type = "viridis")
+
+p2 <- ggplot(df, aes(x=k, y=rmsd))+
+  geom_point(aes(k, rmsd, col = rmsd))+
+  geom_line(aes(k, rmsd,col=rmsd))+
+  theme_classic()+
+  scale_color_continuous(type = "viridis")
+
+p3 <- ggplot(df, aes(x=k, y=sil))+
+  geom_point(aes(k, sil, col = sil))+
+  geom_line(aes(k, sil,col=sil))+
+  theme_classic()+
+  scale_color_continuous(type = "viridis")
+  
+p1+p2+p3 
+```
+
+Heatmap visualization 
+
+```{r}
+assayNames(vsd) <- "vst"
+
+cluster_mean_sce <- aggregateAcrossCells(vsd, ids = vsd$cluster_90,
+                                 statistics = "mean",
+                                 use.assay.type = "vst",
+                                 subset.row = rowData(vsd)$gene_name %in% GOI)
+
+Heatmap(scale(t(assay(cluster_mean_sce, "vst"))))+
+Heatmap(t(assay(cluster_mean_sce, "vst")), col = viridis(100))
+# Note to self: Groups 1/5 could represent inflamed/BL? 
+```
+
+Kaplan-Meier analysis 
+
+```{r}
+#Assess survival impact 
+library(survival)
+library(survminer)
+
+cur_surv <- colData(vsd) %>% as.data.frame() #%>% filter(PAM50Call_RNAseq == "Basal") %>% 
+  dplyr::select(PID, cluster_90, DFI, DFI.time, OS, OS.time, DSS, DSS.time, PFI, PFI.time) #%>% filter(cluster_90 %in% c("1","5"))
+
+
+#Plot survival curves
+fit <- survfit(Surv(DFI.time, DFI) ~ cluster_90, data = cur_surv)
+print(fit)
+
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          #palette = c("grey","#85D4E3","#F4B5BD","#9C964A"),
+          #conf.int = TRUE,
+          xlim = c(0, 4000))
+
+#Plot survival curves
+fit_1 <- survfit(Surv(PFI.time, PFI) ~ cluster_90, data = cur_surv)
+print(fit_1)
+
+ggsurvplot(fit_1,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          #palette = c("grey","#85D4E3","#F4B5BD","#9C964A"),
+          xlim = c(0, 4000))
+```
+
+Barplot visualization 
+
+```{r}
+dittoBarPlot(vsd, var = "cluster_90", group.by = "TNBC")
+dittoBarPlot(vsd, var = "cluster_90", group.by = "TNBC", scale = "count")
+
+
+dittoBarPlot(vsd, var = "cluster_90", group.by = "PAM50Call_RNAseq")
+dittoBarPlot(vsd, var = "cluster_90", group.by = "PAM50Call_RNAseq", scale = "count")
+```
+
+
 ## Save plots as pdf
 
 ```{r save_plots, include=FALSE}
