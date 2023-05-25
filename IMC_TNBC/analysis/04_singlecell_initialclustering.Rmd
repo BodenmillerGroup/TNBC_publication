@@ -614,6 +614,44 @@ summary(tumor_cell_PID$Freq)
 sce$PID_low_tumor <- sce$PID %in% PID_select_tumor_content
 ```
 
+## Extract representative images
+
+```{r}
+images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
+masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+```
+
+```{r}
+library(cytomapper)
+#Randomly select 20 images
+set.seed(22)
+img_random <- sample(seq_len(length(images)), 10)
+
+img_files <- list.files("/mnt/rcc_volume/TNBC/img/")
+img_selected <- c(which(str_detect(img_files ,"ZTMA249_ID_320_CX8Y10")),which(str_detect(img_files ,"ZTMA249_ID_289_CX1Y7")),which(str_detect(img_files ,"ZTMA249_ID_36_AX4Y5")),which(str_detect(img_files ,"ZTMA249_ID_7_AX7Y1")),which(str_detect(img_files ,"ZTMA249_ID_220_BX4Y13")),which(str_detect(img_files ,"ZTMA249_ID_271_CX7Y4")),which(str_detect(img_files ,"ZTMA249_ID_82_AX2Y11")), which(str_detect(img_files ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(img_files ,"ZTMA249_ID_183_BX7Y8")), which(str_detect(img_files ,"ZTMA174_B08.26868_79_AX7Y10")))
+
+img_ids <- c(img_selected,img_random)
+
+# Normalize and clip image
+cur_images <- images[img_ids]
+#cur_images <- cytomapper::normalize(cur_images, separateImages = TRUE)
+#cur_images <- cytomapper::normalize(cur_images, inputRange = c(0, 0.2))
+
+#Subset mask and object
+cur_mask <- masks[img_ids]
+cur_sce <- sce[,sce$sample_id %in% names(cur_images)]
+```
+
+We will use cytoviewer for image exploratiion and download
+
+```{r}
+library(cytoviewer)
+app <- cytoviewer(image = cur_images, mask = cur_mask, object = cur_sce, img_id = "sample_id", cell_id = "ObjectNumber")
+
+shiny::runApp(app, launch.browser = TRUE)
+```
+
 
 ## Save sce objects
 
