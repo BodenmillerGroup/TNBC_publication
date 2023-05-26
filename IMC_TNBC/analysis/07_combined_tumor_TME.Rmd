@@ -4876,11 +4876,38 @@ diffabun_plot_cd8_3 <- ggplot(DA, aes(x = logFC, y = logCPM))+
 
 ## 5. Image visualization 
 
-```{r load images, message = FALSE}
-#Load images and masks
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+## Extract representative images
+
+```{r}
+images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
 masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
-``` 
+sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+```
+
+```{r}
+library(cytomapper)
+
+#Select images of interest 
+
+## Inflamed patients with B cell patches 
+img_ids <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id, B_cell_score, spatial_CD8_pheno) %>% unique() %>% filter(spatial_CD8_pheno == "inflamed" & B_cell_score == "Large_B_patch") %>% pull(sample_id) %>% unique()
+
+# Select images
+cur_images <- images[img_ids]
+
+#Subset mask and object
+cur_mask <- masks[img_ids]
+cur_sce <- sce[,sce$sample_id %in% names(cur_images)]
+```
+
+We will use cytoviewer for image exploratiion and download
+
+```{r}
+library(cytoviewer)
+app <- cytoviewer(image = cur_images, mask = cur_mask, object = cur_sce, img_id = "sample_id", cell_id = "ObjectNumber")
+
+shiny::runApp(app, launch.browser = TRUE)
+```
 
 ```{r}
 ##Visualize metaclusters on images - select 10 images for each category with highest number of cells

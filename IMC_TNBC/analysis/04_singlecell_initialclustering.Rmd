@@ -619,7 +619,7 @@ sce$PID_low_tumor <- sce$PID %in% PID_select_tumor_content
 ```{r}
 images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
 masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 ```{r}
