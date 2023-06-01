@@ -300,9 +300,6 @@ ggplot(margin, aes(x=margin, y = MC, fill = MC)) +
         xlab("Probability margin") +
         ylab("Metacluster") + 
         xlim(c(0,1.2))
-
-
-
 ```
 
 Add to sce 
@@ -364,6 +361,54 @@ ggplot(cur_scat, aes(x=CK8_18, y=CK5, color = metacluster_predict)) +
   #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "count")+
   theme_classic()
 ```
+### Comparison discovery and validation 
+
+Compare metacluster fractions between discovery and validation cohort 
+
+```{r}
+discovery <- colData(sce) %>% as.data.frame %>% select(metacluster_combined) %>% count(metacluster_combined) %>% mutate(fra = n/sum(n))
+
+validation <- colData(sce_val) %>% as.data.frame %>% select(metacluster_predict) %>% count(metacluster_predict) %>% mutate(fra = n/sum(n)) 
+
+discovery$fra_valid <- validation$fra[match(discovery$metacluster_combined, validation$metacluster_predict)]
+
+cor(discovery$fra, discovery$fra_valid, method = "spearman")
+
+spearman_test <- cor.test(discovery$fra, discovery$fra_valid, method = "spearman")
+
+ggplot(discovery, aes(x = fra, y = fra_valid))+
+  geom_smooth(method='lm', formula= y~x, se = TRUE, color = "darkgrey")+
+  geom_point(aes(color = metacluster_combined), size = 3)+
+  scale_color_manual(values=metadata(sce)$colors$metacluster_combined)+
+  ylab("Predicted MC fraction (Fischer et al., 2023)")+
+  xlab("MC fraction (Discovery)")+
+  theme_classic()+
+  ggtitle(paste("Spearman rho = ",round(spearman_test$estimate, digits = 2)))
+```
+
+Compare mean expression profiles between discovery and validation cohort
+
+```{r}
+discovery_exprs <- aggregateAcrossCells(sce, ids = sce$metacluster_combined,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$tumor_cluster_channel)
+
+validation_exprs <- aggregateAcrossCells(sce_val, ids = sce_val$metacluster_predict,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce_val)$tumor_cluster_channel)
+
+cor(assay(discovery_exprs, "exprs"),assay(validation_exprs, "exprs"), method = "spearman")
+
+corrplot(cor(assay(discovery_exprs, "exprs"),assay(validation_exprs, "exprs")), method="color", col=brewer.pal(n=8, name="RdBu"),  
+         type="upper", order="hclust",hclust.method = "ward.D2", 
+         addCoef.col = "black", addCoefasPercent = F,
+         tl.col="black", tl.srt=40,
+         diag=TRUE)
+```
+
+
 ```{r}
 # 2. Metacluster
 library(tidyverse)
@@ -383,7 +428,7 @@ Heatmap(for_plot_MC,
 ```
 
 
-## Heatmap visualization 
+### Heatmap visualization 
 
 ```{r}
 #Aggregrate across cells with the mean (median is also possible)
@@ -936,6 +981,24 @@ Heatmap(t(assay(cluster_mean_sce, "exprs")),
   ha_meta
 dev.off()
 
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_comparison_Jana_metacluster_fra.pdf",height = 4, width = 7)
+ggplot(discovery, aes(x = fra, y = fra_valid))+
+  geom_smooth(method='lm', formula= y~x, se = TRUE, color = "darkgrey")+
+  geom_point(aes(color = metacluster_combined), size = 3)+
+  scale_color_manual(values=metadata(sce)$colors$metacluster_combined)+
+  ylab("Predicted MC fraction (Fischer et al., 2023)")+
+  xlab("MC fraction (Discovery)")+
+  theme_classic()+
+  ggtitle(paste("Spearman rho = ",round(spearman_test$estimate, digits = 2)))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_comparison_Jana_meanexpressionprofile.pdf",height = 5, width = 9)
+corrplot(cor(assay(discovery_exprs, "exprs"),assay(validation_exprs, "exprs")), method="color", col=brewer.pal(n=8, name="RdBu"),  
+         type="upper", order="hclust",hclust.method = "ward.D2", 
+         addCoef.col = "black", addCoefasPercent = F,
+         tl.col="black", tl.srt=40,
+         diag=TRUE)
+dev.off()
 
 ````
 
