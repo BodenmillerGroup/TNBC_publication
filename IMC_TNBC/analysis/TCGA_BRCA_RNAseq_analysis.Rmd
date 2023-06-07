@@ -316,7 +316,6 @@ vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Comb
 ## Add colors 
 metadata(vsd)$colors$KRT57_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("KRT5/7-", "KRT5/7+","KRT5+", "KRT7+"))
 metadata(vsd)$colors$PAM50 <- setNames(brewer.pal(6,"Paired"),sort(unique(vsd$PAM50Call_RNAseq)))
-
 rownames(vsd) <- rowData(vsd)$gene_name
 ```
 
@@ -774,10 +773,14 @@ dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "TNBC")+
 dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "TNBC", scale = "count")+
   scale_fill_manual(values = metadata(vsd)$colors$KRT57_score)
 
+#dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "TNBC", scale = "count", data.out = TRUE)
+
 dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "PAM50Call_RNAseq")+
     scale_fill_manual(values = metadata(vsd)$colors$KRT57_score)
 dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "PAM50Call_RNAseq", scale = "count")+
       scale_fill_manual(values = metadata(vsd)$colors$KRT57_score)
+
+#dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "PAM50Call_RNAseq", scale = "count",data.out = TRUE)
 
 dittoBarPlot(vsd, var = "PAM50Call_RNAseq", group.by = "KRT5_7_score")+
         scale_fill_manual(values = metadata(vsd)$colors$PAM50)
@@ -799,19 +802,23 @@ keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITG
 #df <- t(counts(dds, normalized = TRUE)[keratins,]) %>% as.data.frame %>% rownames_to_column("PID")
 ## Option 2: vst counts
 df <- t(assay(vsd)[keratins,]) %>% as.data.frame 
-df <- as.data.frame(scale(df))
 df <- df %>% rownames_to_column("PID")
 
 ## Create heatmap body 
 df$KRT5_7_score <- vsd$KRT5_7_score[match(df$PID, colnames(vsd))]
-
 mat <- df %>% pivot_longer(cols = 2:(ncol(df)-1), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% summarize(mean = mean(exprs))
-
 ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+## Create row annotation 
+anno <- df %>% select(KRT5_7_score) %>% group_by(KRT5_7_score) %>% count()
+anno <- anno[match(anno$KRT5_7_score, rownames(ht)),]
 
 ## Print heatmap 
 Heatmap(ht, name = "Mean Z-scores")
-Heatmap(scale(ht), name = "Scaled mean Z-scores")
+
+Heatmap(scale(ht), name = "Scaled mean Z-scores")+
+  rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$KRT5_7_score))
 ```
 
 ## 5. Stem-like marker expression comparison for PID groups 
@@ -825,18 +832,24 @@ stem <- c("SOX9","KIT","PROM1","YAP1","HDAC2","NOTCH1","CD44","ALDH1A3","BRCA1",
 #df <- t(counts(dds, normalized = TRUE)[stem,]) %>% as.data.frame %>% rownames_to_column("PID")
 ## Option 2: vst counts
 df <- t(assay(vsd)[stem ,]) %>% as.data.frame 
-df <- as.data.frame(scale(df))
+#df <- as.data.frame(scale(df))
 df <- df %>% rownames_to_column("PID")
 
 ## Create heatmap body 
 df$KRT5_7_score <- vsd$KRT5_7_score[match(df$PID, colnames(vsd))]
-
 mat <- df %>% pivot_longer(cols = 2:(ncol(df)-1), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% summarize(mean = mean(exprs))
 ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
 
+## Create row annotation 
+anno <- df %>% select(KRT5_7_score) %>% group_by(KRT5_7_score) %>% count()
+anno <- anno[match(anno$KRT5_7_score, rownames(ht)),]
+
 ## Print heatmap 
 Heatmap(ht, name = "Mean Z-scores")
-Heatmap(scale(ht), name = "Scaled mean Z-scores")
+
+Heatmap(scale(ht), name = "Scaled mean Z-scores")+
+  rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$KRT5_7_score))
 ```
 
 ```{r}
@@ -1058,7 +1071,7 @@ Heatmap(ht, name = "Mean signature Z-scores")
 ```
 
 
-## 7. Li et al signatures for PID groups 
+## 7. Gray et al signatures for PID groups 
 
 A: Alveolar subtypes 
 
@@ -1239,6 +1252,20 @@ ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_
 
 Heatmap(ht, name = "Mean signature Z-scores")
 ```
+
+
+# Overlap between gene signatures 
+
+```{r}
+library("ggVennDiagram")
+ggVennDiagram(gene_signatures,
+              category.names = c("LuminalProgenitorLim","panAlveolarGray","BLGray"),
+              label_alpha = 0, 
+              set_color = "black")+
+  scale_fill_gradient(low = "white", high = "red")+
+  scale_color_manual(values = c("black","black","black"))
+```
+
 
 ## 8. BRCA1 genomic analysis
 
@@ -1783,6 +1810,7 @@ ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
   scale_color_manual(values = metadata(vsd)$colors$KRT57_score)
 dev.off()
 
+
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_scatter_norm.pdf",height = 5, width = 5)
 ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
   geom_point(size = 2)+
@@ -1859,12 +1887,16 @@ dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "PAM50Call_RNAseq")+
     scale_fill_manual(values = metadata(vsd)$colors$KRT57_score)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Heatmap_Keratins.pdf", height = 4, width = 6, onefile = FALSE)
-Heatmap(scale(ht), name = "Scaled mean Z-scores")
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Heatmap_Keratins.pdf", height = 4, width = 7, onefile = FALSE)
+Heatmap(scale(ht), name = "Scaled mean Z-scores")+
+  rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$KRT5_7_score))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Heatmap_Stem.pdf", height = 4, width = 8, onefile = FALSE)
-Heatmap(scale(ht), name = "Scaled mean Z-scores")
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Heatmap_Stem.pdf", height = 5, width = 9, onefile = FALSE)
+Heatmap(scale(ht), name = "Scaled mean Z-scores")+
+  rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$KRT5_7_score))
 dev.off()
 
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_SOX9_exprs.pdf", height = 5, width = 5, onefile = FALSE)
@@ -1925,6 +1957,15 @@ dev.off()
 
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_BL_Heatmap.pdf", height = 4, width = 7, onefile = FALSE)
 Heatmap(ht, name = "Mean signature Z-scores", show_column_names = FALSE)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_GeneSignature_Venn.pdf",height = 4, width = 5)
+ggVennDiagram(gene_signatures,
+              category.names = c("LuminalProgenitorLim","panAlveolarGray","BLGray"),
+              label_alpha = 0, 
+              set_color = "black")+
+  scale_fill_gradient(low = "white", high = "red")+
+  scale_color_manual(values = c("black","black","black"))
 dev.off()
 
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_GSEA_EMAP.pdf", onefile = FALSE)

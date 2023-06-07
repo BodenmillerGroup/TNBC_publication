@@ -142,13 +142,11 @@ rffit
 stopCluster(cl)
 
 saveRDS(rffit, "/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_folds_allmarkers.rds")
-rffit_all <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred.rds")
-rffit_sub <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_submarker.rds")
-rffit <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_folds_allmarkers.rds")
+#rffit_all <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred.rds")
+#rffit_sub <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_submarker.rds")
 #rffit <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_submarker.rds")
 
-rffit_all
-rffit <- rffit_all
+rffit <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_folds_allmarkers.rds")
 ```
 
 
@@ -302,15 +300,28 @@ ggplot(margin, aes(x=margin, y = MC, fill = MC)) +
         xlim(c(0,1.2))
 ```
 
-Add to sce 
+Add predicted metacluster to sce and save 
 
 ```{r}
 # Store labels in SpatialExperiment object
-
 sce_val$metacluster_predict <- factor(cell_class[match(sce_val$cell_id, names(cell_class))])
 
 cur_table <- table(sce_val$metacluster_predict, sce_val$PID)
+cur_table
+```
 
+### Save object 
+
+```{r}
+# Save sce object (tumor cells from Janas data with predicted metacluster)
+saveRDS(sce_val,"/mnt/tnbc_volume/TNBC_all/data_analysis/04_sce_TNBC_Clus_com_tumor_predicted.rds")
+```
+
+
+## 6. Result analysis 
+
+```{r}
+# Focus on Patients with high MC8 
 colData(sce_val) %>% as.data.frame %>% filter(PID %in% c("2123","924","458","21","863")) %>% select(PID, pN_simple, pM_simple, status_OS, OS_months) %>% unique()
 
 plotSpatial(sce_val[,sce_val$PID == "96"], 
@@ -340,8 +351,6 @@ plotSpatial(sce_val[,sce_val$PID == "2123"],
             node_size_fix = 2,
             node_shape_by = "analysis_cat")
 ```
-
-## 6. Result analysis 
 
 ```{r}
 # Focus on basoluminal cells
@@ -921,6 +930,135 @@ plotSpatial(sce_val[,sce_val$sample_id %in% cur_sample & sce_val$metacluster_pre
             node_shape_by = "analysis_cat")
 ```
 
+## 8. Focus on MC8 frequency / patches / dominant PID 
+
+```{r, message=FALSE}
+sce <- readRDS("/mnt/tnbc_volume/TNBC_all/data_analysis/04_sce_TNBC_Clus_com.rds")
+```
+
+Filter sce for validation cohort
+
+```{r filter sce, message=FALSE}
+sce <- sce[,sce$TMANr %in% c("TMA21", "TMA26")]
+sce
+```
+
+Add predicted metacluster labels 
+
+```{r}
+# Read sce object (tumor cells from Janas data with predicted metacluster)
+sce_val_tumor <- readRDS("/mnt/tnbc_volume/TNBC_all/data_analysis/04_sce_TNBC_Clus_com_tumor_predicted.rds")
+
+sce$metacluster_predict <- sce_val_tumor$metacluster_predict[match(sce$cell_id, sce_val_tumor$cell_id)]
+
+sce$metacluster_predict <- unname(unfactor(sce$metacluster_predict))
+sce$metacluster_predict[is.na(sce$metacluster_predict)] <- "Unknown"
+```
+
+Build knn interaction graph 
+
+```{r}
+library(imcRtools)
+
+# Build spatial knn graph
+sce <- buildSpatialGraph(sce, img_id = "sample_id", type = "knn", k = 20, 
+                         coords = c("Pos_X",  "Pos_Y"),
+                         #max_dist = 30,
+                         BPPARAM = MulticoreParam())
+
+colPairNames(sce) #now includes knn_interaction_graph
+```
+
+Patch detection
+
+```{r}
+## Patch detection
+sce <- patchDetection(sce,
+               patch_cells = sce$metacluster_predict == "tumor_8",
+               colPairName = "knn_interaction_graph",
+               min_patch_size = 10,
+               name = "patch_MC8",
+               expand_by = 0, 
+               img_id = "sample_id", 
+               BPPARAM = MulticoreParam(workers = 10))
+```
+
+Frequency analysis 
+
+```{r}
+# Colors 
+colors_sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+```
+
+```{r}
+patch_MC8_PID <- colData(sce) %>% as.data.frame() %>% filter(!is.na(patch_MC8)) %>% pull(PID) %>% unique()
+
+cells_MC8_PID <- colData(sce) %>% as.data.frame() %>% select(metacluster_predict,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+sce$patch_MC8_classification <- ifelse(sce$PID %in% patch_MC8_PID,"patch_MC8","no_patch_MC8")
+
+PID_patch <- colData(sce) %>% as.data.frame() %>% select(metacluster_predict,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_patch <- PID_patch %>% group_by(PID) %>% filter(PID %in% patch_MC8_PID) %>% filter(str_detect(metacluster_predict,"tumor")) %>% mutate(fra = Freq/sum(Freq)) 
+```
+
+```{r}
+# most abundant phenotype in patients with MC8 patches 
+PID_patch_abundant <- PID_patch %>% #filter(metacluster_predict != "tumor_8") %>% 
+  mutate(max = max(fra)) %>% filter(fra == max) %>% ungroup() %>% count(metacluster_predict) %>% mutate(fra = n/sum(n), category = "cat") %>% arrange(fra)
+
+PID_patch_abundant$metacluster_predict <- factor(PID_patch_abundant$metacluster_predict, levels = unfactor(PID_patch_abundant$metacluster_predict))
+
+ggplot(PID_patch_abundant) +
+  geom_tile(color = "black",aes(category, n, fill = metacluster_predict), position = "stack")+
+  scale_fill_manual(values=metadata(colors_sce)$colors$metacluster_combined) + 
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  xlab("PID")+
+  theme(axis.text.x = element_blank())
+```
+
+```{r}
+PID_dom_MC8 <- PID_patch %>% mutate(max = max(fra)) %>% filter(fra == max) %>% ungroup() %>% filter(metacluster_predict == "tumor_8") %>% pull(PID)
+
+PID_overall <- colData(sce) %>% as.data.frame() %>% select(metacluster_predict,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_MC8_overall <- PID_overall %>% group_by(PID) %>% filter(metacluster_predict == "tumor_8" & Freq > 5) %>% mutate(patch = ifelse(PID %in% patch_MC8_PID, TRUE, FALSE)) %>% mutate(dominated = ifelse(PID %in% PID_dom_MC8, TRUE, FALSE)) %>% mutate(PID_category = ifelse(patch && dominated, "dominated", ifelse(patch, "patch", "cells")))                                                                                    
+PID_MC8_overall_plot <- PID_MC8_overall %>% group_by(PID_category) %>% count() %>% ungroup() %>% mutate(fra = n/sum(n)) %>% mutate(category = "MC8")
+
+
+PID_MC8_overall_plot$PID_category <- factor(PID_MC8_overall_plot$PID_category, levels = c("cells","patch","dominated"))
+
+ggplot(PID_MC8_overall_plot) +
+  geom_tile(color = "black",aes(category, n, fill = PID_category), position = "stack")+
+  scale_fill_brewer(palette = "Blues")+
+  theme_classic(base_size = 15)+
+  ylab("Number of patients")+
+  theme(axis.title.x = element_blank())
+```
+
+Interaction testing 
+
+```{r}
+interaction_tumor <- testInteractions(sce[,sce$metacluster_predict != "Unknown"], 
+                  group_by = "sample_id", 
+                  label = "metacluster_predict", 
+                  colPairName = "neighborhood", 
+                  BPPARAM = MulticoreParam(workers = 15))
+```
+
+```{r}
+interaction_tumor_plot <- interaction_tumor %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% filter(to_label != "tumor_8") %>%
+    group_by(from_label, to_label) %>%
+    summarize(sum_sigval = sum(sigval, na.rm = TRUE))
+
+ggplot(interaction_tumor_plot) +
+        geom_tile(aes(reorder(to_label,sum_sigval), from_label, fill = sum_sigval)) +
+        scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme_classic()
+```
+
 
 
 ## Save plots as pdf
@@ -938,7 +1076,6 @@ ggplot(rffit) +
                 width = 0.4) +
     theme_classic(base_size = 15)
 dev.off()
-
 
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_randomforest_test_TPR_FPR.pdf",height = 6, width = 7)
 data.frame(cm$byClass) %>%
@@ -998,6 +1135,34 @@ corrplot(cor(assay(discovery_exprs, "exprs"),assay(validation_exprs, "exprs")), 
          addCoef.col = "black", addCoefasPercent = F,
          tl.col="black", tl.srt=40,
          diag=TRUE)
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_MC8patch_abundantMC.pdf",width = 8,height = 2.5,onefile = FALSE)
+ggplot(PID_patch_abundant) +
+  geom_tile(color = "black",aes(n,category, fill = metacluster_predict), position = "stack")+
+  scale_fill_manual(values=metadata(colors_sce)$colors$metacluster_combined) + 
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  xlab("PID")+
+  theme(axis.text.x = element_blank())
+dev.off()
+
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_MC8_frequency.pdf",width = 8,height = 2.5,onefile = FALSE)
+ggplot(PID_MC8_overall_plot) +
+  geom_tile(color = "black",aes(n,category, fill = PID_category), position = "stack")+
+  scale_fill_brewer(palette = "Blues")+
+  theme_classic(base_size = 15)+
+  ylab("Number of patients")+
+  theme(axis.title.x = element_blank())
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_MC8_interaction.pdf",width = 8,height = 2.5,onefile = FALSE)
+ggplot(interaction_tumor_plot) +
+        geom_tile(aes(reorder(to_label,sum_sigval), from_label, fill = sum_sigval)) +
+        scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme_classic()
 dev.off()
 
 ````

@@ -202,7 +202,7 @@ dittoBarPlot(sce, var = "KRT5_7_score", group.by = "celltypes",scale="count")+
 ## Keratin expression
 
 ```{r}
-keratins <- c("KRT5", "KRT7", "KRT8", "KRT14","KRT18","KRT19", "KRT15","ITGA6","EPCAM")
+keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM")
 
 cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$KRT5_7_score,
                                  statistics = "mean",
