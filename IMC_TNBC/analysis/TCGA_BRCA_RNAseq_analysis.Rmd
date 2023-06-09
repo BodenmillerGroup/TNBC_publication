@@ -1613,8 +1613,8 @@ set.seed(22)
 vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Combined_VST.rds")
 
 
-GOI <- c("KRT5","KRT14","KRT7","KRT8","KRT18","CD8A","HLA-DRA") #KRT19 
-#GOI <- c("KRT5","KRT7","CD8A")
+GOI <- c("KRT5","KRT14","KRT7","KRT8","KRT18","CD8A","HLA-DRA","KRT19") #KRT19 
+# <- c("KRT5","KRT7","CD8A")
 
 
 mat <- t(assay(vsd)[GOI,])
@@ -1731,16 +1731,17 @@ p1+p2+p3
 Heatmap visualization 
 
 ```{r}
+GOI <- c("KRT5","KRT14","KRT7","KRT8","KRT18","CD8A","HLA-DRA","KRT19", "CD274") #CD274 == PDL1
+
 assayNames(vsd) <- "vst"
 
-cluster_mean_sce <- aggregateAcrossCells(vsd, ids = vsd$cluster_90,
+cluster_mean_sce <- aggregateAcrossCells(vsd, ids = vsd$PID_group_test,
                                  statistics = "mean",
                                  use.assay.type = "vst",
                                  subset.row = rowData(vsd)$gene_name %in% GOI)
 
-Heatmap(scale(t(assay(cluster_mean_sce, "vst"))))+
 Heatmap(t(assay(cluster_mean_sce, "vst")), col = viridis(100))
-# Note to self: Groups 1/5 could represent inflamed/BL? 
+Heatmap(scale(t(assay(cluster_mean_sce, "vst"))))
 ```
 
 Kaplan-Meier analysis 
@@ -1750,12 +1751,13 @@ Kaplan-Meier analysis
 library(survival)
 library(survminer)
 
-cur_surv <- colData(vsd) %>% as.data.frame() #%>% filter(PAM50Call_RNAseq == "Basal") %>% 
-  dplyr::select(PID, cluster_90, DFI, DFI.time, OS, OS.time, DSS, DSS.time, PFI, PFI.time) #%>% filter(cluster_90 %in% c("1","5"))
+cur_surv <- colData(vsd) %>% as.data.frame() %>% #filter(TNBC == "TNBC") %>% 
+  #filter(PID_group_test %in% c("KRT5/7+","inflamed")) %>%
+  dplyr::select(PID, PID_group_test, DFI, DFI.time, OS, OS.time, DSS, DSS.time, PFI, PFI.time) #%>% filter(cluster_90 %in% c("1","5"))
 
 
 #Plot survival curves
-fit <- survfit(Surv(DFI.time, DFI) ~ cluster_90, data = cur_surv)
+fit <- survfit(Surv(DFI.time, DFI) ~ PID_group_test, data = cur_surv)
 print(fit)
 
 
@@ -1771,7 +1773,7 @@ ggsurvplot(fit,
           xlim = c(0, 4000))
 
 #Plot survival curves
-fit_1 <- survfit(Surv(PFI.time, PFI) ~ cluster_90, data = cur_surv)
+fit_1 <- survfit(Surv(PFI.time, PFI) ~ PID_group_test, data = cur_surv)
 print(fit_1)
 
 ggsurvplot(fit_1,
@@ -1788,12 +1790,44 @@ ggsurvplot(fit_1,
 Barplot visualization 
 
 ```{r}
-dittoBarPlot(vsd, var = "cluster_90", group.by = "TNBC")
-dittoBarPlot(vsd, var = "cluster_90", group.by = "TNBC", scale = "count")
+dittoBarPlot(vsd, var = "PID_group_test", group.by = "TNBC")
+dittoBarPlot(vsd, var = "PID_group_test", group.by = "TNBC", scale = "count")
 
 
-dittoBarPlot(vsd, var = "cluster_90", group.by = "PAM50Call_RNAseq")
-dittoBarPlot(vsd, var = "cluster_90", group.by = "PAM50Call_RNAseq", scale = "count")
+dittoBarPlot(vsd, var = "PID_group_test", group.by = "PAM50Call_RNAseq")
+dittoBarPlot(vsd, var = "PID_group_test", group.by = "PAM50Call_RNAseq", scale = "count")
+```
+
+
+```{r}
+library(DESeq2)
+
+# HLADR
+GMM_HLADR <- Mclust(DESeq2::counts(res, normalized = TRUE)["HLA-DRA",], G = 2)
+
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_CD8$classification == 2 & GMM_CD8$uncertainty < 0.00001, 
+                                        "HLADR+",
+                                        "HLADR-"), 
+                     HLADR_exprs = counts(res, normalized = TRUE)["HLA-DRA",],
+                     uncertainty = GMM_HLADR$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = HLADR_exprs))+#fill = class_epi))+
+  geom_density()+
+  geom_rug(aes(color = class_epi))+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")
+
+
+vsd$HLADR_group <- GMM_df$class_epi[match(colnames(vsd), rownames(GMM_df))]
+```
+
+
+```{r}
+vsd$PID_group_test <- ifelse(vsd$HLADR_group == "HLADR+", "inflamed", vsd$KRT5_7_score)
 ```
 
 
