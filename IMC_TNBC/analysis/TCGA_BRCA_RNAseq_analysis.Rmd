@@ -1308,6 +1308,28 @@ ggplot(out_dat) +
 ```
 
 
+### Germline 
+
+```{r}
+germline_TCGA <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/BRCAgermline_Shah_NatureComm_2022.xlsx",sheet = 1)
+
+germline_TCGA$PID <- str_split(germline_TCGA$`TCGA Tumor`, "-",simplify = TRUE)[,3]
+
+vsd$germline_BRCA <- ifelse(!ds.is.na(match(vsd$PID, germline_TCGA$PID)), TRUE, FALSE)
+
+df <- colData(vsd) %>% as.data.frame()
+
+out_dat <- colData(vsd) %>% as.data.frame %>% dplyr::select(KRT5_7_score, germline_BRCA) %>% group_by(KRT5_7_score) %>% table() %>% as.data.frame
+out_dat <- out_dat %>% group_by(KRT5_7_score) %>% mutate(fra = Freq/sum(Freq))
+
+ggplot(out_dat) +
+  geom_tile(color = "black",aes(KRT5_7_score, fra, fill = germline_BRCA), position = "stack")+
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  xlab("PID")
+```
+
+
 ## 9. GSEA 
 
 With `clusterProfiler`. 
@@ -1603,201 +1625,9 @@ saveRDS(res_QS, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_Quantiseq.rds")
 
 ## 13. Clustering for PID groups
 
-Idea: Cluster TCGA BRCA patients based on informative markers from IMC analysis - CK5/7/8/14/18/CD8a/HLADR - to potentially find the same PID groups
+Find the same patient groups in TCGA BRCA data as in discovery dataset. 
 
-```{r}
-library(Rphenoannoy)
-set.seed(22)
-
-# Load TCGA data
-vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Combined_VST.rds")
-
-
-GOI <- c("KRT5","KRT14","KRT7","KRT8","KRT18","CD8A","HLA-DRA","KRT19") #KRT19 
-# <- c("KRT5","KRT7","CD8A")
-
-
-mat <- t(assay(vsd)[GOI,])
-
-#k=20
-out <- Rphenoannoy(mat, k = 20)
-
-clusters <- factor(membership(out[[2]]))
-
-vsd$cluster_20 <- clusters
-
-unique(vsd$cluster_20)
-
-#Save SCEs after clustering
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
-
-gc()
-
-#k=30
-out <- Rphenoannoy(mat, k = 30)
-
-clusters <- factor(membership(out[[2]]))
-
-vsd$cluster_30 <- clusters
-
-unique(vsd$cluster_30)
-
-#Save SCEs after clustering
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
-
-gc()
-
-#k=50
-out <- Rphenoannoy(mat, k = 50)
-
-clusters <- factor(membership(out[[2]]))
-
-vsd$cluster_50 <- clusters
-
-unique(vsd$cluster_50)
-
-#Save SCEs after clustering
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
-
-gc()
-
-#k=70
-out <- Rphenoannoy(mat, k = 70)
-
-clusters <- factor(membership(out[[2]]))
-
-vsd$cluster_70 <- clusters
-
-unique(vsd$cluster_70)
-
-#Save SCEs after clustering
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
-
-gc()
-
-#k=90
-out <- Rphenoannoy(mat, k = 90)
-
-clusters <- factor(membership(out[[2]]))
-
-vsd$cluster_90 <- clusters
-
-unique(vsd$cluster_90)
-
-#Save SCEs after clustering
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
-
-gc()
-```
-
-```{r}
-#Over different resolution parameters - Silhouette width [-1,1,max], Purity[0,1,max], Root-mean-squared difference [min]
-assayNames(vsd) <- "vst"
-clusters <- colnames(colData(vsd))[str_detect(colnames(colData(vsd)),"cluster_[:digit:]")]
-df <- foreach(i = seq_along(clusters),.combine = rbind) %do% {
-num_clus <- length(unique(colData(vsd)[,clusters[i]]))
-sil <- approxSilhouette(t(assay(vsd, "vst")), clusters=colData(vsd)[,clusters[i]])
-#purity <- neighborPurity(t(assay(vsd, "exprs")), clusters=colData(vsd)[,clusters[i]]) #takes very long to compute - do once and then save figure
-rmsd <- clusterRMSD(t(assay(vsd, "vst")), clusters=colData(vsd)[,clusters[i]])
-data.frame(num_clus = num_clus,
-           k = as.numeric(str_split(clusters[i],"_",simplify = TRUE)[,2]), 
-           sil = mean(sil$width), 
-#           purity = mean(purity$purity),
-           rmsd = sum(rmsd))
-}
-
-
-p1 <- ggplot(df, aes(x=k, y=num_clus))+
-  geom_point(aes(k, num_clus, col = num_clus))+
-  geom_line(aes(k, num_clus,col=num_clus))+
-  theme_classic()+
-  scale_color_continuous(type = "viridis")
-
-p2 <- ggplot(df, aes(x=k, y=rmsd))+
-  geom_point(aes(k, rmsd, col = rmsd))+
-  geom_line(aes(k, rmsd,col=rmsd))+
-  theme_classic()+
-  scale_color_continuous(type = "viridis")
-
-p3 <- ggplot(df, aes(x=k, y=sil))+
-  geom_point(aes(k, sil, col = sil))+
-  geom_line(aes(k, sil,col=sil))+
-  theme_classic()+
-  scale_color_continuous(type = "viridis")
-  
-p1+p2+p3 
-```
-
-Heatmap visualization 
-
-```{r}
-GOI <- c("KRT5","KRT14","KRT7","KRT8","KRT18","CD8A","HLA-DRA","KRT19", "CD274") #CD274 == PDL1
-
-assayNames(vsd) <- "vst"
-
-cluster_mean_sce <- aggregateAcrossCells(vsd, ids = vsd$PID_group_test,
-                                 statistics = "mean",
-                                 use.assay.type = "vst",
-                                 subset.row = rowData(vsd)$gene_name %in% GOI)
-
-Heatmap(t(assay(cluster_mean_sce, "vst")), col = viridis(100))
-Heatmap(scale(t(assay(cluster_mean_sce, "vst"))))
-```
-
-Kaplan-Meier analysis 
-
-```{r}
-#Assess survival impact 
-library(survival)
-library(survminer)
-
-cur_surv <- colData(vsd) %>% as.data.frame() %>% #filter(TNBC == "TNBC") %>% 
-  #filter(PID_group_test %in% c("KRT5/7+","inflamed")) %>%
-  dplyr::select(PID, PID_group_test, DFI, DFI.time, OS, OS.time, DSS, DSS.time, PFI, PFI.time) #%>% filter(cluster_90 %in% c("1","5"))
-
-
-#Plot survival curves
-fit <- survfit(Surv(DFI.time, DFI) ~ PID_group_test, data = cur_surv)
-print(fit)
-
-
-ggsurvplot(fit,
-          pval = TRUE,
-          risk.table = TRUE, # Add risk table
-          risk.table.col = "strata", # Change risk table color by groups
-          linetype = "strata", # Change line type by groups
-          surv.median.line = "hv", # Specify median survival
-          ggtheme = theme_classic(), # Change ggplot2 theme
-          #palette = c("grey","#85D4E3","#F4B5BD","#9C964A"),
-          #conf.int = TRUE,
-          xlim = c(0, 4000))
-
-#Plot survival curves
-fit_1 <- survfit(Surv(PFI.time, PFI) ~ PID_group_test, data = cur_surv)
-print(fit_1)
-
-ggsurvplot(fit_1,
-          pval = TRUE,
-          risk.table = TRUE, # Add risk table
-          risk.table.col = "strata", # Change risk table color by groups
-          linetype = "strata", # Change line type by groups
-          surv.median.line = "hv", # Specify median survival
-          ggtheme = theme_classic(), # Change ggplot2 theme
-          #palette = c("grey","#85D4E3","#F4B5BD","#9C964A"),
-          xlim = c(0, 4000))
-```
-
-Barplot visualization 
-
-```{r}
-dittoBarPlot(vsd, var = "PID_group_test", group.by = "TNBC")
-dittoBarPlot(vsd, var = "PID_group_test", group.by = "TNBC", scale = "count")
-
-
-dittoBarPlot(vsd, var = "PID_group_test", group.by = "PAM50Call_RNAseq")
-dittoBarPlot(vsd, var = "PID_group_test", group.by = "PAM50Call_RNAseq", scale = "count")
-```
-
+### HLADR GMM 
 
 ```{r}
 library(DESeq2)
@@ -1806,7 +1636,7 @@ library(DESeq2)
 GMM_HLADR <- Mclust(DESeq2::counts(res, normalized = TRUE)["HLA-DRA",], G = 2)
 
 
-GMM_df <- data.frame(class_epi = ifelse(GMM_CD8$classification == 2 & GMM_CD8$uncertainty < 0.00001, 
+GMM_df <- data.frame(class_epi = ifelse(GMM_HLADR$classification == 2 & GMM_HLADR$uncertainty < 0.01, 
                                         "HLADR+",
                                         "HLADR-"), 
                      HLADR_exprs = counts(res, normalized = TRUE)["HLA-DRA",],
@@ -1821,13 +1651,280 @@ ggplot(GMM_df, aes(x = HLADR_exprs))+#fill = class_epi))+
   scale_fill_brewer(palette = "Set1")+
   scale_color_brewer(palette = "Set1")
 
-
+# Add HLA group 
 vsd$HLADR_group <- GMM_df$class_epi[match(colnames(vsd), rownames(GMM_df))]
+
+# Make patient groups 
+vsd$PID_group_test <- ifelse(vsd$HLADR_group == "HLADR+", "inflamed", vsd$KRT5_7_score)
+```
+
+```{r}
+library(wesanderson)
+
+# Define colors 
+group_color <- setNames(c(wes_palette("Zissou1")[1],"gold",wes_palette("Zissou1")[5],wes_palette("Zissou1")[3],wes_palette("Zissou1")[4]), 
+                        c("inflamed","KRT5/7-","KRT5/7+","KRT5+","KRT7+"))
+group_color
+
+# Define factors 
+vsd$PID_group_test <- factor(vsd$PID_group_test, levels = c("inflamed","KRT5/7-","KRT5+","KRT7+","KRT5/7+"))
+```
+
+### Alluvial 
+
+```{r}
+library(tidyverse)
+library(easyalluvial)
+library(ggalluvial)
+
+df_alluvial <- colData(vsd) %>% as.data.frame %>% dplyr::select(KRT5_7_score, HLADR_group,PID_group_test)
+alluvial_wide(df_alluvial, 
+              colorful_fill_variable_stratum = FALSE,
+              col_vector_flow = metadata(vsd)$colors$KRT57_score, 
+              order_levels = c("KRT5/7-","KRT7+","KRT5+","KRT5/7+"))+
+  theme_classic()
+```
+
+### Marker heatmap 
+
+```{r}
+GOI <- c("KRT5","KRT7","HLA-DRA") #three marker IHC panel?! 
+
+GOI_plus <- c("CD8A","CD274","PDCD1","GZMB","PDCD1LG2") # additional immune markers
+
+assayNames(vsd) <- "vst"
+
+GOI_mean_sce <- aggregateAcrossCells(vsd, ids = vsd$PID_group_test,
+                                 statistics = "mean",
+                                 use.assay.type = "vst",
+                                 subset.row = rowData(vsd)$gene_name %in% GOI)
+
+GOI_mean_sce_2 <- aggregateAcrossCells(vsd, ids = vsd$PID_group_test,
+                                 statistics = "mean",
+                                 use.assay.type = "vst",
+                                 subset.row = rowData(vsd)$gene_name %in% GOI_plus)
+
+Heatmap(t(assay(GOI_mean_sce, "vst")), col = viridis(100))+
+Heatmap(t(assay(GOI_mean_sce_2, "vst")), col = viridis(100))
+
+Heatmap(scale(t(assay(GOI_mean_sce, "vst"))))+
+  Heatmap(scale(t(assay(GOI_mean_sce_2, "vst"))))
+```
+
+### Survival analysis 
+
+KAPLAN MEIER CURVES 
+
+Full TCGA dataset 
+
+```{r}
+#Assess survival impact 
+library(survival)
+library(survminer)
+
+cur_surv <- colData(vsd) %>% as.data.frame() %>%
+  dplyr::select(PID, PID_group_test, DFI, DFI.time, OS, OS.time, DSS, DSS.time, PFI, PFI.time) 
+
+
+#Plot survival curves
+fit <- survfit(Surv(DFI.time, DFI) ~ PID_group_test, data = cur_surv)
+print(fit)
+
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c(wes_palette("Zissou1")[1],"gold",wes_palette("Zissou1")[3],wes_palette("Zissou1")[4],wes_palette("Zissou1")[5]),
+          #conf.int = TRUE,
+          xlim = c(0, 4000))
+
+#Plot survival curves
+fit_1 <- survfit(Surv(PFI.time, PFI) ~ PID_group_test, data = cur_surv)
+print(fit_1)
+
+ggsurvplot(fit_1,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c(wes_palette("Zissou1")[1],"gold",wes_palette("Zissou1")[3],wes_palette("Zissou1")[4],wes_palette("Zissou1")[5]),
+          xlim = c(0, 4000))
+```
+
+Subset for TNBC 
+
+```{r}
+#Assess survival impact 
+library(survival)
+library(survminer)
+
+cur_surv <- colData(vsd) %>% as.data.frame() %>% filter(TNBC == "TNBC") %>% 
+  filter(PID_group_test %in% c("KRT5/7+","inflamed")) %>%
+  dplyr::select(PID, PID_group_test, DFI, DFI.time, OS, OS.time, DSS, DSS.time, PFI, PFI.time) 
+
+
+#Plot survival curves
+fit <- survfit(Surv(DFI.time, DFI) ~ PID_group_test, data = cur_surv)
+print(fit)
+
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c(wes_palette("Zissou1")[1],wes_palette("Zissou1")[5]),
+          #conf.int = TRUE,
+          xlim = c(0, 4000))
+
+#Plot survival curves
+fit_1 <- survfit(Surv(PFI.time, PFI) ~ PID_group_test, data = cur_surv)
+print(fit_1)
+
+ggsurvplot(fit_1,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c(wes_palette("Zissou1")[1],wes_palette("Zissou1")[5]),
+          #conf.int = TRUE,
+          xlim = c(0, 4000))
 ```
 
 
+COX MODELS 
+
 ```{r}
-vsd$PID_group_test <- ifelse(vsd$HLADR_group == "HLADR+", "inflamed", vsd$KRT5_7_score)
+vsd$age <- vsd$Age_at_Initial_Pathologic_Diagnosis_nature2012
+```
+
+Multivariate 
+
+```{r}
+## 1. Disease-free interval 
+### Multivariate cox proportional hazard model on multiple covariates (here PID_group_test)
+PID_metagroups <- colData(vsd) %>% as.data.frame() %>% dplyr::select(PID_group_test,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "PID_group_test",values_from = "fra") %>% column_to_rownames("PID")
+
+colnames(PID_metagroups) <- c("inflamed","KRT57negative","KRT5positive","KRT7positive","KRT57positive")
+
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$DFI <- vsd$DFI[match(rownames(Cox_df),vsd$PID)]
+Cox_df$DFI.time <- vsd$DFI.time[match(rownames(Cox_df),vsd$PID)]
+
+#Cox_df$PAM50Call_RNAseq <- as.factor(vsd$PAM50Call_RNAseq[match(rownames(Cox_df),vsd$PID)])
+Cox_df$age <- as.numeric(vsd$age[match(rownames(Cox_df),vsd$PID)])
+Cox_df$pT_simple <- as.factor(vsd$Tumor_nature2012[match(rownames(Cox_df),vsd$PID)])
+Cox_df$pN_simple <- as.factor(vsd$Node_nature2012[match(rownames(Cox_df),vsd$PID)])
+Cox_df$pM_simple <- as.factor(vsd$Metastasis_nature2012[match(rownames(Cox_df),vsd$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% dplyr::select(-DFI,-DFI.time, -age, -pT_simple, -pN_simple, -pM_simple, - inflamed) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFI.time, DFI) ~ age + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "), "+ inflamed"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,20))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Covariates")+
+ylab("HR for PID groups")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+Univariate
+
+```{r}
+## 1. Disease-free interval 
+PID_metagroups <- colData(vsd) %>% as.data.frame() %>% dplyr::select(PID_group_test,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "PID_group_test",values_from = "fra") %>% column_to_rownames("PID")
+
+colnames(PID_metagroups) <- c("inflamed","KRT57negative","KRT5positive","KRT7positive","KRT57positive")
+
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$DFI <- vsd$DFI[match(rownames(Cox_df),vsd$PID)]
+Cox_df$DFI.time <- vsd$DFI.time[match(rownames(Cox_df),vsd$PID)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-DFI,-DFI.time, - inflamed) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFI.time, DFI) ~", paste(covariates, collapse = " + "), "+ inflamed"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+coord_cartesian(ylim=c(0,12))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Covariates")+
+ylab("HR for PID groups")+
+theme_classic()+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+### Barplot visualization 
+
+```{r}
+dittoBarPlot(vsd, var = "PID_group_test", group.by = "TNBC",retain.factor.levels = TRUE)+
+  scale_fill_manual(values = group_color)+
+  ggtitle("")
+
+dittoBarPlot(vsd, var = "PID_group_test", group.by = "PAM50Call_RNAseq",retain.factor.levels = TRUE)+
+  scale_fill_manual(values = group_color)+
+  ggtitle("")
 ```
 
 

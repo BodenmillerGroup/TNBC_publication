@@ -74,9 +74,24 @@ sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
 # Add CK5_7_group
 sce_tumor <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 sce$CK5_7_group <- sce_tumor$CK5_7_group[match(sce$PID, sce_tumor$PID)]
+
+library(wesanderson)
+metadata(sce)$colors$CK5_7_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("CK5/7-", "CK5/7+", "CK5+", "CK7+"))
 ```
 
 ## Based on spatial CD8 phenotype and CK5/7 scores 
+
+```{r}
+# Give CK5_7 groups interpretable names 
+
+# Merge
+sce$CK5_7_group_name <- sce$CK5_7_group
+
+sce$CK5_7_group_name <- str_replace(sce$CK5_7_group_name, "1", "CK5/7+") 
+sce$CK5_7_group_name <- str_replace(sce$CK5_7_group_name, "2", "CK5+") 
+sce$CK5_7_group_name <- str_replace(sce$CK5_7_group_name, "3", "CK7+") 
+sce$CK5_7_group_name <- str_replace(sce$CK5_7_group_name, "4", "CK5/7-") 
+```
 
 ```{r}
 # Combine information from spatial CD8 phenotype and CK5/7 scores
@@ -94,21 +109,32 @@ sce$BL_CD8_group_merg <- str_replace(sce$BL_CD8_group_merg, "/","_")
 # Groups: Inflamed (Good prognostic)
 sce$BL_CD8_group_merg[str_detect(sce$BL_CD8_group_merg,"inflamed")] <- "inflamed"
 
+sce$BL_CD8_group_merg[sce$BL_CD8_group_merg == "B_cold_excluded"] <- "B"
+sce$BL_CD8_group_merg[sce$BL_CD8_group_merg == "L_cold_excluded"] <- "L"
+sce$BL_CD8_group_merg[sce$BL_CD8_group_merg == "BL_cold_excluded"] <- "BL"
+sce$BL_CD8_group_merg[sce$BL_CD8_group_merg == "N_cold_excluded"] <- "N"
+
 ## Multiple options for further merge: 
-# Groups: Inflamed + BL + B/L + N
-sce$BL_CD8_group_merg[sce$BL_CD8_group_merg %in% c("B_cold/excluded","L_cold/excluded")] <- "B_L"
-
 # Groups: Inflamed + BL + B/L/N
-sce$BL_CD8_group_merg[sce$BL_CD8_group_merg %in% c("B_cold/excluded","L_cold/excluded","N_cold/excluded")] <- "B_L_N"
-
-# Groups: Inflamed + N + BL/L/B
-sce$BL_CD8_group_merg[sce$BL_CD8_group_merg %in% c("B_cold/excluded","L_cold/excluded","BL_cold/excluded")] <- "B_L_BL"
-
-# Groups: Inflamed + BL/L + B/N
-sce$BL_CD8_group_merg[sce$BL_CD8_group_merg %in% c("L_cold/excluded","BL_cold/excluded")] <- "high"
-sce$BL_CD8_group_merg[sce$BL_CD8_group_merg %in% c("B_cold/excluded","N_cold/excluded")] <- "medium"
-#sce$BL_CD8_group_merg[sce$BL_CD8_group_merg %in% c("inflamed")] <- "low"
+#sce$BL_CD8_group_merg[sce$BL_CD8_group_merg %in% c("B_cold_excluded","L_cold_excluded","N_cold_excluded")] <- "B_L_N"
 ```
+
+### Alluvial 
+
+```{r}
+library(tidyverse)
+library(easyalluvial)
+library(ggalluvial)
+
+df_alluvial <- colData(sce) %>% as.data.frame %>% dplyr::select(PID, CK5_7_group_name, spatial_CD8_pheno,BL_CD8_group_merg) %>% unique %>% dplyr::select(CK5_7_group_name, spatial_CD8_pheno,BL_CD8_group_merg)
+
+alluvial_wide(df_alluvial, 
+              colorful_fill_variable_stratum = FALSE,
+              col_vector_flow = metadata(sce)$colors$CK5_7_score, 
+              order_levels = c("CK5/7-","CK7+","CK5+","CK5/7+","inflamed","excluded","cold","N","L","B","BL"))+
+  theme_classic()
+```
+
 
 ### Kaplan-Meier 
 
@@ -118,32 +144,16 @@ library(survival)
 library(survminer)
 
 cur_surv <- colData(sce) %>% as.data.frame() %>% 
-  select(PID, BL_CD8_group_merg, OS_months, DFS_months, status_DFS, status_OS) %>% 
+  dplyr::select(PID, BL_CD8_group_merg, OS_months, DFS_months, status_DFS, status_OS) %>% 
   #filter(BL_CD8_group %in% c("4_inflamed","4_cold/excluded")) %>%
   unique()
 
 # Define colors 
-group_color <- setNames(c(wes_palette("Zissou1")[3],wes_palette("Zissou1")[5],wes_palette("Zissou1")[1],wes_palette("Zissou1")[4],wes_palette("Zissou1")[2]), c("B_cold_excluded","BL_cold_excluded","inflamed","L_cold_excluded","N_cold_excluded"))
+group_color <- setNames(c(wes_palette("Zissou1")[3],wes_palette("Zissou1")[5],wes_palette("Zissou1")[1],wes_palette("Zissou1")[4],"gold"), c("B","BL","inflamed","L","N"))
 
-risk_group_color <- setNames(c(wes_palette("Zissou1")[5],wes_palette("Zissou1")[1],wes_palette("Zissou1")[3]), c("high","low","medium"))
-                             
 metadata(sce)$colors$group_color <- group_color
-metadata(sce)$colors$risk_group_color <- risk_group_color
 
 #Plot survival curves
-fit <- survfit(Surv(OS_months, status_OS) ~ BL_CD8_group_merg, data = cur_surv)
-print(fit)
-
-ggsurvplot(fit,
-          pval = TRUE,
-          risk.table = TRUE, 
-          risk.table.col = "strata", 
-          linetype = "strata", 
-          surv.median.line = "hv", 
-          ggtheme = theme_classic(), 
-          palette = unname(group_color))
-
-
 fit <- survfit(Surv(DFS_months, status_DFS) ~ BL_CD8_group_merg, data = cur_surv)
 print(fit)
 
@@ -162,15 +172,15 @@ PID_DFS_1
 ### Multivariate 
 
 ```{r coxph dfs}
+library(survival)
+library(survminer)
+
 ### Multivariate cox proportional hazard model on multiple covariates (here PID groups)
-BL_CD8_group <- colData(sce) %>% as.data.frame() %>% select(BL_CD8_group_merg,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+BL_CD8_group <- colData(sce) %>% as.data.frame() %>% dplyr::select(BL_CD8_group_merg,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 
 BL_CD8_group <- BL_CD8_group %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
 BL_CD8_group <- BL_CD8_group %>% pivot_wider(id_cols = "PID",names_from = "BL_CD8_group_merg",values_from = "fra") %>% column_to_rownames("PID")
-
-colnames(BL_CD8_group) <- paste0("SCP_",colnames(BL_CD8_group))
-colnames(BL_CD8_group) <- str_replace(colnames(BL_CD8_group), "/","_")
 
 ## 1. Based on SCP assignments
 Cox_df <- BL_CD8_group
@@ -186,9 +196,9 @@ Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
 Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
 
 #Based on proportions
-covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -SCP_inflamed) %>% colnames
+covariates <- Cox_df %>% dplyr::select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -inflamed) %>% colnames
 
-multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "), "+ SCP_inflamed"))
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "), "+ inflamed"))
 
 
 multi_model <- coxph(multi_formula, data = Cox_df)
@@ -223,14 +233,11 @@ hr_prop
 
 ```{r}
 ### Multivariate cox proportional hazard model on multiple covariates (here PID groups)
-BL_CD8_group <- colData(sce) %>% as.data.frame() %>% select(BL_CD8_group_merg,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+BL_CD8_group <- colData(sce) %>% as.data.frame() %>% dplyr::select(BL_CD8_group_merg,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 
 BL_CD8_group <- BL_CD8_group %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
 BL_CD8_group <- BL_CD8_group %>% pivot_wider(id_cols = "PID",names_from = "BL_CD8_group_merg",values_from = "fra") %>% column_to_rownames("PID")
-
-colnames(BL_CD8_group) <- paste0("SCP_",colnames(BL_CD8_group))
-colnames(BL_CD8_group) <- str_replace(colnames(BL_CD8_group), "/","_")
 
 ## 1. Based on SCP assignments
 Cox_df <- BL_CD8_group
@@ -240,9 +247,9 @@ Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
 Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
 
 #Based on proportions
-covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -SCP_inflamed) %>% colnames
+covariates <- Cox_df %>% dplyr::select(-status_DFS,-DFS_months, -inflamed) %>% colnames
 
-multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~", paste(covariates, collapse = " + "), "+ SCP_inflamed"))
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~", paste(covariates, collapse = " + "), "+ inflamed"))
 
 multi_model <- coxph(multi_formula, data = Cox_df)
 
@@ -722,7 +729,7 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/08_sce_PIDgroup.rds")
 ## Immune scores
 
 ```{r}
-spatial_CD8 <- colData(sce) %>% as.data.frame() %>% select(BL_CD8_group_merg,spatial_CD8_pheno) %>% group_by(BL_CD8_group_merg) %>% table() %>% as.data.frame
+spatial_CD8 <- colData(sce) %>% as.data.frame() %>% dplyr::select(BL_CD8_group_merg,spatial_CD8_pheno) %>% group_by(BL_CD8_group_merg) %>% table() %>% as.data.frame
 spatial_CD8 <- spatial_CD8 %>% group_by(BL_CD8_group_merg) %>% mutate(fra = Freq/sum(Freq))
 
 ggplot(spatial_CD8, aes(x = BL_CD8_group_merg, y = fra, fill = spatial_CD8_pheno))+
@@ -838,6 +845,8 @@ clrDR(sce_cat, dr = "PCA",
   theme_classic()
 ```
 
+## Expression heatmaps 
+
 ```{r}
 tumor_sce <- sce[,sce$analysis_cat == "tumor"]
 cluster_mean_sce <- aggregateAcrossCells(tumor_sce, ids = tumor_sce$BL_CD8_group_merg,
@@ -850,15 +859,22 @@ Heatmap(scale(t(assay(cluster_mean_sce, "exprs"))))
 ```
 
 ```{r}
-cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$BL_CD8_group_merg,
+group_mean_sce <- aggregateAcrossCells(sce, ids = sce$BL_CD8_group_merg,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
-                                 subset.row = rowData(sce)$clean_target %in% c("CK5","CK7","CD8a"))
+                                 subset.row = rowData(sce)$clean_target %in% c("CK5","CK7","HLADR"))
 
-Heatmap(scale(t(assay(cluster_mean_sce, "exprs"))))
+group_mean_sce_2 <- aggregateAcrossCells(sce, ids = sce$BL_CD8_group_merg,
+                                 statistics = "mean",
+                                 use.assay.type = "exprs",
+                                 subset.row = rowData(sce)$clean_target %in% c("CK8_18","KRT14","CD8a"))
 
-Heatmap(t(assay(cluster_mean_sce, "exprs")), col = viridis(100))
+Heatmap(t(assay(group_mean_sce, "exprs")), col = viridis(100))+
+  Heatmap(t(assay(group_mean_sce_2, "exprs")), col = viridis(100))
 
+
+Heatmap(scale(t(assay(group_mean_sce, "exprs"))), clustering_method_rows = "ward.D2")+
+  Heatmap(scale(t(assay(group_mean_sce_2, "exprs"))), clustering_method_rows = "ward.D2")
 ```
 
 ```{r}
@@ -941,14 +957,9 @@ n_PID <- cluster_PID %>% filter(Freq>0) %>% group_by(BL_CD8_group_merg) %>% coun
 # Risk group 
 anno$BL_CD8_group_merg <- anno$BL_CD8_group_merg[match(rownames(n_PID), rownames(anno))]
 rownames(anno) <- anno$BL_CD8_group_merg
-anno$risk_group <- ifelse(anno$BL_CD8_group_merg %in% c("BL_cold_excluded", "L_cold_excluded"), "high", 
-       ifelse(anno$BL_CD8_group_merg %in% c("B_cold_excluded", "N_cold_excluded"), "medium", "low"))
-
 
 # Metadata annotation
-
 ha_group <- HeatmapAnnotation(BL_CD8_group_merg = anno_simple(anno$BL_CD8_group_merg,border=TRUE,col=metadata(sce)$colors$group_color),
-                             risk_group = anno_simple(anno$risk_group,border=TRUE,col=metadata(sce)$colors$risk_group_color),
                              border = TRUE, 
                              annotation_name_rot = 90,
                              gap = unit(2,"mm"),
@@ -973,7 +984,7 @@ hb_TME_scaled <- hb_TME_scaled[match(rownames(anno),rownames(hb_TME_scaled)),]
 cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$BL_CD8_group_merg,
                                  statistics = "mean",
                                  use.assay.type = "exprs",
-                                 subset.row = rowData(sce)$clean_target %in% c("CK5","CK7","CK8_18","KRT14","CD8a","HLADR"))
+                                 subset.row = rowData(sce)$clean_target %in% c("CK5","CK7","HLADR"))
 
 exprs_out <- scale(t(assay(cluster_mean_sce, "exprs")))
 
@@ -991,14 +1002,13 @@ plot_df$n_Bpatch <- n_Bpatch_PID$n[match(plot_df$PID, n_Bpatch_PID$PID)]
 plot_df$n_Bpatch[is.na(plot_df$n_Bpatch)] <- 0
 plot_df$BL_CD8_group_merg <- sce$BL_CD8_group_merg[match(plot_df$PID, sce$PID)]
 
-B_out <- plot_df %>% pivot_wider(names_from = PID, values_from = n_Bpatch) %>% column_to_rownames("BL_CD8_group_merg")
-B_out <- B_out[match(rownames(Bscore),rownames(B_out)),]
-
 # Proportion of B cell score per group
 Bscore <- colData(sce) %>% as.data.frame() %>% select(BL_CD8_group_merg,B_cell_score) %>% group_by(BL_CD8_group_merg) %>% table() %>% as.data.frame
 Bscore <- Bscore %>% group_by(BL_CD8_group_merg) %>% mutate(fra = Freq/sum(Freq)) 
 Bscore <- Bscore %>% select(-Freq) %>% pivot_wider(id_cols = BL_CD8_group_merg,names_from = B_cell_score,values_from = fra) %>% column_to_rownames("BL_CD8_group_merg") 
 
+B_out <- plot_df %>% pivot_wider(names_from = PID, values_from = n_Bpatch) %>% column_to_rownames("BL_CD8_group_merg")
+B_out <- B_out[match(rownames(Bscore),rownames(B_out)),]
 
 ha_score <- HeatmapAnnotation(B_cell_score = anno_barplot(Bscore, gp = gpar(fill = col_patch),width = unit(10, "mm")),
                               B_cell_patch = anno_boxplot(as.matrix(B_out), gp = gpar(fill = "#B2DF8A"), which = "row",outline = FALSE),
@@ -1009,15 +1019,16 @@ ha_score <- HeatmapAnnotation(B_cell_score = anno_barplot(Bscore, gp = gpar(fill
 
 col_patch <- setNames(brewer.pal(4,"Paired"),colnames(Bscore))
 
-
 ### 3. Plot heatmap ###
 
-order <- c("inflamed","N_cold_excluded","B_cold_excluded","L_cold_excluded","BL_cold_excluded")
+order <- c("BL","L","B","N","inflamed")
 
 h <- ha_group+
   Heatmap(hb_tumor_scaled,
         name = "Mean tumor MC fraction",
         show_row_dend = FALSE,
+        clustering_method_rows = "ward.D2", 
+        clustering_method_columns = "ward.D2",
         row_order = order,
         row_title = NULL)+
   Heatmap(hb_TME_scaled,
@@ -1031,62 +1042,12 @@ draw(h)
 
 #Create legends for annotation 
 
-#lgd <- Legend(title = "mixing_pheno", at = colnames(mixing_pheno), 
-#              legend_gp = gpar(fill = metadata(sce)$colors$mixing_pheno))
+lgd <- Legend(title = "Patient groups", at = anno$BL_CD8_group_merg, 
+              legend_gp = gpar(fill = metadata(sce)$colors$group_color))
 
 # Draw heatmap 
-#draw(h,annotation_legend_list = list(lgd,lgd_1,lgd_2))
+draw(h,annotation_legend_list = list(lgd))
 ```
-
-
-
-```{r}
-## Predict groups with PCA 
-# Expression of CK5,CK7, CD8a 
-cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$BL_CD8_group_merg,
-                                 statistics = "mean",
-                                 use.assay.type = "exprs",
-                                 subset.row = rowData(sce)$clean_target %in% c("CK5","CK7","CD8a"))
-
-exprs_out <- scale(t(assay(cluster_mean_sce, "exprs")))
-
-# Calculate PCA 
-pca <- prcomp(exprs_out)
-
-# Plot PCA 
-scores <- data.frame(pca$x[,1:2])
-scores$group <- rownames(scores)
-
-ggplot(scores,aes(x=PC1,y=PC2,color=group))+ 
-  geom_point(size =2)
-
-
-# Load TCGA data
-vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Combined_VST.rds")
-
-GOI <- c("KRT5","KRT7","CD8A")
-
-df <- t(assay(vsd)[GOI,]) %>% as.data.frame 
-
-df <- as.data.frame(scale(df))
-
-colnames(df) <- colnames(exprs_out)
-
-
-# Predict 
-predict_out <- as.data.frame(predict(pca, newdata = df))
-
-
-#Plot
-predict_out$group <- "TCGA"
-predict_out <- predict_out %>% select(PC1,PC2,group)
-plot <- rbind(predict_out, scores)
-
-
-ggplot(plot,aes(x=PC1,y=PC2,color=group))+ 
-  geom_point(size =2)
-```
-
 
 
 # 3. Image visualization
@@ -1227,19 +1188,40 @@ plotPixels(cur_images,
 ##IMPORTANT: change to chunk output in console for this last part 
 
 ##save plots as pdf (vector graphics)
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_CNDens_Heatmap.pdf",width = 9,height = 10)
-h_g
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_AlluvialGroups.pdf",width = 7,height = 5, onefile = FALSE)
+alluvial_wide(df_alluvial, 
+              colorful_fill_variable_stratum = FALSE,
+              col_vector_flow = metadata(sce)$colors$CK5_7_score, 
+              order_levels = c("CK5/7-","CK7+","CK5+","CK5/7+","inflamed","excluded","cold","N","L","B","BL"))+
+  theme_classic()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_MetaclusterFra_Kaplan_DFS.pdf",width = 8,height = 5, onefile = FALSE)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_MarkerExpression.pdf",width = 6,height = 4, onefile = FALSE)
+Heatmap(scale(t(assay(group_mean_sce, "exprs"))), clustering_method_rows = "ward.D2")+
+  Heatmap(scale(t(assay(group_mean_sce_2, "exprs"))), clustering_method_rows = "ward.D2")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_CD8_RichHeatmap.pdf",width = 12,height = 4)
+draw(h,annotation_legend_list = list(lgd))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_CD8_Kaplan_DFS.pdf",width = 6,height = 6, onefile = FALSE)
 PID_DFS_1
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_MetaclusterFra_RichHeatmap.pdf",width = 12,height = 6)
-draw(h,annotation_legend_list = list(lgd,lgd_1,lgd_2))
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_CD8_pbMDS.pdf",width = 4,height = 4, onefile = FALSE)
+pbMDS(sce_cat, by = "cluster_id", 
+      features = rownames(sce_cat)[rowData(sce_cat)$use_channel], 
+      label_by = "cluster_id", k = "PID_SC_groups") +
+  scale_color_manual(values = metadata(sce_cat)$colors$group_color)+
+  theme_classic()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_MetaclusterFra_CoxModel_DFS.pdf",width = 6,height = 5, onefile = FALSE)
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_DFS_Cox_Multi.pdf",width = 7,height = 5, onefile = FALSE)
+hr_prop
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_DFS_Cox_Uni.pdf",width = 7,height = 4, onefile = FALSE)
 hr_prop
 dev.off()
 ```
