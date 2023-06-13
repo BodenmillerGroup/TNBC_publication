@@ -1643,7 +1643,7 @@ GMM_df <- data.frame(class_epi = ifelse(GMM_HLADR$classification == 2 & GMM_HLAD
                      uncertainty = GMM_HLADR$uncertainty)
 
 #Visualize GMM
-ggplot(GMM_df, aes(x = HLADR_exprs))+#fill = class_epi))+
+ggplot(GMM_df, aes(x = HLADR_exprs))+
   geom_density()+
   geom_rug(aes(color = class_epi))+
   theme_classic(base_size = 15)+
@@ -1690,7 +1690,7 @@ alluvial_wide(df_alluvial,
 ```{r}
 GOI <- c("KRT5","KRT7","HLA-DRA") #three marker IHC panel?! 
 
-GOI_plus <- c("CD8A","CD274","PDCD1","GZMB","PDCD1LG2") # additional immune markers
+GOI_plus <- c("CD8A","CD274","PDCD1","GZMB","PDCD1LG2","IDO1") # additional immune markers
 
 assayNames(vsd) <- "vst"
 
@@ -2126,6 +2126,105 @@ dev.off()
 pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_NFKB.pdf", height = 5, width = 5, onefile = FALSE)
 gseaplot2(gseKEGG, title = gseKEGG$Description[20], geneSetID = 1)
 dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_HLADRGMM.pdf", height = 4, width = 7, onefile = FALSE)
+ggplot(GMM_df, aes(x = HLADR_exprs))+
+  geom_density()+
+  geom_rug(aes(color = class_epi))+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Alluvial.pdf", height = 5, width = 5, onefile = FALSE)
+alluvial_wide(df_alluvial, 
+              colorful_fill_variable_stratum = FALSE,
+              col_vector_flow = metadata(vsd)$colors$KRT57_score, 
+              order_levels = c("KRT5/7-","KRT7+","KRT5+","KRT5/7+"))+
+  theme_classic()
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Marker.pdf", height = 5, width = 3, onefile = FALSE)
+Heatmap(scale(t(assay(GOI_mean_sce, "vst"))))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Marker_Immune.pdf", height = 4, width = 7, onefile = FALSE)
+Heatmap(scale(t(assay(GOI_mean_sce, "vst"))))+
+  Heatmap(scale(t(assay(GOI_mean_sce_2, "vst"))))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_DFS.pdf", height = 7, width = 6, onefile = FALSE)
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c(wes_palette("Zissou1")[1],"gold",wes_palette("Zissou1")[3],wes_palette("Zissou1")[4],wes_palette("Zissou1")[5]),
+          #conf.int = TRUE,
+          xlim = c(0, 4000))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_PFS.pdf", height = 7, width = 6, onefile = FALSE)
+ggsurvplot(fit_1,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c(wes_palette("Zissou1")[1],"gold",wes_palette("Zissou1")[3],wes_palette("Zissou1")[4],wes_palette("Zissou1")[5]),
+          xlim = c(0, 4000))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_DFS_TNBC.pdf", height = 7, width = 6, onefile = FALSE)
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c(wes_palette("Zissou1")[1],wes_palette("Zissou1")[5]),
+          #conf.int = TRUE,
+          xlim = c(0, 4000))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_PFS_TNBC.pdf", height = 7, width = 6, onefile = FALSE)
+ggsurvplot(fit_1,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(), # Change ggplot2 theme
+          palette = c(wes_palette("Zissou1")[1],wes_palette("Zissou1")[5]),
+          #conf.int = TRUE,
+          xlim = c(0, 4000))
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_CoxDFS_Multi.pdf",width = 7,height = 5, onefile = FALSE)
+hr_prop
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_CoxDFS_Uni.pdf",width = 5,height = 5, onefile = FALSE)
+hr_prop
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_PAM50_Bar.pdf",width = 5,height = 4, onefile = FALSE)
+dittoBarPlot(vsd, var = "PID_group_test", group.by = "PAM50Call_RNAseq",retain.factor.levels = TRUE)+
+  scale_fill_manual(values = group_color)+
+  ggtitle("")
+dev.off()
+
+pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_TNBC_Bar.pdf",width = 4,height = 4, onefile = FALSE)
+dittoBarPlot(vsd, var = "PID_group_test", group.by = "TNBC",retain.factor.levels = TRUE)+
+  scale_fill_manual(values = group_color)+
+  ggtitle("")
+dev.off()
+
 ```
 
 
