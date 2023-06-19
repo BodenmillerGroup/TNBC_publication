@@ -42,7 +42,7 @@ The `read_steinbock` function provided by `imcRtools` can now be used to read in
 `steinbock` generated data. 
 
 ```{r read and inspect steinbock}
-sce <- read_steinbock("/mnt/rcc_volume/TNBC/",intensities_folder = "intensities",regionprops_folder = "regionprops", graphs_folder = "neighbors",return_as = "sce")
+sce <- read_steinbock("/mnt/central_nas/tnbc_volume/TNBC/",intensities_folder = "intensities",regionprops_folder = "regionprops", graphs_folder = "neighbors",return_as = "sce")
 sce
 ```
 
@@ -59,8 +59,8 @@ rownames(sce) <- rowData(sce)$clean_target
 It is also often the case that sample-specific `metadata` are available externally. This metadata is available as an external csv file:
 
 ```{r add-meta}
-meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
-meta_249 <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_TNBC_LM_processed_bysample.csv",row.names = 1) %>% select(ID_Number,PID)
+meta <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
+meta_249 <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/ZTMA249_TNBC_LM_processed_bysample.csv",row.names = 1) %>% select(ID_Number,PID)
 
 ## Add PID (different way of sample annotation for 174 and 249)
 PID_df <- data.frame(sample_id = unique(sce$sample_id),
@@ -96,7 +96,7 @@ We will already at this point define color schemes for different metadata
 entries which will be helpful for downstream data visualizations. 
 
 ```{r color-scheme}
-colors <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/color_meta.rds")
+colors <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/color_meta.rds")
 colors
 
 metadata(sce)$colors <- colors
@@ -133,7 +133,7 @@ multi_dittoPlot(sce[,sce$sample_id %in% cur_id], vars = rownames(sce)[rowData(sc
 Note that masks and images were loaded, modified and saved in the [00_seg_mesmer_QC.Rmd]() script. 
 
 ```{r save-objects-read-data}
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/01_sce_TNBC.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_sce_TNBC.rds")
 ```
 
 

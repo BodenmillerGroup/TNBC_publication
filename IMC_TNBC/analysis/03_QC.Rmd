@@ -50,9 +50,9 @@ library(mclust)
 We will first read in the data processed in previous sections:
 
 ```{r read-data, message=FALSE}
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
-masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/02_sce_TNBC_spillcor.rds")
+images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
+masks <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/02_sce_TNBC_spillcor.rds")
 ```
 
 ## Segmentation quality control
@@ -61,7 +61,7 @@ Was performed before. See [00_seg_mesmer_QC]().
 
 ```{r overlay-masks, message=FALSE}
 #10 preselected images
-img_files <- list.files("/mnt/rcc_volume/TNBC/img/")
+img_files <- list.files("/mnt/central_nas/tnbc_volume/TNBC/img/")
 img_ids<- c(which(str_detect(img_files ,"ZTMA249_ID_271_CX7Y4")),which(str_detect(img_files ,"ZTMA249_ID_82_AX2Y11")), which(str_detect(img_files ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(img_files ,"ZTMA249_ID_183_BX7Y8")), which(str_detect(img_files ,"ZTMA174_B08.26868_79_AX7Y10")))
 
 # Normalize and clip image
@@ -84,7 +84,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = "/mnt/rcc_volume/TNBC/data_analysis/spillcor_selectedimages_epi.png", scale = 2))
+           save_plot = list(filename = "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/spillcor_selectedimages_epi.png", scale = 2))
 
 #by immune channels
 plotPixels(cur_images,
@@ -101,7 +101,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = "/mnt/rcc_volume/TNBC/data_analysis/spillcor_selectedimages_immune.png", scale = 2))
+           save_plot = list(filename = "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/spillcor_selectedimages_immune.png", scale = 2))
 ```
 
 ## Image-level quality control
@@ -143,7 +143,7 @@ p2 <- ggplot(dat_df, aes(x = grouping, y = var.data))+
 
 p2 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/HER2exprs_TMAs.pdf",width = 8,height = 6)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/HER2exprs_TMAs.pdf",width = 8,height = 6)
 p2
 dev.off()
 
@@ -191,7 +191,7 @@ of background pixels.
 
 ```{r image-snr, message=FALSE, warning=FALSE}
 #Load uncompensated images
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_segtest.rds")
 
 #Randomly select 100 images
 set.seed(22011995)
@@ -249,7 +249,7 @@ These images can now be visualized using `cytomapper`.
 
 ```{r cell-density}
 #Load TMA tissue masks
-tissue_area <- read_csv("/mnt/rcc_volume/TNBC/tissue_mask/tissue_area_TissueRescaled.csv") 
+tissue_area <- read_csv("/mnt/central_nas/tnbc_volume/TNBC/tissue_mask/tissue_area_TissueRescaled.csv") 
 sce$tissue_area <- as.numeric(tissue_area$AreaShape_Area[match(colData(sce)$sample_id,str_split(tissue_area$FileName_Tissue_Mask, "_Pro",simplify = TRUE)[,1])])
 
 cell_density <- colData(sce) %>%
@@ -475,7 +475,7 @@ plot_grid(plotlist = all_plots_TSNE)
 The modified `SingleCellExperiment` object is saved for further downstream analysis.
 
 ```{r save-objects-quality-control}
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/03_sce_TNBC_QC.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_sce_TNBC_QC.rds")
 ```
 
 

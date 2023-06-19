@@ -68,15 +68,15 @@ Here, we will perform the first combined analysis steps for tumor and TME phenot
 
 ```{r load data, message = FALSE, warning = FALSE}
 #tumor sce
-sce_tumor <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds") 
+sce_tumor <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds") 
 sce_tumor
 
 #TME sce
-sce_TME <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/06_sce_TNBC_TME_new.rds") 
+sce_TME <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/06_sce_TNBC_TME_new.rds") 
 sce_TME
 
 #sce with all cells
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 sce
 ```
 
@@ -127,14 +127,14 @@ rowData(sce)$tumor_cluster_channel <- rowData(sce_tumor)$cluster_channel
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 ## Overlay tumor and TME cluster colors onto combined tSNE
 
 ```{r combined tSNE}
 #Read subsampled sce from pipeline 1
-sce_sub <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds")
+sce_sub <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds")
 
 #Add cluster_combined info
 sce_sub$cluster_combined <- sce$cluster_combined[match(sce_sub$cell_id, sce$cell_id)]
@@ -176,9 +176,9 @@ plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_TME_combined")
 
 ```{r}
 # Missing metadata for 10 ZTMA174 patients
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 
-meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
+meta <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
 
 ## Add relevant metadata based on PID
 for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simple", "pN", "pN_simple", "status_OS","status_DFS", "OS_months","DFS_months")]) {
@@ -192,8 +192,8 @@ for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simpl
 
 ```{r load images}
 #Load images and masks
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
-masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_segtest.rds")
+masks <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
 ```
 
 ## Plot cell features onto image
@@ -202,7 +202,7 @@ masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
 set.seed(22)
 img_random <- sample(seq_len(length(images)), 10)
 
-img_files <- list.files("/mnt/rcc_volume/TNBC/img/")
+img_files <- list.files("/mnt/central_nas/tnbc_volume/TNBC/img/")
 img_selected <- c(which(str_detect(img_files ,"ZTMA249_ID_320_CX8Y10")),which(str_detect(img_files ,"ZTMA249_ID_289_CX1Y7")),which(str_detect(img_files ,"ZTMA249_ID_36_AX4Y5")),which(str_detect(img_files ,"ZTMA249_ID_7_AX7Y1")),which(str_detect(img_files ,"ZTMA249_ID_220_BX4Y13")),which(str_detect(img_files ,"ZTMA249_ID_271_CX7Y4")),which(str_detect(img_files ,"ZTMA249_ID_82_AX2Y11")), which(str_detect(img_files ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(img_files ,"ZTMA249_ID_183_BX7Y8")), which(str_detect(img_files ,"ZTMA174_B08.26868_79_AX7Y10")))
 
 img_ids <- c(img_selected,img_random)
@@ -222,7 +222,7 @@ plotCells(mask = masks[img_ids],
 
 ```{r load combined sce}
 ##Load sce
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 # 3.1 Cellular neighborhoods
@@ -291,7 +291,7 @@ sce$cellular_neighborhood <- as.factor(cur_clusters)
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 ### Based on Exprs
@@ -992,7 +992,7 @@ metadata(sce)$colors$col_SC <- col_SC
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 ## Plot SC Graph 
@@ -1399,7 +1399,7 @@ sce$spatial_metacommunity <- cur_clusters[match(sce$spatial_community, names(cur
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 ## Image visualization
@@ -1985,7 +1985,7 @@ sce <- minDistToCells(sce, img_id = "sample_id", x_cells = !is.na(sce$patch_tumo
 ### CK5/7 score 
 
 ```{r}
-sce_tumor <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+sce_tumor <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 sce$CK5_7_score <- sce_tumor$CK5_7_score[match(sce$cell_id, sce_tumor$cell_id)]
 ```
@@ -2013,7 +2013,7 @@ gc()
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 ## Patch size analysis 
@@ -3059,9 +3059,9 @@ spicyTest <- spicy(cells_sc,
       BPPARAM = BiocParallel::MulticoreParam(),
       includeZeroCells = TRUE)
 
-saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumor_withzero.rds")
+saveRDS(spicyTest, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumor_withzero.rds")
 
-spicyTest <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumor_withzero.rds")
+spicyTest <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumor_withzero.rds")
 topPairs(spicyTest)
 
 signifPlot(spicyTest,
@@ -3102,8 +3102,8 @@ spicyTest <- spicy(cells_sc,
       BPPARAM = BiocParallel::MulticoreParam(),
       includeZeroCells = TRUE)
 
-saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumorphenotypes_withzero.rds")
-spicyTest2 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumorphenotypes_withzero.rds")
+saveRDS(spicyTest, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumorphenotypes_withzero.rds")
+spicyTest2 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_CD8vstumorphenotypes_withzero.rds")
 
 topPairs(spicyTest2)
 
@@ -3145,9 +3145,9 @@ spicyTest <- spicy(cells_sc,
       BPPARAM = BiocParallel::MulticoreParam(),
       includeZeroCells = TRUE)
 
-saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_allVSall_withzero.rds")
+saveRDS(spicyTest, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_allVSall_withzero.rds")
 
-spicyTest3 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_allVSall_withzero.rds")
+spicyTest3 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_allVSall_withzero.rds")
 topPairs(spicyTest3)
 
 signifPlot(spicyTest3,
@@ -3760,7 +3760,7 @@ mix_DFS
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 
@@ -3845,7 +3845,7 @@ spicyTest <- spicy(cells_sc,
       BPPARAM = BiocParallel::MulticoreParam(workers = 10),
       includeZeroCells = TRUE)
 
-saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_tumor_withzero.rds")
+saveRDS(spicyTest, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_tumor_withzero.rds")
 
 topPairs(spicyTest)
 
@@ -3880,11 +3880,11 @@ spicyTest <- spicy(cells_sc,
       BPPARAM = BiocParallel::MulticoreParam(workers = 10),
       includeZeroCells = TRUE)
 
-saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_tumorvsTME_withzero.rds")
+saveRDS(spicyTest, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_tumorvsTME_withzero.rds")
 
 topPairs(spicyTest)
 
-spicy1 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_tumorvsTME_withzero.rds")
+spicy1 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_tumorvsTME_withzero.rds")
 topPairs(spicy1)
 signifPlot(spicy1,
            type = "heatmapbliblablub",
@@ -3924,9 +3924,9 @@ spicyTest <- spicy(cells_sc,
       BPPARAM = BiocParallel::MulticoreParam(workers = 10),
       includeZeroCells = TRUE)
 
-saveRDS(spicyTest, "/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_AllVSAll_withzero.rds")
+saveRDS(spicyTest, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_AllVSAll_withzero.rds")
 
-spicy2 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_AllVSAll_withzero.rds")
+spicy2 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/spicy_nodeinvolment_AllVSAll_withzero.rds")
 
 topPairs(spicy2)
 
@@ -4879,9 +4879,9 @@ diffabun_plot_cd8_3 <- ggplot(DA, aes(x = logFC, y = logCPM))+
 ## Extract representative images
 
 ```{r}
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
-masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_TNBC_new.rds")
+masks <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 ```{r}
@@ -4900,7 +4900,7 @@ cur_mask <- masks[img_ids]
 cur_sce <- sce[,sce$sample_id %in% names(cur_images)]
 ```
 
-We will use cytoviewer for image exploratiion and download
+We will use cytoviewer for image exploration and download
 
 ```{r}
 library(cytoviewer)
@@ -4911,18 +4911,18 @@ shiny::runApp(app, launch.browser = TRUE)
 
 ```{r}
 ##Visualize metaclusters on images - select 10 images for each category with highest number of cells
-cur_PID <- colData(sce) %>% as.data.frame %>% group_by(metacluster_combined) %>% filter(metacluster_combined == "tumor_8") %>% count(PID) %>% arrange(desc(n)) %>% slice(1:20) %>% pull(PID)
-
-cur_PID <- cur_PID[6]
+cur_PID <- colData(sce) %>% as.data.frame %>% group_by(metacluster_combined) %>% filter(metacluster_combined == "tumor_8") %>% count(PID) %>% arrange(desc(n)) %>% slice(1:10) %>% pull(PID)
 
 cur_sample <- colData(sce) %>% as.data.frame %>% filter(PID %in% cur_PID) %>% pull(sample_id) %>% unique()
+
+cur_sample <- "ZTMA249.1_ZTMA249_ID_134_BX6Y2_19"
 
 # Images
 cur_images <- images[cur_sample]
 cur_masks <- masks[cur_sample]
 
 #Subset sce
-cur_sce <- sce[,sce$metacluster == "tumor_8"]
+cur_sce <- sce[,sce$sample_id %in% names(cur_images)]
 ```
 
 Interactive visualization with cytoviewer 
@@ -4930,10 +4930,9 @@ Interactive visualization with cytoviewer
 ```{r}
 library(cytoviewer)
 
-app <- cytoviewer(image = cur_images, mask = cur_masks, object = sce, cell_id = "ObjectNumber",img_id = "sample_id")
+app <- cytoviewer(image = cur_images, mask = cur_masks, object = cur_sce, cell_id = "ObjectNumber",img_id = "sample_id")
 
 shiny::runApp(app, launch.browser = TRUE)
-
 ```
 
 
@@ -4947,100 +4946,100 @@ shiny::runApp(app, launch.browser = TRUE)
 ##IMPORTANT: change to chunk output in console for this last part 
 
 ##save plots as pdf (vector graphics)
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_Metacluster_pT.pdf",width = 9,height = 6)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_Metacluster_pT.pdf",width = 9,height = 6)
 diffabun_plot
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_pT_dist.pdf",width = 6,height = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_pT_dist.pdf",width = 6,height = 5)
 ggplot(pT_simple_n, aes(x=pT_simple,y=n,fill=pT_simple))+
   geom_bar(stat = "identity", color = "black")+
   scale_fill_manual(values = metadata(sce)$colors$pT_simple)+
   theme_classic()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_CellularNeighborhood_Heatmap.pdf",width = 10,height = 6)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_CellularNeighborhood_Heatmap.pdf",width = 10,height = 6)
 h
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SpatialComm_DFS.pdf",width = 8,height = 6)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SpatialComm_DFS.pdf",width = 8,height = 6)
 hr_prop/
 hr_mean
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_CN_pT.pdf",width = 8,height = 6)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_CN_pT.pdf",width = 8,height = 6)
 diffabun_plot_1 
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SC_graph.pdf",width = 12,height = 8)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SC_graph.pdf",width = 12,height = 8)
 plotSpatialContext(sce, entry = "spatial_context_filtered", 
                    group_by = "PID", node_color_by = "n_group", node_size_by = "n_cells")+
   scale_color_viridis()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SC_viz.pdf",width = 5,height = 8)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SC_viz.pdf",width = 5,height = 8)
 p1/p2
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SC_lasso_OS.pdf",width = 6,height = 4)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SC_lasso_OS.pdf",width = 6,height = 4)
 lasso_plot
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SC_lasso_DFS.pdf",width = 6,height = 4)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_SC_lasso_DFS.pdf",width = 6,height = 4)
 lasso_plot
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_SC_pT.pdf",width = 9,height = 6)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_SC_pT.pdf",width = 9,height = 6)
 diff.abun_SC
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_CD8pheno_OS.pdf",width = 6,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_CD8pheno_OS.pdf",width = 6,height = 6, onefile = FALSE)
 CD8_OS
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_CD8pheno_CN.pdf",width = 9,height = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_CD8pheno_CN.pdf",width = 9,height = 5)
 diffabun_plot_cd8_2
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_CD8pheno_SC.pdf",width = 9,height = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_diffAbun_CD8pheno_SC.pdf",width = 9,height = 5)
 diffabun_plot_cd8_3
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_Mixing_DFS.pdf",width = 6,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_Mixing_DFS.pdf",width = 6,height = 6, onefile = FALSE)
 mix_DFS
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_Mixing_DiffAbun.pdf",width = 6,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TNBC_Mixing_DiffAbun.pdf",width = 6,height = 6, onefile = FALSE)
 diffabun_plot_mixing_1
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_PID.pdf",width = 6,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_PID.pdf",width = 6,height = 6, onefile = FALSE)
 plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "PID")+#shape_by = "analysis_cat")+
   scale_color_manual(values = metadata(sce)$colors$PID)+
   guides(color = "none")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TMANr.pdf",width = 6,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TMANr.pdf",width = 6,height = 6, onefile = FALSE)
 plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "TMANr")+#shape_by = "analysis_cat")+
   scale_color_manual(values = metadata(sce)$colors$TMANr)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_analysiscat.pdf",width = 6,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_analysiscat.pdf",width = 6,height = 6, onefile = FALSE)
 plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "analysis_cat")+#shape_by = "analysis_cat")+
   scale_color_manual(values = metadata(sce)$colors$analysis_cat)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TMEmetacluster.pdf",width = 6,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TMEmetacluster.pdf",width = 6,height = 6, onefile = FALSE)
 plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_tumor_combined")+#shape_by = "analysis_cat")+
   scale_color_manual(values = color_TME, limits = force)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TUMORmetacluster.pdf",width = 6,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TUMORmetacluster.pdf",width = 6,height = 6, onefile = FALSE)
 plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_TME_combined")+#shape_by = "analysis_cat")+
   scale_color_manual(values = color_TME, limits = force)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_OverallFreq_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_OverallFreq_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
 ggplot(PID_MC8_overall_plot) +
   geom_tile(color = "black",aes(n, category, fill = PID_category), position = "stack")+
   scale_fill_brewer(palette = "Blues")+
@@ -5049,7 +5048,7 @@ ggplot(PID_MC8_overall_plot) +
   theme(axis.title.x = element_blank())
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_Patch_Abundant_Pheno_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_Patch_Abundant_Pheno_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
 ggplot(PID_patch_abundant) +
   geom_tile(color = "black",aes(n,category, fill = metacluster_combined), position = "stack")+
   scale_fill_manual(values=metadata(sce)$colors$metacluster_combined) + 
@@ -5058,7 +5057,7 @@ ggplot(PID_patch_abundant) +
   xlab("PID")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_InteractionTesting_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_InteractionTesting_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
 ggplot(interaction_tumor_plot) +
         geom_tile(aes(reorder(to_label,sum_sigval), from_label, fill = sum_sigval)) +
         scale_fill_gradient2(low = "blue", mid = "white", high = "red")+
@@ -5068,7 +5067,7 @@ dev.off()
 
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_Patches_KaplanMeier.pdf",width = 6,height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_Patches_KaplanMeier.pdf",width = 6,height = 5, onefile = FALSE)
 ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -5081,16 +5080,16 @@ ggsurvplot(fit,
 )
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_Patches_Cox_Uni.pdf",width = 4,height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_Patches_Cox_Uni.pdf",width = 4,height = 5, onefile = FALSE)
 hr_prop
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_Patches_Cox_Multi.pdf",width = 8,height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/MC8_Patches_Cox_Multi.pdf",width = 8,height = 5, onefile = FALSE)
 hr_prop
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/CK57_OverallFreq_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/CK57_OverallFreq_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
 ggplot(PID_CK57_overall_plot) +
   geom_tile(color = "black",aes(n, category, fill = PID_category), position = "stack")+
   scale_fill_brewer(palette = "Blues")+
@@ -5099,7 +5098,7 @@ ggplot(PID_CK57_overall_plot) +
   theme(axis.title.x = element_blank())
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/CK57_Patches_MostAbundant_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/CK57_Patches_MostAbundant_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
 ggplot(PID_patch_abundant) +
   geom_tile(color = "black",aes(n, category, fill = CK5_7_score), position = "stack")+
   scale_fill_manual(values=metadata(sce)$colors$CK5_7_score) + 
@@ -5108,7 +5107,7 @@ ggplot(PID_patch_abundant) +
   xlab("PID")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/CK57_InteractionTesting_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/CK57_InteractionTesting_Barplot.pdf",width = 8,height = 2.5, onefile = FALSE)
 interaction_tumor_CK57_total %>% as_tibble() %>% filter(from_label %in% c("CK5/7+")) %>% filter(to_label != "CK5/7+") %>%
     group_by(from_label, to_label) %>%
     summarize(sum_sigval = sum(sigval, na.rm = TRUE)) %>%
@@ -5122,7 +5121,7 @@ dev.off()
 
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_DFS_Kaplan.pdf",width = 5,height = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_DFS_Kaplan.pdf",width = 5,height = 7, onefile = FALSE)
 ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -5134,7 +5133,7 @@ ggsurvplot(fit,
           log.rank.weights = "n")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_OS_Kaplan.pdf",width = 5,height = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_OS_Kaplan.pdf",width = 5,height = 7, onefile = FALSE)
 ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -5147,7 +5146,7 @@ ggsurvplot(fit,
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_merg_OS_Kaplan.pdf",width = 5,height = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_merg_OS_Kaplan.pdf",width = 5,height = 7, onefile = FALSE)
 ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -5159,7 +5158,7 @@ ggsurvplot(fit,
           log.rank.weights = "n")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_merg_DFS_Kaplan.pdf",width = 5,height = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_merg_DFS_Kaplan.pdf",width = 5,height = 7, onefile = FALSE)
 ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -5171,7 +5170,7 @@ ggsurvplot(fit,
           log.rank.weights = "n")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_merg_DFS_Cox_Multi.pdf",width = 7,height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_merg_DFS_Cox_Multi.pdf",width = 7,height = 5, onefile = FALSE)
 ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
 geom_point(size = 4)+
 geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
@@ -5186,12 +5185,12 @@ coord_cartesian(ylim=c(0,63))+
 theme(axis.text.x = element_text(angle = 90))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_merg_DFS_Cox_Uni.pdf",width = 4,height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_merg_DFS_Cox_Uni.pdf",width = 4,height = 5, onefile = FALSE)
 hr_prop
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_DiffAbun.pdf",width = 8,height = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_DiffAbun.pdf",width = 8,height = 7, onefile = FALSE)
 ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR), shape = category))+
@@ -5205,7 +5204,7 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_spiyR_tumor_CD8.pdf",width = 5,height = 4, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_spiyR_tumor_CD8.pdf",width = 5,height = 4, onefile = FALSE)
 signifPlot(spicyTest,
            type = "heatmapbliblablub",
            breaks=c(-3, 3, 0.5),
@@ -5213,7 +5212,7 @@ signifPlot(spicyTest,
            marksToPlot = c("tumor","CD8_T_cell"))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_spiyR_tumorpheno_CD8.pdf",width = 6,height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_spiyR_tumorpheno_CD8.pdf",width = 6,height = 5, onefile = FALSE)
 signifPlot(spicyTest2,
            type = "heatmapbliblablub",
            breaks=c(-3, 3, 0.5),
@@ -5221,7 +5220,7 @@ signifPlot(spicyTest2,
            marksToPlot = unfactor(unique(cur_sce$metacluster_combined)))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_spiyR_tumorpheno_TME_CD8.pdf",width = 9,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_spiyR_tumorpheno_TME_CD8.pdf",width = 9,height = 6, onefile = FALSE)
 signifPlot(spicyTest3,
            type = "heatmapbliblablub",
            breaks=c(-3, 3, 0.5),
@@ -5229,7 +5228,7 @@ signifPlot(spicyTest3,
            marksToPlot = unfactor(unique(sce$metacluster_combined)))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_Ki67_phenotype.pdf",width = 5,height = 4, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_Ki67_phenotype.pdf",width = 5,height = 4, onefile = FALSE)
 ggplot(cur_plot) +
   geom_tile(color = "black",aes(CD8Tcell_type, fra, fill = Ki67_GMM), position = "stack")+
   scale_fill_brewer(palette = "Paired")+
@@ -5239,14 +5238,14 @@ ggplot(cur_plot) +
   ggtitle(paste("p (Chi-Square) = ",cur_test_out$p.value))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_Tumor_expression.pdf",width = 7,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_Tumor_expression.pdf",width = 7,height = 6, onefile = FALSE)
 Heatmap(assay(spatialpheno_mean_sce, "exprs"), col = viridis(100), name = "exprs", cluster_columns = FALSE, row_names_side = "left", show_row_dend = FALSE)+
   Heatmap(mat_scaled, name = "scaled exprs", cluster_columns = FALSE)+
   rowAnnotation(test = anno_text(test_result$psignif.adj))
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_NumberBpatches.pdf",width = 7,height = 4, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_NumberBpatches.pdf",width = 7,height = 4, onefile = FALSE)
 ggplot(plot_df, aes(x = spatial_CD8_pheno, y = n_Bpatch))+
   geom_boxplot(outlier.colour = NA)+
   geom_jitter(aes(color = spatial_CD8_pheno), size = 3, position=position_jitter(w=0.1,h=0.1))+
@@ -5259,7 +5258,7 @@ ggplot(plot_df, aes(x = spatial_CD8_pheno, y = n_Bpatch))+
   stat_compare_means(method = "kruskal.test")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_Bpatchsize.pdf",width = 7,height = 4, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_Bpatchsize.pdf",width = 7,height = 4, onefile = FALSE)
 ggplot(plot) + 
   geom_col(aes(x=spatial_CD8_pheno, y=fraction, fill=B_cell_score), color = "black") +
   theme_classic() + 
@@ -5269,11 +5268,11 @@ ggplot(plot) +
   ggtitle(paste0("p (Fisher) = ", plot_test_out$p.value))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Mixing_score_OS.pdf",width = 5,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Mixing_score_OS.pdf",width = 5,height = 6, onefile = FALSE)
 mix_OS
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/07_combined/Mixing_score_DFS.pdf",width = 5,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Mixing_score_DFS.pdf",width = 5,height = 6, onefile = FALSE)
 mix_DFS
 dev.off()
 

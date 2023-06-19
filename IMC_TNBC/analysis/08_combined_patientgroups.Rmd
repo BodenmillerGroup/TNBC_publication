@@ -64,7 +64,7 @@ library(batchelor)
 
 ```{r load combined sce}
 ##Load sce
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 
@@ -72,7 +72,7 @@ sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
 
 ```{r}
 # Add CK5_7_group
-sce_tumor <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+sce_tumor <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 sce$CK5_7_group <- sce_tumor$CK5_7_group[match(sce$PID, sce_tumor$PID)]
 
 library(wesanderson)
@@ -721,7 +721,7 @@ pheatmap(log2(tab3 + 1), color = viridis(100),name = "log2(count+1)")
 ```
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/08_sce_PIDgroup.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/08_sce_PIDgroup.rds")
 ```
 
 # 2. Patient group visualization
@@ -1053,8 +1053,8 @@ draw(h,annotation_legend_list = list(lgd))
 # 3. Image visualization
 
 ```{r}
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
-masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
+masks <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
 ```
 
 ```{r}
@@ -1089,7 +1089,7 @@ plotPixels(cur_images,
            thick = FALSE,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/PID_group_viz_",i,".png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/PID_group_viz_",i,".png"), scale = 2)
            )
 }
 
@@ -1117,7 +1117,7 @@ plotPixels(cur_images,
            thick = FALSE,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/PID_group_viz_",i,".png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/PID_group_viz_",i,".png"), scale = 2)
            )
 }
 
@@ -1148,7 +1148,7 @@ meta_basalluminal_validate <- colData(sce) %>% as.data.frame %>% dplyr::select(P
 rownames(meta_basalluminal_validate) <- NULL
 
 # write out csv
-write_csv(meta_basalluminal_validate, "/mnt/rcc_volume/TNBC/data_analysis/03_data/TNBC_basalluminalcandidates.csv") 
+write_csv(meta_basalluminal_validate, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/TNBC_basalluminalcandidates.csv") 
 ```
 
 Visualize candidate patients on images 
@@ -1177,7 +1177,7 @@ plotPixels(cur_images,
            thick = FALSE,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = "/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/BasalluminalCandidates_viz_.png", scale = 2)
+           save_plot = list(filename = "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/BasalluminalCandidates_viz_.png", scale = 2)
            )
 ```
 
@@ -1188,7 +1188,7 @@ plotPixels(cur_images,
 ##IMPORTANT: change to chunk output in console for this last part 
 
 ##save plots as pdf (vector graphics)
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_AlluvialGroups.pdf",width = 7,height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_AlluvialGroups.pdf",width = 7,height = 5, onefile = FALSE)
 alluvial_wide(df_alluvial, 
               colorful_fill_variable_stratum = FALSE,
               col_vector_flow = metadata(sce)$colors$CK5_7_score, 
@@ -1196,20 +1196,20 @@ alluvial_wide(df_alluvial,
   theme_classic()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_MarkerExpression.pdf",width = 6,height = 4, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_MarkerExpression.pdf",width = 6,height = 4, onefile = FALSE)
 Heatmap(scale(t(assay(group_mean_sce, "exprs"))), clustering_method_rows = "ward.D2")+
   Heatmap(scale(t(assay(group_mean_sce_2, "exprs"))), clustering_method_rows = "ward.D2")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_CD8_RichHeatmap.pdf",width = 12,height = 4)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_CD8_RichHeatmap.pdf",width = 12,height = 4)
 draw(h,annotation_legend_list = list(lgd))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_CD8_Kaplan_DFS.pdf",width = 6,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_CD8_Kaplan_DFS.pdf",width = 6,height = 6, onefile = FALSE)
 PID_DFS_1
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_CD8_pbMDS.pdf",width = 4,height = 4, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_CD8_pbMDS.pdf",width = 4,height = 4, onefile = FALSE)
 pbMDS(sce_cat, by = "cluster_id", 
       features = rownames(sce_cat)[rowData(sce_cat)$use_channel], 
       label_by = "cluster_id", k = "PID_SC_groups") +
@@ -1217,11 +1217,11 @@ pbMDS(sce_cat, by = "cluster_id",
   theme_classic()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_DFS_Cox_Multi.pdf",width = 7,height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_DFS_Cox_Multi.pdf",width = 7,height = 5, onefile = FALSE)
 hr_prop
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_DFS_Cox_Uni.pdf",width = 7,height = 4, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_DFS_Cox_Uni.pdf",width = 7,height = 4, onefile = FALSE)
 hr_prop
 dev.off()
 ```

@@ -72,7 +72,7 @@ Here, we will train a classifier to predict tumor metacluster in an independent 
 
 ```{r}
 ##Load sce
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 ### Filter for tumor cells
@@ -141,12 +141,12 @@ rffit <- train(x = train_data,
 rffit
 stopCluster(cl)
 
-saveRDS(rffit, "/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_folds_allmarkers.rds")
-#rffit_all <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred.rds")
-#rffit_sub <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_submarker.rds")
-#rffit <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_submarker.rds")
+saveRDS(rffit, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/randomforest_metacluster_pred_folds_allmarkers.rds")
+#rffit_all <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/randomforest_metacluster_pred.rds")
+#rffit_sub <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/randomforest_metacluster_pred_submarker.rds")
+#rffit <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/randomforest_metacluster_pred_submarker.rds")
 
-rffit <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/randomforest_metacluster_pred_folds_allmarkers.rds")
+rffit <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/randomforest_metacluster_pred_folds_allmarkers.rds")
 ```
 
 
@@ -724,7 +724,7 @@ sce_val$cluster_30 <- clusters
 unique(sce_val$cluster_30)
 
 #Save sce_vals after clustering
-saveRDS(sce_val, "/mnt/rcc_volume/TNBC/data_analysis/09_sce_val_TNBC_tumor.rds")
+saveRDS(sce_val, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/09_sce_val_TNBC_tumor.rds")
 
 gc()
 
@@ -738,7 +738,7 @@ sce_val$cluster_50 <- clusters
 unique(sce_val$cluster_50)
 
 #Save sce_vals after clustering
-saveRDS(sce_val, "/mnt/rcc_volume/TNBC/data_analysis/09_sce_val_TNBC_tumor.rds")
+saveRDS(sce_val, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/09_sce_val_TNBC_tumor.rds")
 
 gc()
 
@@ -752,7 +752,7 @@ sce_val$cluster_70 <- clusters
 unique(sce_val$cluster_70)
 
 #Save sce_vals after clustering
-saveRDS(sce_val, "/mnt/rcc_volume/TNBC/data_analysis/09_sce_val_TNBC_tumor.rds")
+saveRDS(sce_val, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/09_sce_val_TNBC_tumor.rds")
 
 gc()
 
@@ -766,7 +766,7 @@ sce_val$cluster_90 <- clusters
 unique(sce_val$cluster_90)
 
 #Save sce_vals after clustering
-saveRDS(sce_val, "/mnt/rcc_volume/TNBC/data_analysis/09_sce_val_TNBC_tumor.rds")
+saveRDS(sce_val, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/09_sce_val_TNBC_tumor.rds")
 
 gc()
 
@@ -780,7 +780,7 @@ sce_val$cluster_110 <- clusters
 unique(sce_val$cluster_110)
 
 #Save sce_vals after clustering
-saveRDS(sce_val, "/mnt/rcc_volume/TNBC/data_analysis/09_sce_val_TNBC_tumor.rds")
+saveRDS(sce_val, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/09_sce_val_TNBC_tumor.rds")
 
 gc()
 
@@ -794,7 +794,7 @@ sce_val$cluster_130 <- clusters
 unique(sce_val$cluster_130)
 
 #Save sce_vals after clustering
-saveRDS(sce_val, "/mnt/rcc_volume/TNBC/data_analysis/09_sce_val_TNBC_tumor.rds")
+saveRDS(sce_val, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/09_sce_val_TNBC_tumor.rds")
 
 gc()
 ```
@@ -987,7 +987,7 @@ Frequency analysis
 
 ```{r}
 # Colors 
-colors_sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+colors_sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 ```{r}
@@ -1064,11 +1064,11 @@ ggplot(interaction_tumor_plot) +
 ## Save plots as pdf
 
 ```{r save_plots, include=FALSE}
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_randomforest_varimp.pdf",height = 5, width = 6)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_randomforest_varimp.pdf",height = 5, width = 6)
 plot(varImp(rffit))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_randomforest_Accuracy_CV.pdf",height = 5, width = 6)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_randomforest_Accuracy_CV.pdf",height = 5, width = 6)
 ggplot(rffit) + 
   geom_errorbar(data = rffit$results,
                 aes(ymin = Accuracy - AccuracySD,
@@ -1077,7 +1077,7 @@ ggplot(rffit) +
     theme_classic(base_size = 15)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_randomforest_test_TPR_FPR.pdf",height = 6, width = 7)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_randomforest_test_TPR_FPR.pdf",height = 6, width = 7)
 data.frame(cm$byClass) %>%
   mutate(class = sub("Class: ", "", rownames(cm$byClass))) %>%
   ggplot() + 
@@ -1092,7 +1092,7 @@ data.frame(cm$byClass) %>%
   ggtitle(paste0("Accuracy: ",round(cm$overall[1],3)," [",round(cm$overall[3],3)," - ",round(cm$overall[4],3),"]"))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_randomforest_validation_maxprob.pdf",height = 6, width = 7)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_randomforest_validation_maxprob.pdf",height = 6, width = 7)
 tibble(max_prob = rowMax(as.matrix(cell_prob)),
        type = cell_class) %>%
     ggplot() +
@@ -1104,7 +1104,7 @@ tibble(max_prob = rowMax(as.matrix(cell_prob)),
         xlim(c(0,1.2))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_randomforest_validation_heatmap.pdf",height = 6, width = 8)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_randomforest_validation_heatmap.pdf",height = 6, width = 8)
 Heatmap(t(assay(cluster_mean_sce, "exprs")),
         column_title = "pred_channels",
         col = col_exprs,
@@ -1118,7 +1118,7 @@ Heatmap(t(assay(cluster_mean_sce, "exprs")),
   ha_meta
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_comparison_Jana_metacluster_fra.pdf",height = 4, width = 7)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_comparison_Jana_metacluster_fra.pdf",height = 4, width = 7)
 ggplot(discovery, aes(x = fra, y = fra_valid))+
   geom_smooth(method='lm', formula= y~x, se = TRUE, color = "darkgrey")+
   geom_point(aes(color = metacluster_combined), size = 3)+
@@ -1129,7 +1129,7 @@ ggplot(discovery, aes(x = fra, y = fra_valid))+
   ggtitle(paste("Spearman rho = ",round(spearman_test$estimate, digits = 2)))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_comparison_Jana_meanexpressionprofile.pdf",height = 5, width = 9)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_comparison_Jana_meanexpressionprofile.pdf",height = 5, width = 9)
 corrplot(cor(assay(discovery_exprs, "exprs"),assay(validation_exprs, "exprs")), method="color", col=brewer.pal(n=8, name="RdBu"),  
          type="upper", order="hclust",hclust.method = "ward.D2", 
          addCoef.col = "black", addCoefasPercent = F,
@@ -1137,7 +1137,7 @@ corrplot(cor(assay(discovery_exprs, "exprs"),assay(validation_exprs, "exprs")), 
          diag=TRUE)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_MC8patch_abundantMC.pdf",width = 8,height = 2.5,onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_MC8patch_abundantMC.pdf",width = 8,height = 2.5,onefile = FALSE)
 ggplot(PID_patch_abundant) +
   geom_tile(color = "black",aes(n,category, fill = metacluster_predict), position = "stack")+
   scale_fill_manual(values=metadata(colors_sce)$colors$metacluster_combined) + 
@@ -1148,7 +1148,7 @@ ggplot(PID_patch_abundant) +
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_MC8_frequency.pdf",width = 8,height = 2.5,onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_MC8_frequency.pdf",width = 8,height = 2.5,onefile = FALSE)
 ggplot(PID_MC8_overall_plot) +
   geom_tile(color = "black",aes(n,category, fill = PID_category), position = "stack")+
   scale_fill_brewer(palette = "Blues")+
@@ -1157,7 +1157,7 @@ ggplot(PID_MC8_overall_plot) +
   theme(axis.title.x = element_blank())
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_MC8_interaction.pdf",width = 8,height = 2.5,onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/09_prediction/TNBC_Jana_MC8_interaction.pdf",width = 8,height = 2.5,onefile = FALSE)
 ggplot(interaction_tumor_plot) +
         geom_tile(aes(reorder(to_label,sum_sigval), from_label, fill = sum_sigval)) +
         scale_fill_gradient2(low = "blue", mid = "white", high = "red") +

@@ -53,28 +53,28 @@ saved as 16-bit images. To correctly scale pixel values of the segmentation
 masks when readin them in set `as.is = TRUE`.
 
 ```{r read-images}
-#images <- loadImages("/mnt/rcc_volume/TNBC/img/",on_disk = FALSE,BPPARAM = MulticoreParam(workers = 2,progressbar = TRUE,stop.on.error = FALSE))
-#images <- loadImages("/mnt/rcc_volume/TNBC/img/",on_disk = TRUE,h5FilesPath = "/mnt/rcc_volume/TNBC/h5_img/",BPPARAM = MulticoreParam(workers = 14,progressbar = TRUE))
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
+#images <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/img/",on_disk = FALSE,BPPARAM = MulticoreParam(workers = 2,progressbar = TRUE,stop.on.error = FALSE))
+#images <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/img/",on_disk = TRUE,h5FilesPath = "/mnt/central_nas/tnbc_volume/TNBC/h5_img/",BPPARAM = MulticoreParam(workers = 14,progressbar = TRUE))
+images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
 
 #set channel-names for multi-channel images
 #double-check that the channel order is correct
-panel <- read_csv("/mnt/rcc_volume/TNBC/panel.csv")
+panel <- read_csv("/mnt/central_nas/tnbc_volume/TNBC/panel.csv")
 channelNames(images) <- panel$clean_target
 images
 
 #Load masks
-#masks_1 <- loadImages("/mnt/rcc_volume/TNBC/masks_1/", as.is = TRUE)
-#masks_2 <- loadImages("/mnt/rcc_volume/TNBC/masks_2/", as.is = TRUE)
-#masks_3 <- loadImages("/mnt/rcc_volume/TNBC/masks_3/", as.is = TRUE)
-#masks_4 <- loadImages("/mnt/rcc_volume/TNBC/masks_4/", as.is = TRUE)
-#masks_5 <- loadImages("/mnt/rcc_volume/TNBC/masks_5/", as.is = TRUE)
+#masks_1 <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/masks_1/", as.is = TRUE)
+#masks_2 <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/masks_2/", as.is = TRUE)
+#masks_3 <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/masks_3/", as.is = TRUE)
+#masks_4 <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/masks_4/", as.is = TRUE)
+#masks_5 <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/masks_5/", as.is = TRUE)
 
-masks_1 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_1.rds")
-masks_2 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_2.rds")
-masks_3 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_3.rds")
-masks_4 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
-masks_5 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_5.rds")
+masks_1 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_1.rds")
+masks_2 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_2.rds")
+masks_3 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_3.rds")
+masks_4 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+masks_5 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_5.rds")
 ```
 
 Add additional metadata to the `elementMetadata` slot of the `CytoImageList` (accessible via mcols)
@@ -84,20 +84,19 @@ all.equal(names(images), names(masks_1))
 
 PID <- c(str_split(names(images), "_",simplify = TRUE)[1:180,3],paste0(str_split(names(images), "_",simplify = TRUE)[181:length(names(images)),3],str_split(names(images), "_",simplify = TRUE)[181:length(names(images)),4]))
 
-mcols(images) <- mcols(masks_1) <- mcols(masks_2) <- mcols(masks_3) <- mcols(masks_4) <- mcols(masks_5) <- DataFrame(sample_id = names(images),
-                                           PID = PID)
+mcols(images) <- mcols(masks_1) <- mcols(masks_2) <- mcols(masks_3) <- mcols(masks_4) <- mcols(masks_5) <- DataFrame(sample_id = names(images), PID = PID)
 ```
 
 ## Save image and mask objects for downstream analysis
 
 ```{r save-objects-read-data}
-saveRDS(images, "/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+saveRDS(images, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_segtest.rds")
 
-saveRDS(masks_1, "/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_1.rds")
-saveRDS(masks_2, "/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_2.rds")
-saveRDS(masks_3, "/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_3.rds")
-saveRDS(masks_4, "/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
-saveRDS(masks_5, "/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_5.rds")
+saveRDS(masks_1, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_1.rds")
+saveRDS(masks_2, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_2.rds")
+saveRDS(masks_3, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_3.rds")
+saveRDS(masks_4, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+saveRDS(masks_5, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_5.rds")
 ```
 
 ## Segmentation quality control - A
@@ -116,7 +115,7 @@ normalization (channels are first min-max normalized and scaled to a range of
 set.seed(22)
 img_random <- sample(seq_len(length(images)), 10)
 
-img_files <- list.files("/mnt/rcc_volume/TNBC/img/")
+img_files <- list.files("/mnt/central_nas/tnbc_volume/TNBC/img/")
 img_selected <- c(which(str_detect(img_files ,"ZTMA249_ID_320_CX8Y10")),which(str_detect(img_files ,"ZTMA249_ID_289_CX1Y7")),which(str_detect(img_files ,"ZTMA249_ID_36_AX4Y5")),which(str_detect(img_files ,"ZTMA249_ID_7_AX7Y1")),which(str_detect(img_files ,"ZTMA249_ID_220_BX4Y13")),which(str_detect(img_files ,"ZTMA249_ID_271_CX7Y4")),which(str_detect(img_files ,"ZTMA249_ID_82_AX2Y11")), which(str_detect(img_files ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(img_files ,"ZTMA249_ID_183_BX7Y8")), which(str_detect(img_files ,"ZTMA174_B08.26868_79_AX7Y10")))
 
 img_ids <- c(img_selected,img_random)
@@ -310,9 +309,9 @@ The `read_steinbock` function provided by `imcRtools` can now be used to read in
 `steinbock` generated data. 
 
 ```{r read and inspect steinbock}
-sce_4 <- read_steinbock("/mnt/rcc_volume/TNBC/",intensities_folder = "intensities_4",return_as = "sce",regionprops_folder = NULL,graphs_folder = NULL)
+sce_4 <- read_steinbock("/mnt/central_nas/tnbc_volume/TNBC/",intensities_folder = "intensities_4",return_as = "sce",regionprops_folder = NULL,graphs_folder = NULL)
 
-sce_5 <- read_steinbock("/mnt/rcc_volume/TNBC/",intensities_folder = "intensities_5",return_as = "sce",regionprops_folder = NULL,graphs_folder = NULL)
+sce_5 <- read_steinbock("/mnt/central_nas/tnbc_volume/TNBC/",intensities_folder = "intensities_5",return_as = "sce",regionprops_folder = NULL,graphs_folder = NULL)
 
 dim(assay(sce_4,"counts"))
 dim(assay(sce_5,"counts"))

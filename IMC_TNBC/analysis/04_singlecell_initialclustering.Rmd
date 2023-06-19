@@ -64,7 +64,7 @@ Here, we will perform the first single cell analysis steps, including distinguis
 First, we will read in the `SingleCellExperiment` object containing the cleaned, spillover- and quality-controlled single-cell data. 
 
 ```{r read-data-batch-correction, message=FALSE}
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/03_sce_TNBC_QC.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_sce_TNBC_QC.rds")
 sce
 ```
 
@@ -87,7 +87,7 @@ clust <- clusterCells(sce[rowData(sce)$use_channel==TRUE,],
 sce$cluster <- clust$clusters
 
 #Save sce after clustering 
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 ```
 
 
@@ -108,7 +108,7 @@ sce$cluster <- clusters
 unique(sce$cluster)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 ```
 
 ## Use GMM for panCK
@@ -167,13 +167,13 @@ GMM_plot_exp_1/GMM_plot_unc_1
 #sce$GMM_Ecad <- GMM_df_1$class_Ecad
 
 #Save sce after clustering and GMM
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
+#saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 ```
 
 ## Check correlation of panCK and Ecad as epithelial cell markers
 
 ```{r marker correlations, message = FALSE}
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 
 GOI <- c("panCK","Ecad")
 cor_sce <- as.data.frame(t(assay(sce,"exprs")[rowData(sce)$clean_target %in% GOI,]))
@@ -196,14 +196,14 @@ see [here](https://www.sciencedirect.com/science/article/pii/S2405471221003355?v
 #Add sampleID as covariate in design matrix
 expr_astir <- assay(sce,"exprs") %>% t() %>% as.data.frame() %>% mutate(sample = sce$sample_id)
 
-write.csv(expr_astir, file = "/mnt/rcc_volume/TNBC/data_analysis/04_astir/expr_TNBC_astir.csv",row.names = TRUE)
+write.csv(expr_astir, file = "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_astir/expr_TNBC_astir.csv",row.names = TRUE)
 ```
 
 `Next: Run Astir in conda-environment.`
 
 ```{r astir-ana, message = FALSE,warning=FALSE}
 #Import Astir cell type assignments
-astir_type <- read_csv("/mnt/rcc_volume/TNBC/data_analysis/04_astir/cell_types_TNBC.csv",col_names = c("ID","cell_type"),skip = 1)
+astir_type <- read_csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_astir/cell_types_TNBC.csv",col_names = c("ID","cell_type"),skip = 1)
 
 astir_sum <- astir_type %>% as.data.frame %>% group_by(cell_type) %>% dplyr::dplyr::count()
 
@@ -222,7 +222,7 @@ Heatmap of clusters with GMM and ASTIR information
 
 ```{r heatmap, message=FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
+#sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 
 ### 1. Heatmap body ###
 
@@ -348,7 +348,7 @@ draw(h)
 #sce$cluster_category <- anno_cluscat$cluster_category[match(sce$cluster,anno_cluscat $cluster)]
 
 #Save sce
-#saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
+#saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 ```
 
 ## Venn diagrams / Pie plots for categories
@@ -414,8 +414,8 @@ sce$cluster_category_2 <- sce_mixed$cluster_category_2[match(colnames(sce),colna
 
 ```{r viz critical clus, message=FALSE, warning=FALSE}
 #Load images and masks
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
-masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_segtest.rds")
+masks <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
 
 ##Visualize mixed clusters on images - select 10 images for each category with highest number of cells
 mixed_epi_samples <- colData(sce_mixed) %>% as.data.frame %>% group_by(cluster_category_2) %>% filter(cluster_category_2 == "Epithelial") %>% dplyr::count(sample_id) %>% arrange(desc(n)) %>% slice(1:10) %>% pull(sample_id)
@@ -449,7 +449,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/mixed_clusters_viz/cluster_mixed_epi_non_epi_bycluscat.png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/mixed_clusters_viz/cluster_mixed_epi_non_epi_bycluscat.png"), scale = 2)
            )
 ```
 
@@ -519,7 +519,7 @@ upset_1
 # sce_sub = runUMAP(sce_sub[rowData(sce_sub)$use_channel,], n_neighbors = 30, pca = 50,exprs_values = "exprs", external_neighbors=TRUE, BPPARAM = MulticoreParam((detectCores()-2)))
 # sce_sub = runTSNE(sce_sub[rowData(sce_sub)$use_channel,], exprs_values = "exprs", external_neighbors=TRUE, BPPARAM = MulticoreParam((detectCores()-2)))
 
-sce_sub <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds")
+sce_sub <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds")
 
 
 ## 1. Visualize TSNE
@@ -617,9 +617,9 @@ sce$PID_low_tumor <- sce$PID %in% PID_select_tumor_content
 ## Extract representative images
 
 ```{r}
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
-masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
-#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/07_sce_combined.rds")
+images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
+masks <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+#sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 ```{r}
@@ -628,7 +628,7 @@ library(cytomapper)
 set.seed(22)
 img_random <- sample(seq_len(length(images)), 10)
 
-img_files <- list.files("/mnt/rcc_volume/TNBC/img/")
+img_files <- list.files("/mnt/central_nas/tnbc_volume/TNBC/img/")
 img_selected <- c(which(str_detect(img_files ,"ZTMA249_ID_320_CX8Y10")),which(str_detect(img_files ,"ZTMA249_ID_289_CX1Y7")),which(str_detect(img_files ,"ZTMA249_ID_36_AX4Y5")),which(str_detect(img_files ,"ZTMA249_ID_7_AX7Y1")),which(str_detect(img_files ,"ZTMA249_ID_220_BX4Y13")),which(str_detect(img_files ,"ZTMA249_ID_271_CX7Y4")),which(str_detect(img_files ,"ZTMA249_ID_82_AX2Y11")), which(str_detect(img_files ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(img_files ,"ZTMA249_ID_183_BX7Y8")), which(str_detect(img_files ,"ZTMA174_B08.26868_79_AX7Y10")))
 
 img_ids <- c(img_selected,img_random)
@@ -657,9 +657,9 @@ shiny::runApp(app, launch.browser = TRUE)
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 #Save sce_sub
-saveRDS(sce_sub, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds")
+saveRDS(sce_sub, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds")
 ```
 
 ## Save plots as pdf
@@ -668,26 +668,26 @@ saveRDS(sce_sub, "/mnt/rcc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds")
 ##IMPORTANT: change to chunk output in console for this last part 
 
 ##save plots as pdf (vector graphics)
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_EcadpanCKCor.pdf")
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_EcadpanCKCor.pdf")
 pairs.panels(cor_sce,
              method = "spearman",
              hist.col = "#A6CEE3",
              digits = 2)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_GMMpanCK.pdf", width = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_GMMpanCK.pdf", width = 5)
 GMM_plot_exp/GMM_plot_unc
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_GMMEcad.pdf",width = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_GMMEcad.pdf",width = 5)
 GMM_plot_exp_1/GMM_plot_unc_1
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_EpiNonEpi_HeatmapGMMCC.pdf",width = 12,height = 7)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_EpiNonEpi_HeatmapGMMCC.pdf",width = 12,height = 7)
 draw(h)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_EpiNonEpi_DensityCC.pdf", width = 5, height = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_EpiNonEpi_DensityCC.pdf", width = 5, height = 5)
 ggplot(anno_cluscat, aes(fr_tum))+
   geom_density(size = 1)+
   geom_rug(aes(color = cluster_category))+
@@ -699,7 +699,7 @@ ggplot(anno_cluscat, aes(fr_tum))+
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_AlluvialGMMCC.pdf",width = 8,height = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_AlluvialGMMCC.pdf",width = 8,height = 5)
 alluvial_wide(data = colData(sce) %>% as.data.frame %>% select(cluster_category, analysis_cat), 
               max_variables = 4,
               fill_by = 'all_flows',
@@ -707,19 +707,19 @@ alluvial_wide(data = colData(sce) %>% as.data.frame %>% select(cluster_category,
   theme_classic(base_size = 12, base_line_size = 0.5)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_UpsetCC_TUMOR.pdf")
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_UpsetCC_TUMOR.pdf")
 upset
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_UpsetCC_TME.pdf")
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_UpsetCC_TME.pdf")
 upset_1
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_TSNE_collection.pdf", width = 12)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_TSNE_collection.pdf", width = 12)
 p1+p2+p3+p4+p5+p6
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_TSNE_exprsmarkers.pdf", height = 20, width = 12)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_TSNE_exprsmarkers.pdf", height = 20, width = 12)
 plots_TSNE_exp
 dev.off()
 

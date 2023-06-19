@@ -64,7 +64,7 @@ For further downstream analysis, we will asinh-transform the data using a
 cofactor of 5.
 
 ```{r read-txts-transform, message=FALSE}
-sce_spill <- readSCEfromTXT("/mnt/rcc_volume/TNBC/spillover/spillover_renamed/")
+sce_spill <- readSCEfromTXT("/mnt/central_nas/tnbc_volume/TNBC/spillover/spillover_renamed/")
 
 #Transformation
 assay(sce_spill, "exprs") <- asinh(counts(sce_spill)/5)
@@ -185,7 +185,7 @@ isotope_list <- CATALYST::isotope_list
 isotope_list$Ar <- 80
 
 #Load Janas spillover matrix for the same panel (aquired at similiar time-points and the same panel)
-sm_jana <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/spillover_matrix_Jana.csv",row.names = 1)
+sm_jana <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/spillover_matrix_Jana.csv",row.names = 1)
 metadata(sce_spill_2)$sm_jana <- sm_jana
 
 #Plot both spillover matrices
@@ -193,7 +193,7 @@ plotSpillmat(sce_spill_2,sm_jana, isotope_list = isotope_list) #Janas
 plotSpillmat(sce_spill_2, isotope_list = isotope_list) #My - with pixel binning
 
 #Check that spillover matrices contain are metals that are included in the study
-panel <- read.csv("/mnt/rcc_volume/TNBC/panel.csv")
+panel <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/panel.csv")
 channels <- paste0(panel$channel[panel$keep == 1], "Di")
 
 channels[which(!channels %in% rownames(sm))]
@@ -213,10 +213,10 @@ Next, we will write out the spillover matrix as .csv file for possible later use
 
 ```{r write_sm_csv}
 sm
-write.csv(sm, "/mnt/rcc_volume/TNBC/data_analysis/03_data/spillover_matrix_LM_mod.csv")
+write.csv(sm, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/spillover_matrix_LM_mod.csv")
 
 sm_jana
-write.csv(sm, "/mnt/rcc_volume/TNBC/data_analysis/03_data/spillover_matrix_Jana_mod.csv")
+write.csv(sm, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/spillover_matrix_Jana_mod.csv")
 ```
 
 
@@ -227,7 +227,7 @@ Firstly, we will use the `CATALYST` package to perform spillover compensation on
 Load `SpatialExperiment` object generated in previous script.
 
 ```{r single-cell-compensation}
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/01_sce_TNBC.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_sce_TNBC.rds")
 
 rowData(sce)$channel_name <- paste0(rowData(sce)$channel, "Di")
 
@@ -308,7 +308,7 @@ Secondly, we will use the [cytomapper](https://github.com/BodenmillerGroup/cytom
 Load `CytoImageList` object generated in previous script.
 
 ```{r read-in-image, message=FALSE}
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
+images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_segtest.rds")
 channelNames(images) <- rowData(sce)$channel_name
 ```
 
@@ -317,7 +317,7 @@ Create an adapted spillover matrix that matches the `channelNames` of the
 compensation.
 
 ```{r image-compensation, message = FALSE}
-panel <- read.csv("/mnt/rcc_volume/TNBC/panel.csv")
+panel <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/panel.csv")
 sm_jana <- as.matrix(sm_jana)
 adapted_sm <- adaptSpillmat(sm_jana, paste0(panel$channel[panel$keep == 1], "Di"),isotope_list = isotope_list)
 
@@ -343,6 +343,6 @@ For further downstream analysis, the compensated `SpatialExperiment` and
 `CytoImageList` objects are saved:
 
 ```{r save, message = F}
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/02_sce_TNBC_spillcor.rds")
-saveRDS(images_comp, "/mnt/rcc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/02_sce_TNBC_spillcor.rds")
+saveRDS(images_comp, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
 ```

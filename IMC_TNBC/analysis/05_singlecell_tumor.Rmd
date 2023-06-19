@@ -68,7 +68,7 @@ Here, we will perform the second single cell analysis steps, including phenotypi
 First, we will read in the `SingleCellExperiment` object containing the cleaned, spillover- and (batch-corrected) single-cell data. 
 
 ```{r read-data-batch-correction, message=FALSE}
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_TNBC_Clus.rds")
 ```
 
 ## Filter sce for tumor cells
@@ -116,7 +116,7 @@ sce$cluster_30 <- clusters
 unique(sce$cluster_30)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 gc()
 
@@ -130,7 +130,7 @@ sce$cluster_50 <- clusters
 unique(sce$cluster_50)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 gc()
 
@@ -144,7 +144,7 @@ sce$cluster_70 <- clusters
 unique(sce$cluster_70)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 gc()
 
@@ -158,7 +158,7 @@ sce$cluster_90 <- clusters
 unique(sce$cluster_90)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 gc()
 
@@ -172,7 +172,7 @@ sce$cluster_110 <- clusters
 unique(sce$cluster_110)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 gc()
 
@@ -186,7 +186,7 @@ sce$cluster_130 <- clusters
 unique(sce$cluster_130)
 
 #Save SCEs after clustering
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
 gc()
 ```
@@ -195,7 +195,7 @@ gc()
 
 ```{r clustree, message = FALSE, warning=FALSE}
 #Read sce after clustering and GMM
-#sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+#sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 #Pairwise rand index 
 #Agreement between two clustering approaches - ARI > 0.5 = "good" similarity
@@ -263,9 +263,9 @@ p1+p2+p3
 
 ```{r}
 # Missing metadata for 10 ZTMA174 patients
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor.rds")
 
-meta <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
+meta <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
 
 colData <- colData(sce) %>% as.data.frame() %>% select("PID","age","grade","pT", "pT_simple", "pN", "pN_simple", "status_OS","status_DFS", "OS_months","DFS_months") %>% distinct()
 
@@ -281,7 +281,7 @@ for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simpl
 
 ```{r heatmap scales, message=FALSE,warning=FALSE}
 #Read sce after clustering
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 #Heatmap body colors
 col_exprs <- colorRamp2(c(0,1,2,3), c("#440154FF", "#31688EFF", "#35B779FF", "#FDE725FF"))
@@ -595,9 +595,9 @@ draw(h_meta)
 
 ```{r save object}
 #Save sce after metacluster assignment
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 ```
 
 # 4. Single-cell visualization
@@ -2781,8 +2781,8 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
 
 ```{r load images, message = FALSE}
 #Load images and masks
-images <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/images_segtest.rds")
-masks <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_segtest.rds")
+masks <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
 ```
 
 ## Visualize metaclusters on images 
@@ -2819,7 +2819,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/Tumor_clusters_viz/Tumor_viz_metacluster_",i,".png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/Tumor_clusters_viz/Tumor_viz_metacluster_",i,".png"), scale = 2)
            )
  
   }
@@ -2867,7 +2867,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_viz_immune_metacluster_",i,".png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_viz_immune_metacluster_",i,".png"), scale = 2)
            )
  
   }
@@ -2910,7 +2910,7 @@ plotPixels(cur_images,
            image_title = NULL,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7),
-           save_plot = list(filename = paste0("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_viz_immune_metacluster_",i,".png"), scale = 2)
+           save_plot = list(filename = paste0("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TME_clusters_viz/TME_viz_immune_metacluster_",i,".png"), scale = 2)
            )
  
   }
@@ -2921,7 +2921,7 @@ plotPixels(cur_images,
 
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
-saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 ```
 
 ## Save plots as pdf
@@ -2931,23 +2931,23 @@ saveRDS(sce, "/mnt/rcc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
 ##save plots as pdf (vector graphics)
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_ClusterTesting.pdf",height = 4, width = 9)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_ClusterTesting.pdf",height = 4, width = 9)
 p1+p2+p3 
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_Cluster_Metacluster.pdf",width = 14,height = 9)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_Cluster_Metacluster.pdf",width = 14,height = 9)
 draw(h_meta)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_Cluster_Metacluster_QC.pdf",width = 14,height = 9)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_Cluster_Metacluster_QC.pdf",width = 14,height = 9)
 draw(h_meta)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Metacluster_Fra_Cor.pdf", height = 8)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Metacluster_Fra_Cor.pdf", height = 8)
 SID_metacluster_cor_plot
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CLRDR_Metacluster.pdf")
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CLRDR_Metacluster.pdf")
 clrDR(sce_cat, dr = "PCA", 
       by = "cluster_id", k = "metacluster", 
       label_by = "cluster_id", arrow_col = "PID", 
@@ -2958,12 +2958,12 @@ clrDR(sce_cat, dr = "PCA",
   theme_classic()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_FractionHeatmap.pdf", width = 10, height = 16, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_FractionHeatmap.pdf", width = 10, height = 16, onefile = FALSE)
 fraction_anno + NULL
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_EucDistanceCLR_Fra.pdf", height = 6,width = 9)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_EucDistanceCLR_Fra.pdf", height = 6,width = 9)
 ggplot(out_plot_1, aes(x = dist))+
   geom_density(aes(fill = category), color = "black",alpha = 0.5)+
   #geom_rug(aes(color = PID))+
@@ -2977,7 +2977,7 @@ ggplot(out_plot_1, aes(x = dist))+
   coord_cartesian(clip = "off")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DominantBar.pdf", width = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DominantBar.pdf", width = 5)
 ggplot(out_bar, aes(x = category, y = n, fill = dominant))+
   geom_tile(position = "stack", alpha = 0.5, color = "black", size = 0.7)+
   theme_classic()+
@@ -2986,7 +2986,7 @@ ggplot(out_bar, aes(x = category, y = n, fill = dominant))+
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Dominant_Scatter.pdf", height = 6, width = 9)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Dominant_Scatter.pdf", height = 6, width = 9)
 ggplot(test_plot, aes(mean_fra, dif_fra, color = PID))+
   geom_point(size = 3)+
   coord_cartesian(xlim = c(0,1), ylim = c(0,1))+
@@ -2996,7 +2996,7 @@ ggplot(test_plot, aes(mean_fra, dif_fra, color = PID))+
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS.pdf", height = 4, width = 8)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS.pdf", height = 4, width = 8)
 ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
 geom_point(size = 4)+
 geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
@@ -3012,7 +3012,7 @@ theme(axis.text.x = element_text(angle = 90))
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Kaplan_DFS_bestcutoff.pdf", width = 6, height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Kaplan_DFS_bestcutoff.pdf", width = 6, height = 6, onefile = FALSE)
 ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -3023,7 +3023,7 @@ ggsurvplot(fit,
           palette = "Set1") 
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DiffAbun_Node.pdf", width = 8, height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DiffAbun_Node.pdf", width = 8, height = 5, onefile = FALSE)
 ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
@@ -3037,11 +3037,11 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57score_Heatmap.pdf", width = 11, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57score_Heatmap.pdf", width = 11, onefile = FALSE)
 h
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57score_Cox.pdf",width = 8,height = 4)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57score_Cox.pdf",width = 8,height = 4)
 ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
 geom_point(size = 4)+
 geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
@@ -3056,12 +3056,12 @@ coord_cartesian(ylim=c(0,40))+
 theme(axis.text.x = element_text(angle = 90))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cluster_Fra_Cor.pdf", height = 8)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cluster_Fra_Cor.pdf", height = 8)
 SID_cluster_cor_plot
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CLRDR_PID.pdf")
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CLRDR_PID.pdf")
 clrDR(sce_cat, dr = "PCA", 
       by = "sample_id", point_col = "sample_id",
       k = "metacluster", point_pal = metadata(sce_cat)$colors$PID)+
@@ -3070,15 +3070,15 @@ clrDR(sce_cat, dr = "PCA",
   theme_classic()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_n_metacluster_PID.pdf", height = 8)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_n_metacluster_PID.pdf", height = 8)
 n_MC_PID
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_n_cluster_PID.pdf", height = 8)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_n_cluster_PID.pdf", height = 8)
 n_clus_PID
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DominantBar_Clus.pdf", width = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DominantBar_Clus.pdf", width = 5)
 ggplot(out_bar, aes(x = category, y = n, fill = dominant))+
   geom_tile(position = "stack", color = "black",alpha = 0.5)+
   theme_classic()+
@@ -3086,11 +3086,11 @@ ggplot(out_bar, aes(x = category, y = n, fill = dominant))+
   scale_fill_brewer(palette = "Set1")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Basoluminal_Scatter.pdf", height = 4,width = 8)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Basoluminal_Scatter.pdf", height = 4,width = 8)
 scatter_CK5_7 + scatter_CK5_8_18
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_OS_Meta.pdf", height = 4, width = 8)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_OS_Meta.pdf", height = 4, width = 8)
 ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
 geom_point(size = 4)+
 geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
@@ -3105,19 +3105,19 @@ coord_cartesian(ylim=c(0,60))+
 theme(axis.text.x = element_text(angle = 90))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS_Meta_Uni.pdf", height = 4, width = 6)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS_Meta_Uni.pdf", height = 4, width = 6)
 hr_prop
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS_CK57PID_Uni.pdf", height = 4, width = 4)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS_CK57PID_Uni.pdf", height = 4, width = 4)
 hr_prop
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS_Clus_Lasso.pdf", height = 5, width = 8)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS_Clus_Lasso.pdf", height = 5, width = 8)
 lasso_plot
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_KaplanMeier_pNmerg.pdf", width = 6, height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_KaplanMeier_pNmerg.pdf", width = 6, height = 6, onefile = FALSE)
 ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -3129,7 +3129,7 @@ ggsurvplot(fit,
           log.rank.weights = "n")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DiffAbun_Node_Clus.pdf", width = 6, height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DiffAbun_Node_Clus.pdf", width = 6, height = 5, onefile = FALSE)
 ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
@@ -3142,7 +3142,7 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
   labs(color = "cluster")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57score_scater.pdf", width = 5, height = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57score_scater.pdf", width = 5, height = 5)
 ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
   geom_point(alpha = 0.5)+
   theme_classic()+
@@ -3152,7 +3152,7 @@ ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Age_MC8Abundance_scater.pdf", width = 5, height = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Age_MC8Abundance_scater.pdf", width = 5, height = 5)
 ggplot(PID_MC8, aes(x = fra, y=age))+
   geom_point()+
   stat_smooth(method = "lm",
@@ -3167,7 +3167,7 @@ ggplot(PID_MC8, aes(x = fra, y=age))+
   theme_classic()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Age_CK57pos_scater.pdf", width = 5, height = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Age_CK57pos_scater.pdf", width = 5, height = 5)
 ggplot(PID_CK57_pos, aes(x = fra, y=age))+
   geom_point()+
   stat_smooth(method = "lm",
