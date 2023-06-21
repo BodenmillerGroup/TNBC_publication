@@ -370,6 +370,7 @@ ggplot(cur_scat, aes(x=CK8_18, y=CK5, color = metacluster_predict)) +
   #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "count")+
   theme_classic()
 ```
+
 ### Comparison discovery and validation 
 
 Compare metacluster fractions between discovery and validation cohort 
@@ -705,7 +706,37 @@ arrange_ggsurvplots(list(p1,p2))
 ```
 
 
-## 7. Independent clustering 
+## 7. Image visualization 
+
+```{r}
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/04_sce_TNBC_Clus_com.rds")
+```
+
+Filter sce for validation cohort
+
+```{r filter sce, message=FALSE}
+sce <- sce[,sce$TMANr %in% c("TMA21", "TMA26")]
+sce
+```
+
+Load images as CytoImageList 
+
+```{r}
+images_jana <- loadImages("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_Jana/h5_img/")
+images_jana
+
+# Set channel names 
+channelNames(images_jana) <- rownames(sce)
+```
+
+Visualize using cytoviewer 
+
+```{r}
+cytoviewer(image = images_jana)
+```
+
+
+## 8. Independent clustering 
 
 ```{r}
 ## Run clustering
@@ -930,7 +961,7 @@ plotSpatial(sce_val[,sce_val$sample_id %in% cur_sample & sce_val$metacluster_pre
             node_shape_by = "analysis_cat")
 ```
 
-## 8. Focus on MC8 frequency / patches / dominant PID 
+## 9. Focus on MC8 frequency / patches / dominant PID 
 
 ```{r, message=FALSE}
 sce <- readRDS("/mnt/tnbc_volume/TNBC_all/data_analysis/04_sce_TNBC_Clus_com.rds")
