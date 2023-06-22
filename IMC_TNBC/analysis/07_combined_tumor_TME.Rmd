@@ -3129,7 +3129,9 @@ cells$cellType <- cur_sce$metacluster_combined
 cells_sc <- SegmentedCells(cells, cellProfiler = TRUE)
 
 # Add condition and patient id
-spatial_CD8_factor <- relevel(x=factor(cur_sce$spatial_CD8_pheno_merg), ref = "cold/excluded")
+unique(cur_sce$spatial_CD8_pheno_merg)
+
+spatial_CD8_factor <- relevel(x=factor(cur_sce$spatial_CD8_pheno_merg), ref = "cold_excluded")
 
 imagePheno(cells_sc) <- DataFrame(imageID = cur_sce$sample_id, 
           PID = cur_sce$PID,
@@ -3150,7 +3152,7 @@ saveRDS(spicyTest, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/sp
 spicyTest3 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_spicyR/spicy_inflamedvscold_allVSall_withzero.rds")
 topPairs(spicyTest3)
 
-signifPlot(spicyTest3,
+signifPlot(spicyTest,
            type = "heatmapbliblablub",
            breaks=c(-3, 3, 0.5),
            fdr = TRUE,

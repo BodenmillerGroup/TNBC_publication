@@ -98,7 +98,7 @@ brca.clean$PID <- brca.exp$PID
 
 # 1. Add clinical information 
 ## Cleaned clinical information from UCSC Xena
-information.subtype.xena <- read_delim("/mnt/rcc_volume/TNBC/data_analysis/03_data/BRCA_clinicalinfo.txt")
+information.subtype.xena <- read_delim("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/BRCA_clinicalinfo.txt")
 information.subtype.xena <- information.subtype.xena %>% as.data.frame
 
 ## Add relevant data based on PID
@@ -108,7 +108,7 @@ for (entry in colnames(information.subtype.xena)[colnames(information.subtype.xe
 
 # 2. Add survival information 
 ## Cleaned survival information from UCSC Xena
-information.survival_xena <- read_delim("/mnt/rcc_volume/TNBC/data_analysis/03_data/BRCA_survival_Xena.txt")
+information.survival_xena <- read_delim("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/BRCA_survival_Xena.txt")
 information.survival_xena$PID <- str_split(information.survival_xena$sample,"-",simplify = TRUE)[,3]
 information.survival_xena <- information.survival_xena %>% as.data.frame
 
@@ -141,9 +141,9 @@ basal.clean # 143 patients
 ```
 
 ```{r}
-saveRDS(brca.clean,"/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_cleaned_full.rds")
+saveRDS(brca.clean,"/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_cleaned_full.rds")
 
-brca.clean <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_cleaned_full.rds")
+brca.clean <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_cleaned_full.rds")
 ```
 
 ## DESeq2 processing
@@ -176,8 +176,8 @@ mat <- assay(vsd)
 ```
 
 ```{r}
-res <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_res.rds") 
-vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
+res <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_res.rds") 
+vsd <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
 ```
 
 ## CK5/7 Signature 
@@ -264,10 +264,10 @@ colData(vsd) %>% as.data.frame %>% group_by(KRT5_7_score) %>% count() %>% ungrou
 ```
 
 ```{r}
-saveRDS(vsd,"/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
-saveRDS(res,"/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_res.rds")
-#res <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_res.rds") 
-#vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
+saveRDS(vsd,"/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
+saveRDS(res,"/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_res.rds")
+#res <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_res.rds") 
+#vsd <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
 ```
 
 
@@ -279,8 +279,8 @@ brca.clean$KRT5_7_score_combined <- ifelse(brca.clean$KRT5_7_score == "KRT5/7+",
 ```
 
 ```{r}
-#saveRDS(brca.clean,"/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_cleaned_full.rds")
-brca.clean <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_cleaned_full.rds")
+#saveRDS(brca.clean,"/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_cleaned_full.rds")
+brca.clean <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_cleaned_full.rds")
 ```
 
 ```{r}
@@ -307,11 +307,10 @@ vsd <- DESeq2::vst(dds)
 
 ```{r}
 #Save objects 
-saveRDS(res, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_CombinedScore.rds")
-saveRDS(vsd, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Combined_VST.rds")
+saveRDS(res, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_CombinedScore.rds")
+saveRDS(vsd, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Combined_VST.rds")
 
-res <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_CombinedScore.rds")
-vsd <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Combined_VST.rds")
+vsd <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_Combined_VST.rds")
 
 ## Add colors 
 metadata(vsd)$colors$KRT57_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("KRT5/7-", "KRT5/7+","KRT5+", "KRT7+"))
@@ -872,9 +871,9 @@ ggplot(df, aes(x = KRT5_7_score, y = SOX9))+
 
 ```{r}
 library(readxl)
-lum_progenitor_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/LuminalProgenitor_Signature_Limetal_NatureMedicine_2009.xls")
-mature_lum_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/MatureLuminalSignature_Limetal_NatureMedicine_2009.xls")
-basal_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/Basal_Signature_Limetal_NatureMedicine_2009.xls")
+lum_progenitor_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/LuminalProgenitor_Signature_Limetal_NatureMedicine_2009.xls")
+mature_lum_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/MatureLuminalSignature_Limetal_NatureMedicine_2009.xls")
+basal_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Basal_Signature_Limetal_NatureMedicine_2009.xls")
 
 # Extract unique genes that were up- or down-regulated in each signature 
 lum_progenitor_sig_up <- lum_progenitor_sig %>% filter(`Average log fold-change` > 1) %>% pull(Symbol) %>% unique()
@@ -1077,7 +1076,7 @@ A: Alveolar subtypes
 
 ```{r}
 library(readxl)
-AV_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 1)
+AV_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 1)
 
 colnames(AV_sig) <- c("pan_AV", "BL_enriched","AP_enriched")
 
@@ -1186,10 +1185,10 @@ Heatmap(ht, name = "Mean signature Z-scores")
 B: pan-Basal and pan-HS
 
 ```{r}
-HS_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 2) %>% select("Pan-HS") %>% pull("Pan-HS")
+HS_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 2) %>% select("Pan-HS") %>% pull("Pan-HS")
 HS_sig_up <- HS_sig[!is.na(HS_sig)]
 
-BA_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 3) %>% select("Pan-BA") %>% pull("Pan-BA")
+BA_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 3) %>% select("Pan-BA") %>% pull("Pan-BA")
 BA_sig_up <- BA_sig[!is.na(BA_sig)]
 ```
 
@@ -1272,7 +1271,7 @@ ggVennDiagram(gene_signatures,
 ### Somatic mutation 
 
 ```{r}
-somatic_mut_TCGA <- read.delim("/mnt/rcc_volume/TNBC/data_analysis/03_data/somaticmutation_TCGA_BRCA.txt")
+somatic_mut_TCGA <- read.delim("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/somaticmutation_TCGA_BRCA.txt")
 
 somatic_mut_BRCA <- somatic_mut_TCGA %>% filter(sample %in% c("BRCA1"))
 
@@ -1288,7 +1287,7 @@ colData(vsd) %>% as.data.frame %>% dplyr::select(KRT5_7_score, BRCA1_mut) %>% fi
 ### CNV
 
 ```{r}
-CNV_TCGA <- read.delim("/mnt/rcc_volume/TNBC/data_analysis/03_data/TCGA_BRCA_GISTIC2.txt")
+CNV_TCGA <- read.delim("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/TCGA_BRCA_GISTIC2.txt")
 
 CNV_TCGA_BRCA <- CNV_TCGA %>% filter(Gene.Symbol %in% c("BRCA1"))
 
@@ -1311,7 +1310,7 @@ ggplot(out_dat) +
 ### Germline 
 
 ```{r}
-germline_TCGA <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/BRCAgermline_Shah_NatureComm_2022.xlsx",sheet = 1)
+germline_TCGA <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/BRCAgermline_Shah_NatureComm_2022.xlsx",sheet = 1)
 
 germline_TCGA$PID <- str_split(germline_TCGA$`TCGA Tumor`, "-",simplify = TRUE)[,3]
 
@@ -1469,10 +1468,10 @@ counts(dds, normalized = TRUE)["KRT5",]
 
 ```{r}
 #Save objects 
-#saveRDS(vsd, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_FullScore_VST.rds")
+#saveRDS(vsd, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_FullScore_VST.rds")
 
 ## NOTE: res_1 to res_3 are not yet saved 
-#res_1 <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_FullScore.rds")
+#res_1 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_VST_full_FullScore.rds")
 ```
 
 Compare DEG 
@@ -1527,103 +1526,8 @@ ggplot(plot_go_BP, aes(x = reorder(Term,-P.DE), y = -log10(P.DE)))+
   theme_classic()
 ```
 
-## 12. Immune cell deconvolution 
 
-```{r}
-library(immunedeconv)
-
-deconvolution_methods
-
-# TPM gene expression matrix 
-TPM_mat <- assay(brca.clean, "tpm_unstrand")
-rownames(TPM_mat) <- rowData(brca.clean)$gene_name
-```
-
-### MCP-counter 
-
-```{r}
-res_MCP <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_MCP.rds")
-#res_MCP <- immunedeconv::deconvolute(TPM_mat, method = "mcp_counter")
-
-#Z-scoring of MCP results by cell type
-res_MCP_1 <- res_MCP %>% dplyr::select(-cell_type)
-rownames(res_MCP_1) <- res_MCP$cell_type
-res_MCP_z <- as.data.frame(t(scale(t(res_MCP_1), center=TRUE, scale=TRUE)))
-res_MCP_z <- res_MCP_z %>% rownames_to_column("cell_type")
-
-res_MCP_plot <- res_MCP_z %>% pivot_longer(2:ncol(res_MCP_z), names_to = "PID", values_to = "score")
-
-res_MCP_plot$KRT5_7_score_combined <- brca.clean$KRT5_7_score_combined[match(res_MCP_plot$PID, colnames(brca.clean))]
-res_MCP_plot$KRT5_7_score <- brca.clean$KRT5_7_score[match(res_MCP_plot$PID, colnames(brca.clean))]
-res_MCP_plot$TNBC <- brca.clean$TNBC[match(res_MCP_plot$PID, colnames(brca.clean))]
-
-ggplot(res_MCP_plot, aes(x = KRT5_7_score, y = score))+
-  geom_boxplot(outlier.colour = NA)+
-  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  facet_wrap(~cell_type, scales = "free_y")+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90))+
-  scale_color_brewer(palette = "Set1")+
-  guides(color = "none")+
-  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)
-  #stat_compare_means(method = "t.test")
-  
-
-# Heatmap visualization  
-ht_MCP <- res_MCP_plot %>% group_by(KRT5_7_score, cell_type) %>% summarize(mean = mean(score)) %>% pivot_wider(names_from = KRT5_7_score, values_from = mean) %>% column_to_rownames("cell_type")
-
-Heatmap(ht_MCP, name = "mean MCP-Z-score")
-```
-
-### Quantiseq 
-
-```{r}
-res_QS <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_Quantiseq.rds")
-#res_QS <- immunedeconv::deconvolute(TPM_mat, method = "quantiseq", tumor = TRUE)
-
-plot_QS <- res_QS %>% pivot_longer(2:ncol(res_QS), names_to = "PID", values_to = "fra")
-plot_QS$KRT5_7_score_combined <- brca.clean$KRT5_7_score_combined[match(plot_QS$PID, colnames(brca.clean))]
-plot_QS$KRT5_7_score <- brca.clean$KRT5_7_score[match(plot_QS$PID, colnames(brca.clean))]
-plot_QS$TNBC <- brca.clean$TNBC[match(plot_QS$PID, colnames(brca.clean))]
-
-
-ggplot(plot_QS, aes(x = KRT5_7_score, y = fra))+
-  geom_boxplot(outlier.colour = NA, aes(color = KRT5_7_score))+
-  #geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  facet_wrap(~cell_type, scales = "free_y")+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90))+
-  ylab("")+
-  xlab("")+
-  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
-  guides(color = "none")
-  #stat_compare_means(method = "t.test")
-
-ggplot(plot_QS, aes(x = TNBC, y = fra))+
-  geom_boxplot(outlier.colour = NA,aes(color = TNBC))+
-  #geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  facet_wrap(~cell_type, scales = "free_y")+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90))+
-  ylab("")+
-  xlab("")+
-  scale_color_brewer(palette = "Set1")+
-  guides(color = "none")
-
-# Heatmap visualization  
-ht_QS <- plot_QS %>% group_by(KRT5_7_score, cell_type) %>% summarize(mean = mean(fra)) %>% pivot_wider(names_from = KRT5_7_score, values_from = mean) %>% column_to_rownames("cell_type")
-
-Heatmap(ht_QS, name = "mean QS-fraction", col = viridis(100))
-Heatmap(t(scale(t(ht_QS))), name = "mean QS-fraction")
-```
-
-```{r}
-saveRDS(res_MCP, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_MCP.rds")
-saveRDS(res_QS, "/mnt/rcc_volume/TNBC/data_analysis/TCGA_BRCA_Quantiseq.rds")
-```
-
-
-## 13. Clustering for PID groups
+## 12. Clustering for PID groups
 
 Find the same patient groups in TCGA BRCA data as in discovery dataset. 
 
@@ -1653,6 +1557,9 @@ ggplot(GMM_df, aes(x = HLADR_exprs))+
 
 # Add HLA group 
 vsd$HLADR_group <- GMM_df$class_epi[match(colnames(vsd), rownames(GMM_df))]
+
+n_cat <- colData(vsd) %>% as.data.frame() %>% group_by(HLADR_group) %>% count()
+n_cat <- n_cat %>% ungroup() %>% mutate(sum = sum(n)) %>% mutate(fra = (n/sum)*100)
 
 # Make patient groups 
 vsd$PID_group_test <- ifelse(vsd$HLADR_group == "HLADR+", "inflamed", vsd$KRT5_7_score)
@@ -1927,11 +1834,100 @@ dittoBarPlot(vsd, var = "PID_group_test", group.by = "PAM50Call_RNAseq",retain.f
   ggtitle("")
 ```
 
+### IFN-G signature 
+
+From Ayers et al., 2017 (JCI) - Predicted response to PD1 blockade in melanoma
+
+```{r}
+library(ggpubr)
+
+IFNG_sig <- c("IFNG", "STAT1", "CCR5", "CXCL9", "CXCL10", "CXCL11", "IDO1", "PRF1", "GZMA") #excluded HLA-DRA from signature 
+
+## IFN signature per PID group 
+IFNG_sig_rel <- IFNG_sig[IFNG_sig %in% rownames(assay(vsd))]
+# Filter for available genes
+df <- t(assay(vsd)[IFNG_sig_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$PID_group_test <- vsd$PID_group_test[match(rownames(df), colnames(vsd))]
+
+compare_means(signature_sum ~ PID_group_test,df) #pairwise comparisons
+compare_means(signature_sum ~ PID_group_test,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = PID_group_test, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = PID_group_test), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("IFN-gamma signature score (Ayers et al.)")+
+  stat_compare_means()
+
+mat <- df %>% pivot_longer(cols = 1:(ncol(df)-2), names_to = "gene", values_to = "exprs") %>% group_by(PID_group_test, gene) %>% summarize(mean = mean(exprs))
+mat <- mat %>% filter(!is.na(mean))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("PID_group_test")
+
+Heatmap(ht, name = "Mean signature Z-scores")
+```
+
+## 13. Immune cell deconvolution 
+
+```{r}
+library(immunedeconv)
+
+deconvolution_methods
+
+brca.clean$PID_group_test <- vsd$PID_group_test[match(brca.clean$PID, vsd$PID)]
+
+# TPM gene expression matrix 
+TPM_mat <- assay(brca.clean, "tpm_unstrand")
+rownames(TPM_mat) <- rowData(brca.clean)$gene_name
+```
+
+### MCP-counter 
+
+```{r}
+#res_MCP <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_MCP.rds")
+res_MCP <- immunedeconv::deconvolute(TPM_mat, method = "mcp_counter")
+
+#Z-scoring of MCP results by cell type
+res_MCP_1 <- res_MCP %>% dplyr::select(-cell_type)
+rownames(res_MCP_1) <- res_MCP$cell_type
+res_MCP_z <- as.data.frame(t(scale(t(res_MCP_1), center=TRUE, scale=TRUE)))
+res_MCP_z <- res_MCP_z %>% rownames_to_column("cell_type")
+
+res_MCP_plot <- res_MCP_z %>% pivot_longer(2:ncol(res_MCP_z), names_to = "PID", values_to = "score")
+
+res_MCP_plot$PID_group_test <- brca.clean$PID_group_test[match(res_MCP_plot$PID, colnames(brca.clean))]
+res_MCP_plot$TNBC <- brca.clean$TNBC[match(res_MCP_plot$PID, colnames(brca.clean))]
+
+ggplot(res_MCP_plot, aes(x = PID_group_test, y = score))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID_group_test), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  facet_wrap(~cell_type, scales = "free_y")+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90))+
+  scale_color_brewer(palette = "Set1")+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)
+  #stat_compare_means(method = "t.test")
+  
+
+# Heatmap visualization  
+ht_MCP <- res_MCP_plot %>% group_by(PID_group_test, cell_type) %>% summarize(mean = mean(score)) %>% pivot_wider(names_from = PID_group_test, values_from = mean) %>% column_to_rownames("cell_type")
+
+Heatmap(ht_MCP, name = "mean MCP-Z-score")
+```
+
+```{r}
+saveRDS(res_MCP, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_MCP.rds")
+```
 
 ## Save plots as pdf
 
 ```{r save_plots, include=FALSE}
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_scatter.pdf",height = 5, width = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_scatter.pdf",height = 5, width = 5)
 ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
   geom_point(size = 2)+
   #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
@@ -1942,7 +1938,7 @@ ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_scatter_norm.pdf",height = 5, width = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_scatter_norm.pdf",height = 5, width = 5)
 ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
   geom_point(size = 2)+
   #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
@@ -1953,7 +1949,7 @@ ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
   scale_color_manual(values = metadata(vsd)$colors$KRT57_score)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57_Combined_Volcano.pdf", height = 9, width = 9, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57_Combined_Volcano.pdf", height = 9, width = 9, onefile = FALSE)
 ggplot(plot_vol, aes(x = log2FoldChange, y=-log10(padj)))+
   geom_point(aes(color = type))+
   geom_label_repel(data = plot_vol %>% filter(gene %in% sig.down), aes(label = gene, color = type), max.overlaps = 30)+
@@ -1970,7 +1966,7 @@ ggplot(plot_vol, aes(x = log2FoldChange, y=-log10(padj)))+
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Kaplan_DFS.pdf", height = 7, width = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Kaplan_DFS.pdf", height = 7, width = 6, onefile = FALSE)
 ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -1983,7 +1979,7 @@ ggsurvplot(fit,
           xlim = c(0, 4000))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Kaplan_PFS.pdf", height = 7, width = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Kaplan_PFS.pdf", height = 7, width = 6, onefile = FALSE)
 ggsurvplot(fit_1,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -1996,41 +1992,41 @@ ggsurvplot(fit_1,
           xlim = c(0, 4000))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Cox_DFS.pdf", height = 4, width = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Cox_DFS.pdf", height = 4, width = 7, onefile = FALSE)
 hr_prop
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Cox_DFS_Uni.pdf", height = 4, width = 4, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Cox_DFS_Uni.pdf", height = 4, width = 4, onefile = FALSE)
 hr_prop
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Cox_PFS.pdf", height = 4, width = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Cox_PFS.pdf", height = 4, width = 7, onefile = FALSE)
 hr_prop_PFS
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Barplot_TNBC.pdf", height = 4, width = 4, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Barplot_TNBC.pdf", height = 4, width = 4, onefile = FALSE)
 dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "TNBC")+
     scale_fill_manual(values = metadata(vsd)$colors$KRT57_score)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Barplot_Pam50.pdf", height = 4, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Barplot_Pam50.pdf", height = 4, width = 5, onefile = FALSE)
 dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "PAM50Call_RNAseq")+
     scale_fill_manual(values = metadata(vsd)$colors$KRT57_score)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Heatmap_Keratins.pdf", height = 4, width = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Heatmap_Keratins.pdf", height = 4, width = 7, onefile = FALSE)
 Heatmap(scale(ht), name = "Scaled mean Z-scores")+
   rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
   rowAnnotation(anno = anno_text(anno$KRT5_7_score))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Heatmap_Stem.pdf", height = 5, width = 9, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_Heatmap_Stem.pdf", height = 5, width = 9, onefile = FALSE)
 Heatmap(scale(ht), name = "Scaled mean Z-scores")+
   rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
   rowAnnotation(anno = anno_text(anno$KRT5_7_score))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_SOX9_exprs.pdf", height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_SOX9_exprs.pdf", height = 5, width = 5, onefile = FALSE)
 ggplot(df, aes(x = KRT5_7_score, y = SOX9))+
   geom_boxplot(outlier.color = NA)+
   geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
@@ -2039,7 +2035,7 @@ ggplot(df, aes(x = KRT5_7_score, y = SOX9))+
   ylab("SOX9 expression")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_BRCA1_exprs.pdf", height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_BRCA1_exprs.pdf", height = 5, width = 5, onefile = FALSE)
 ggplot(df, aes(x = KRT5_7_score, y = BRCA1))+
   geom_boxplot(outlier.color = NA)+
   geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
@@ -2048,7 +2044,7 @@ ggplot(df, aes(x = KRT5_7_score, y = BRCA1))+
   ylab("BRCA1 expression")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_LumProgenitor_exprs.pdf", height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_LumProgenitor_exprs.pdf", height = 5, width = 5, onefile = FALSE)
 ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
   geom_boxplot(outlier.color = NA)+
   geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
@@ -2058,11 +2054,11 @@ ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
   stat_compare_means()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_LumProgenitor_Heatmap.pdf", height = 4, width = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_LumProgenitor_Heatmap.pdf", height = 4, width = 7, onefile = FALSE)
 Heatmap(ht, name = "Mean signature Z-scores", show_column_names = FALSE)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_MatureLuminal_exprs.pdf", height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_MatureLuminal_exprs.pdf", height = 5, width = 5, onefile = FALSE)
 ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
   geom_boxplot(outlier.color = NA)+
   geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
@@ -2072,11 +2068,11 @@ ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
   stat_compare_means()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_MatureLuminal_Heatmap.pdf", height = 4, width = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_MatureLuminal_Heatmap.pdf", height = 4, width = 7, onefile = FALSE)
 Heatmap(ht, name = "Mean signature Z-scores", show_column_names = FALSE)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_BL_exprs.pdf", height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_BL_exprs.pdf", height = 5, width = 5, onefile = FALSE)
 ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
   geom_boxplot(outlier.color = NA)+
   geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
@@ -2086,11 +2082,11 @@ ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
   stat_compare_means()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_BL_Heatmap.pdf", height = 4, width = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_BL_Heatmap.pdf", height = 4, width = 7, onefile = FALSE)
 Heatmap(ht, name = "Mean signature Z-scores", show_column_names = FALSE)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_GeneSignature_Venn.pdf",height = 4, width = 5)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_GeneSignature_Venn.pdf",height = 4, width = 5)
 ggVennDiagram(gene_signatures,
               category.names = c("LuminalProgenitorLim","panAlveolarGray","BLGray"),
               label_alpha = 0, 
@@ -2099,35 +2095,35 @@ ggVennDiagram(gene_signatures,
   scale_color_manual(values = c("black","black","black"))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_GSEA_EMAP.pdf", onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_GSEA_EMAP.pdf", onefile = FALSE)
 emapplot(pairwise_termsim(gse), showCategory = 15, color = "enrichmentScore", layout = "circle")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_GSEA_EpithelialDiff.pdf", height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_GSEA_EpithelialDiff.pdf", height = 5, width = 5, onefile = FALSE)
 gseaplot2(gse, title = gse$Description[9], geneSetID = 1)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_GSEA_EpithelialProlif.pdf", height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_GSEA_EpithelialProlif.pdf", height = 5, width = 5, onefile = FALSE)
 gseaplot2(gse, title = gse$Description[14], geneSetID = 1)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_EMAP.pdf", onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_EMAP.pdf", onefile = FALSE)
 emapplot(pairwise_termsim(gseKEGG), showCategory = 15,color = "enrichmentScore", layout = "circle")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_IL17.pdf", height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_IL17.pdf", height = 5, width = 5, onefile = FALSE)
 gseaplot2(gseKEGG, title = gseKEGG$Description[4], geneSetID = 1)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_TNF.pdf", height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_TNF.pdf", height = 5, width = 5, onefile = FALSE)
 gseaplot2(gseKEGG, title = gseKEGG$Description[12], geneSetID = 1)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_NFKB.pdf", height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_KEGG_NFKB.pdf", height = 5, width = 5, onefile = FALSE)
 gseaplot2(gseKEGG, title = gseKEGG$Description[20], geneSetID = 1)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_HLADRGMM.pdf", height = 4, width = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_HLADRGMM.pdf", height = 4, width = 7, onefile = FALSE)
 ggplot(GMM_df, aes(x = HLADR_exprs))+
   geom_density()+
   geom_rug(aes(color = class_epi))+
@@ -2137,7 +2133,7 @@ ggplot(GMM_df, aes(x = HLADR_exprs))+
   scale_color_brewer(palette = "Set1")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Alluvial.pdf", height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Alluvial.pdf", height = 5, width = 5, onefile = FALSE)
 alluvial_wide(df_alluvial, 
               colorful_fill_variable_stratum = FALSE,
               col_vector_flow = metadata(vsd)$colors$KRT57_score, 
@@ -2145,16 +2141,16 @@ alluvial_wide(df_alluvial,
   theme_classic()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Marker.pdf", height = 5, width = 3, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Marker.pdf", height = 5, width = 3, onefile = FALSE)
 Heatmap(scale(t(assay(GOI_mean_sce, "vst"))))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Marker_Immune.pdf", height = 4, width = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Marker_Immune.pdf", height = 4, width = 7, onefile = FALSE)
 Heatmap(scale(t(assay(GOI_mean_sce, "vst"))))+
   Heatmap(scale(t(assay(GOI_mean_sce_2, "vst"))))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_DFS.pdf", height = 7, width = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_DFS.pdf", height = 7, width = 6, onefile = FALSE)
 ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -2167,7 +2163,7 @@ ggsurvplot(fit,
           xlim = c(0, 4000))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_PFS.pdf", height = 7, width = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_PFS.pdf", height = 7, width = 6, onefile = FALSE)
 ggsurvplot(fit_1,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -2179,7 +2175,7 @@ ggsurvplot(fit_1,
           xlim = c(0, 4000))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_DFS_TNBC.pdf", height = 7, width = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_DFS_TNBC.pdf", height = 7, width = 6, onefile = FALSE)
 ggsurvplot(fit,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -2192,7 +2188,7 @@ ggsurvplot(fit,
           xlim = c(0, 4000))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_PFS_TNBC.pdf", height = 7, width = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_PFS_TNBC.pdf", height = 7, width = 6, onefile = FALSE)
 ggsurvplot(fit_1,
           pval = TRUE,
           risk.table = TRUE, # Add risk table
@@ -2205,21 +2201,21 @@ ggsurvplot(fit_1,
           xlim = c(0, 4000))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_CoxDFS_Multi.pdf",width = 7,height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_CoxDFS_Multi.pdf",width = 7,height = 5, onefile = FALSE)
 hr_prop
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_CoxDFS_Uni.pdf",width = 5,height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_CoxDFS_Uni.pdf",width = 5,height = 5, onefile = FALSE)
 hr_prop
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_PAM50_Bar.pdf",width = 5,height = 4, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_PAM50_Bar.pdf",width = 5,height = 4, onefile = FALSE)
 dittoBarPlot(vsd, var = "PID_group_test", group.by = "PAM50Call_RNAseq",retain.factor.levels = TRUE)+
   scale_fill_manual(values = group_color)+
   ggtitle("")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_TNBC_Bar.pdf",width = 4,height = 4, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_TNBC_Bar.pdf",width = 4,height = 4, onefile = FALSE)
 dittoBarPlot(vsd, var = "PID_group_test", group.by = "TNBC",retain.factor.levels = TRUE)+
   scale_fill_manual(values = group_color)+
   ggtitle("")

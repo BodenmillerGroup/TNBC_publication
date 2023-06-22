@@ -65,7 +65,7 @@ library(batchelor)
 ## Load data 
 
 ```{r}
-sce <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/03_data/sce_scRNA_organoid_final.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/sce_scRNA_organoid_final.rds")
 sce
 ```
 
@@ -190,6 +190,9 @@ dittoBarPlot(sce, var = "KRT5_7_score", group.by = "Patient_ID",scale="count")+
 dittoBarPlot(sce, var = "KRT5_7_score", group.by = "Patient_ID",scale="percent")+
     scale_fill_manual(values = metadata(sce)$colors$KRT57_score)
 
+out_dat <- dittoBarPlot(sce, var = "KRT5_7_score", group.by = "Patient_ID",scale="percent", data.out = TRUE)[[2]]
+
+
 
 # Cell types
 dittoBarPlot(sce, var = "KRT5_7_score", group.by = "celltypes",scale="percent")+
@@ -268,7 +271,7 @@ A: Alveolar subtypes
 
 ```{r}
 library(readxl)
-AV_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 1)
+AV_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 1)
 
 colnames(AV_sig) <- c("pan_AV", "BL_enriched","AP_enriched")
 
@@ -351,9 +354,9 @@ Heatmap(test_plot)
 
 ```{r}
 library(readxl)
-lum_progenitor_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/LuminalProgenitor_Signature_Limetal_NatureMedicine_2009.xls")
-mature_lum_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/MatureLuminalSignature_Limetal_NatureMedicine_2009.xls")
-basal_sig <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/Basal_Signature_Limetal_NatureMedicine_2009.xls")
+lum_progenitor_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/LuminalProgenitor_Signature_Limetal_NatureMedicine_2009.xls")
+mature_lum_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/MatureLuminalSignature_Limetal_NatureMedicine_2009.xls")
+basal_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Basal_Signature_Limetal_NatureMedicine_2009.xls")
 
 # Extract unique genes that were up- or down-regulated in each signature 
 lum_progenitor_sig_up <- lum_progenitor_sig %>% filter(`Average log fold-change` > 1) %>% pull(Symbol) %>% unique()
@@ -409,17 +412,17 @@ Heatmap(test_plot)
 ```{r}
 ## Save plots as pdf
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_Heatmap_Keratins.pdf",height = 4, width = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_Heatmap_Keratins.pdf",height = 4, width = 7, onefile = FALSE)
 Heatmap(t(scaled_mat), name = "Scaled mean expression")+
   rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
   rowAnnotation(anno = anno_text(anno$KRT5_7_score))
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_UMAP_Keratins.pdf",height = 10, width = 10, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_UMAP_Keratins.pdf",height = 10, width = 10, onefile = FALSE)
 all_plots_UMAP_keratins
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_Scatter.pdf",height = 4, width = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_Scatter.pdf",height = 4, width = 6, onefile = FALSE)
 ggplot(cur_dat, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
   geom_point(alpha = 0.5)+
   theme_classic()+
@@ -428,19 +431,19 @@ ggplot(cur_dat, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
   scale_color_manual(values = metadata(sce)$colors$KRT57_score)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_PID_Barplot.pdf",height = 4, width = 7, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_PID_Barplot.pdf",height = 4, width = 7, onefile = FALSE)
 dittoBarPlot(sce, var = "KRT5_7_score", group.by = "Patient_ID",scale="percent")+
     scale_fill_manual(values = metadata(sce)$colors$KRT57_score)
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_Heatmap_Stem.pdf",height = 4, width = 9, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_Heatmap_Stem.pdf",height = 4, width = 9, onefile = FALSE)
 Heatmap(t(scaled_mat), name = "Scaled mean expression")+
   rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
   rowAnnotation(anno = anno_text(anno$KRT5_7_score))
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_PanAV_Boxplot.pdf",height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_PanAV_Boxplot.pdf",height = 5, width = 5, onefile = FALSE)
 ggplot(plot_df, aes(x = cat, y = signature_score))+
   geom_boxplot(outlier.color = NA)+
   geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
@@ -450,7 +453,7 @@ ggplot(plot_df, aes(x = cat, y = signature_score))+
   stat_compare_means()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_BLSignature_Boxplot.pdf",height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_BLSignature_Boxplot.pdf",height = 5, width = 5, onefile = FALSE)
 ggplot(plot_df, aes(x = cat, y = signature_score))+
   geom_boxplot(outlier.color = NA)+
   geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
@@ -461,7 +464,7 @@ ggplot(plot_df, aes(x = cat, y = signature_score))+
 dev.off()
 
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_BLSignature_Boxplot.pdf",height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_BLSignature_Boxplot.pdf",height = 5, width = 5, onefile = FALSE)
 ggplot(plot_df, aes(x = cat, y = signature_score))+
   geom_boxplot(outlier.color = NA)+
   geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
@@ -471,11 +474,11 @@ ggplot(plot_df, aes(x = cat, y = signature_score))+
   stat_compare_means()
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_BLSignature_Heaptmap.pdf",height = 4, width = 9, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_BLSignature_Heaptmap.pdf",height = 4, width = 9, onefile = FALSE)
 Heatmap(test_plot, name = "Expression")
 dev.off()
 
-pdf("/mnt/rcc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_LumProgenitorLIM_Boxplot.pdf",height = 5, width = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_LumProgenitorLIM_Boxplot.pdf",height = 5, width = 5, onefile = FALSE)
 ggplot(plot_df, aes(x = cat, y = signature_score))+
   geom_boxplot(outlier.color = NA)+
   geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
