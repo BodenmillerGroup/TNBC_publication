@@ -1573,6 +1573,8 @@ group_color <- setNames(c(wes_palette("Zissou1")[1],"gold",wes_palette("Zissou1"
                         c("inflamed","KRT5/7-","KRT5/7+","KRT5+","KRT7+"))
 group_color
 
+metadata(vsd)$colors$PID_group_test <- group_color
+
 # Define factors 
 vsd$PID_group_test <- factor(vsd$PID_group_test, levels = c("inflamed","KRT5/7-","KRT5+","KRT7+","KRT5/7+"))
 ```
@@ -1616,6 +1618,8 @@ Heatmap(t(assay(GOI_mean_sce_2, "vst")), col = viridis(100))
 
 Heatmap(scale(t(assay(GOI_mean_sce, "vst"))))+
   Heatmap(scale(t(assay(GOI_mean_sce_2, "vst"))))
+
+Heatmap(scale(t(assay(GOI_mean_sce_2, "vst"))))
 ```
 
 ### Survival analysis 
@@ -1859,7 +1863,7 @@ compare_means(signature_sum ~ PID_group_test,df, method = "kruskal.test") #globa
 ggplot(df, aes(x = PID_group_test, y = signature_sum))+
   geom_boxplot(outlier.color = NA)+
   geom_jitter(aes(color = PID_group_test), size = 3, position=position_jitter(w=0.1,h=0.1))+
-  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  scale_color_manual(values = metadata(vsd)$colors$PID_group_test)+
   theme_classic()+
   ylab("IFN-gamma signature score (Ayers et al.)")+
   stat_compare_means()
@@ -2145,10 +2149,10 @@ pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_B
 Heatmap(scale(t(assay(GOI_mean_sce, "vst"))))
 dev.off()
 
-pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Marker_Immune.pdf", height = 4, width = 7, onefile = FALSE)
-Heatmap(scale(t(assay(GOI_mean_sce, "vst"))))+
-  Heatmap(scale(t(assay(GOI_mean_sce_2, "vst"))))
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Marker_Immune.pdf", height = 5, width = 4, onefile = FALSE)
+Heatmap(scale(t(assay(GOI_mean_sce_2, "vst"))))
 dev.off()
+
 
 pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_Kaplan_DFS.pdf", height = 7, width = 6, onefile = FALSE)
 ggsurvplot(fit,
@@ -2219,6 +2223,16 @@ pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_B
 dittoBarPlot(vsd, var = "PID_group_test", group.by = "TNBC",retain.factor.levels = TRUE)+
   scale_fill_manual(values = group_color)+
   ggtitle("")
+dev.off()
+
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_IFNG_signature.pdf", height = 5, width = 4, onefile = FALSE)
+ggplot(df, aes(x = PID_group_test, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = PID_group_test), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(vsd)$colors$PID_group_test)+
+  theme_classic()+
+  ylab("IFN-gamma signature score (Ayers et al.)")+
+  stat_compare_means()
 dev.off()
 
 ```
