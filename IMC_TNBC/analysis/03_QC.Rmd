@@ -50,7 +50,7 @@ library(mclust)
 We will first read in the data processed in previous sections:
 
 ```{r read-data, message=FALSE}
-images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
+images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_TNBC_new.rds")
 masks <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
 sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/02_sce_TNBC_spillcor.rds")
 ```
@@ -163,7 +163,7 @@ ggplot(dat_df, aes(x = grouping, y = var.data))+
   guides(color = "none")+
   scale_color_brewer(palette = "Set1")+
   xlab("TMA")+
-  ylab("HER2 exprs (panCK+ cells)")+
+  ylab("ER exprs (panCK+ cells)")+
   theme_classic()
 
 ## kick out 4 cases with suspiciously high ER expression
@@ -309,6 +309,9 @@ plotPixels(cur_images,
            legend = list(colour_by.title.cex = 0.7,
                          colour_by.labels.cex = 0.7))
 
+# Retain one more image that looks fine 
+image_id_cri <- image_id_cri[!image_id_cri == c("ZTMA249.3_ZTMA249_ID_323_CX3Y11_328")]
+
 #Remove outlying images and cells (n=1728 cells)
 summary(colData(sce)$sample_id %in% image_id_cri)
 sce <- sce[,!colData(sce)$sample_id %in% image_id_cri]
@@ -393,7 +396,7 @@ colData(sce) %>%
 #Cell area range
 summary(sce$area)
 
-#Only keep cells with an area above 5 (n=2987 cells)
+#Only keep cells with an area above 5 (n=2909 cells)
 sum(sce$area <= 5)
 sce <- sce[,sce$area > 5]
 sce
