@@ -4385,7 +4385,7 @@ abundances <- table(unfactor(sce_tumor$metacluster_combined), sce_tumor$PID)
 abundances <- unclass(abundances) 
 head(abundances)
 
-#relevant patient metadata (Relevel so that pN 1/2 is baseline)
+#relevant patient metadata (Relevel so that pN0 is baseline)
 meta <- colData(sce_tumor)[match(colnames(abundances), sce_tumor$PID),]
 meta$pN_merg <- relevel(x=factor(meta$pN_merg), ref = "0")
 

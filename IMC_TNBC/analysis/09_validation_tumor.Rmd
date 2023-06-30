@@ -227,7 +227,7 @@ First, we will read in the `SingleCellExperiment` object containing the cleaned,
 **Note:** We pre-processed the main cohort together with the validation cohort (including segmentation) to avoid strong batch effects. 
 
 ```{r read-data-batch-correction, message=FALSE}
-sce_val <- readRDS("/mnt/tnbc_volume/TNBC_all/data_analysis/04_sce_TNBC_Clus_com.rds")
+sce_val <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/04_sce_TNBC_Clus_com_tumor_predicted.rds")
 ```
 
 Filter sce for validation cohort and tumor cells
@@ -314,7 +314,7 @@ cur_table
 
 ```{r}
 # Save sce object (tumor cells from Janas data with predicted metacluster)
-saveRDS(sce_val,"/mnt/tnbc_volume/TNBC_all/data_analysis/04_sce_TNBC_Clus_com_tumor_predicted.rds")
+saveRDS(sce_val,"/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/04_sce_TNBC_Clus_com_tumor_predicted.rds")
 ```
 
 
