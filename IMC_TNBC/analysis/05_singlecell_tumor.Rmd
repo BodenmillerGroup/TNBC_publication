@@ -1469,17 +1469,48 @@ sce$CK5_7_score <- ifelse(sce$GMM_tumor_CK5 == "CK5+" & sce$GMM_tumor_CK7 == "CK
 ## Visualize 
 cur_dat <- t(assay(sce,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("CK5","CK7")
 cur_dat$CK5_7_score <- sce$CK5_7_score[match(rownames(cur_dat), sce$cell_id)]
+cur_dat$GMM_tumor_CK5 <- sce$GMM_tumor_CK5[match(rownames(cur_dat), sce$cell_id)]
+cur_dat$GMM_tumor_CK7 <- sce$GMM_tumor_CK7[match(rownames(cur_dat), sce$cell_id)]
+
 
 library(wesanderson)
+
 metadata(sce)$colors$CK5_7_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("CK5/7-", "CK5/7+", "CK5+", "CK7+"))
 
-ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
+main <- ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
   geom_point(alpha = 0.5)+
   theme_classic()+
   xlab("CK7 exprs")+
   ylab("CK5 exprs")+
+  guides(color = "none")+
   scale_color_manual(values = metadata(sce)$colors$CK5_7_score)
 
+y_side <- ggplot(cur_dat, aes(x = CK5, fill=GMM_tumor_CK5)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#F4B5BD')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())+
+  coord_flip()
+
+x_side <- ggplot(cur_dat, aes(x = CK7, fill=GMM_tumor_CK7)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#9C964A')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())
+
+blankPlot <- ggplot()+geom_blank(aes(1,1)) + 
+  cowplot::theme_nothing()
+
+library(gridExtra)
+scatter_final <- grid.arrange(x_side, blankPlot, main, y_side, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
+
+plot(scatter_final)
+```
+
+
+```{r}
+## Define patient groups 
 plot_score_PID <- colData(sce) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
 
 ggplot(plot_score_PID, aes(x=PID, y=fra, fill = CK5_7_score))+
@@ -1488,9 +1519,7 @@ ggplot(plot_score_PID, aes(x=PID, y=fra, fill = CK5_7_score))+
 plot_heat_PID <- plot_score_PID %>% pivot_wider(id_cols = PID, values_from = fra, names_from = CK5_7_score) %>% column_to_rownames("PID")
 plot_heat_PID[is.na(plot_heat_PID)] <- 0
 
-
-testCL<- clValid(plot_heat_PID,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans","pam"),validation="internal",metric="euclidean", method = "ward")
-summary(testCL)
+testCL<- clValid(plot_heat_PID,nClust = 2:20,clMethods = c("hierarchical","agnes"),validation="internal",metric="euclidean", method = "ward")
 plot(testCL, legend = FALSE)
 
 dev.off()
@@ -1498,8 +1527,6 @@ dev.off()
 h <- Heatmap(plot_heat_PID,
              name = "Proportion",
              col = viridis(100), 
-             #row_km = 4,
-             #row_km_repeats = 1000,
              row_split=4,
              show_row_names = FALSE)
 
@@ -1515,9 +1542,52 @@ anno$CK5_7_group <- as.factor(ifelse(anno$PID %in% rownames(plot_heat_PID)[row_o
 }
 
 sce$CK5_7_group <- anno$CK5_7_group[match(sce$PID, anno$PID)]
-
-#metadata(sce)$colors$KRT5_7_score <- setNames(colorRampPalette(brewer.pal(4,"Set1"))(length(unique(sce$KRT5_7_score))),unique(sce$KRT5_7_score))
 ```
+
+```{r}
+## Dominant CK5/7 score per CK5/7 group 
+# Dominant == highest fraction 
+score_PID <- colData(sce) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
+score_PID <- score_PID %>% group_by(PID) %>% mutate(dom = max(fra)) %>% filter(dom == fra) 
+
+# Add to sce 
+sce$dom_CK57_score <- score_PID$CK5_7_score[match(sce$PID, score_PID$PID)]
+
+# Subset sce
+cell_id_out <- colData(sce) %>% as.data.frame %>% select(PID,dom_CK57_score, CK5_7_group) %>% unique() %>% rownames_to_column("cell_id") %>% pull("cell_id")
+sce_PID <- sce[,sce$cell_id %in% cell_id_out]
+
+# Plot 
+dittoBarPlot(sce_PID, var = "dom_CK57_score", group.by = "CK5_7_group")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_score)+
+  ylab("Percent of patients")+
+  ggtitle(NULL)
+```
+
+
+```{r}
+## Plot fraction of each CK5/7 score per CK5/7 group 
+plot_score_PID$CK5_7_group <- as.character(sce$CK5_7_group[match(plot_score_PID$PID,sce$PID)])
+
+set.seed(10)
+ggplot(plot_score_PID, aes(x = CK5_7_group, y = fra))+
+  facet_wrap(~CK5_7_score)+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = CK5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$CK5_7_score)+
+  theme_classic()
+
+set.seed(10)
+ggplot(plot_score_PID, aes(x = CK5_7_score, y = fra))+
+  facet_wrap(~CK5_7_group)+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = CK5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$CK5_7_score)+
+  stat_compare_means()+
+  theme_classic()
+```
+
+
 ### Kaplan Meier
 
 ```{r}
@@ -1525,7 +1595,7 @@ sce$CK5_7_group <- anno$CK5_7_group[match(sce$PID, anno$PID)]
 library(survival)
 library(survminer)
 
-cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, CK5_7_group, OS_months, DFS_months, status_DFS, status_OS) %>% unique() %>% filter(CK5_7_group %in% c("1","4"))
+cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, CK5_7_group, OS_months, DFS_months, status_DFS, status_OS) %>% unique() #%>% filter(CK5_7_group %in% c("1","4"))
 
 #Plot survival curves
 fit <- survfit(Surv(DFS_months, status_DFS) ~ CK5_7_group, data = cur_surv)
@@ -3181,6 +3251,22 @@ ggplot(PID_CK57_pos, aes(x = fra, y=age))+
                        aes(label = paste("P-value = ", signif(..p.value.., digits = 4), sep = "")))+
   theme_classic()
 dev.off()
+
+
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57score_scater_density.pdf", width = 6, height = 5)
+plot(scatter_final)
+dev.off()
+
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57group_domScore_bar.pdf", width = 5, height = 5)
+dittoBarPlot(sce_PID, var = "dom_CK57_score", group.by = "CK5_7_group")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_score)+
+  ylab("Percent of patients")+
+  ggtitle(NULL)
+dev.off()
+
+
+
+
 ##IMPORTANT: change back to chunk output inline
 ```
 

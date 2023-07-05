@@ -243,25 +243,45 @@ plot <- as.data.frame(t(counts(res, normalized = TRUE)[rownames(counts(res, norm
 plot$KRT5_7_score <- vsd$KRT5_7_score[match(rownames(plot),colnames(vsd))]
 plot$PAM50Call_RNAseq <- vsd$PAM50Call_RNAseq[match(rownames(plot),colnames(vsd))]
 plot$TNBC <- vsd$TNBC[match(rownames(plot),colnames(vsd))]
+plot$GMM_KRT5 <- vsd$GMM_KRT5[match(rownames(plot),colnames(vsd))]
+plot$GMM_KRT7 <- vsd$GMM_KRT7[match(rownames(plot),colnames(vsd))]
+```
 
-# ### 2. VST-transformed counts 
-# plot <- as.data.frame(t(assay(vsd)[rownames(assay(vsd)) %in% c("KRT5","KRT7"),]))
-# plot$KRT5_7_score <- vsd$KRT5_7_score[match(rownames(plot),colnames(vsd))]
-# plot$PAM50Call_RNAseq <- vsd$PAM50Call_RNAseq[match(rownames(plot),colnames(vsd))]
-# plot$TNBC <- vsd$TNBC[match(rownames(plot),colnames(vsd))]
 
-ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
-  geom_point(size = 2)+
-  #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
+```{r}
+main <- ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
+  geom_point(size = 2, alpha = 0.5)+
   theme_classic()+
   xlab("CK7 normalized counts")+
   ylab("CK5 normalized counts")+
   coord_cartesian(xlim = c(0,120000), ylim = c(0,300000))+
-  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)
-  #coord_cartesian(xlim = c(5,20), ylim = c(5,20))
+  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)+
+  guides(color = "none")
 
-colData(vsd) %>% as.data.frame %>% group_by(KRT5_7_score) %>% count() %>% ungroup() %>% mutate(fra = n/sum(n))
+y_side <- ggplot(plot, aes(x = KRT5, fill=GMM_KRT5)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#F4B5BD')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.y = element_blank())+
+  coord_flip(xlim = c(0,300000), ylim = c(0, 0.00005))
+
+x_side <- ggplot(plot, aes(x = KRT7, fill=GMM_KRT7)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#9C964A')) + 
+  coord_cartesian(xlim = c(0,120000))+
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())
+
+blankPlot <- ggplot()+geom_blank(aes(1,1)) + 
+  cowplot::theme_nothing()
+
+library(gridExtra)
+grid.arrange(x_side, blankPlot, main, y_side, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
 ```
+
+
+
 
 ```{r}
 saveRDS(vsd,"/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
@@ -1942,15 +1962,9 @@ ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
 dev.off()
 
 
-pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_scatter_norm.pdf",height = 5, width = 5)
-ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
-  geom_point(size = 2)+
-  #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
-  theme_classic()+
-  xlab("CK7 normalized counts")+
-  ylab("CK5 normalized counts")+
-  coord_cartesian(xlim = c(0,120000), ylim = c(0,300000))+
-  scale_color_manual(values = metadata(vsd)$colors$KRT57_score)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57score_scatter_density.pdf",height = 5, width = 6)
+grid.arrange(x_side, blankPlot, main, y_side, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
 dev.off()
 
 pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_CK57_Combined_Volcano.pdf", height = 9, width = 9, onefile = FALSE)
@@ -2234,6 +2248,8 @@ ggplot(df, aes(x = PID_group_test, y = signature_sum))+
   ylab("IFN-gamma signature score (Ayers et al.)")+
   stat_compare_means()
 dev.off()
+
+
 
 ```
 

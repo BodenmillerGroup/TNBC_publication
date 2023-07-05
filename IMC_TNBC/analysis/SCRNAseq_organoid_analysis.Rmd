@@ -290,7 +290,7 @@ AP_sig_up <- AP_sig_up[!is.na(AP_sig_up)]
 ## 1. pan AV signature per PID group 
 panAV_sig_up_rel <- panAV_sig_up[panAV_sig_up %in% rownames(assay(sce))]
 
-stem_mean_sce <- aggregateAcrossCells(sce, ids = DataFrame(sce$KRT5_7_score,sce$Patient_ID), #Aggregate for score AND per PID
+stem_mean_sce <- aggregateAcrossCells(sce, ids = DataFrame(sce$KRT5_7_score,sce$Patient_ID), #Aggregate for score AND per line 
                                  statistics = "mean",
                                  use.assay.type = "logcounts",
                                  subset.row = rowData(sce)$Symbol %in% panAV_sig_up_rel)
