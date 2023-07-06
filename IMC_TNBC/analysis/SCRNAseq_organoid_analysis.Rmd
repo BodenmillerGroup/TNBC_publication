@@ -108,7 +108,7 @@ Observation: Strong overlap of CK7 and CK5 in the "basal" compartment
 # 1. CK5
 GMM_CK5 <- Mclust(assay(sce, "logcounts")["KRT5",], G = 2)
 
-GMM_df <- data.frame(class_epi = ifelse(GMM_CK5$classification == 2, #& GMM_CK5$uncertainty < 0.05, 
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK5$classification == 2, #& GMM_CK5$uncertainty < 0.01, 
                                         "KRT5+",
                                         "KRT5-"), 
                      KRT5_exprs = assay(sce, "logcounts")["KRT5",],
@@ -127,11 +127,12 @@ sce$GMM_tumor_KRT5 <- GMM_df$class_epi
 # 2. CK7
 GMM_CK7 <- Mclust(assay(sce, "logcounts")["KRT7",], G = 2)
 
-GMM_df <- data.frame(class_epi = ifelse(GMM_CK7$classification == 2, #& GMM_CK7$uncertainty < 0.05,
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK7$classification == 2, #& GMM_CK7$uncertainty < 0.01,
                                         "KRT7+",
                                         "KRT7-"), 
                      KRT7_exprs = assay(sce, "logcounts")["KRT7",],
                      uncertainty = GMM_CK7$uncertainty)
+
 
 #Visualize GMM
 ggplot(GMM_df, aes(x = KRT7_exprs, fill = class_epi))+
@@ -166,14 +167,37 @@ ggplot(n_cat, aes(KRT5_7_score, n))+
 ## Scatterplot
 cur_dat <- t(assay(sce,"logcounts")) %>% as.matrix %>% as.data.frame %>% select("KRT5","KRT7")
 cur_dat$KRT5_7_score <- sce$KRT5_7_score[match(rownames(cur_dat), rownames(colData(sce)))]
+cur_dat$GMM_tumor_KRT7 <- sce$GMM_tumor_KRT7[match(rownames(cur_dat), rownames(colData(sce)))]
+cur_dat$GMM_tumor_KRT5 <- sce$GMM_tumor_KRT5[match(rownames(cur_dat), rownames(colData(sce)))]
 
-ggplot(cur_dat, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
+
+main <- ggplot(cur_dat, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
   geom_point(alpha = 0.5)+
   theme_classic()+
   xlab("KRT7 logcounts")+
   ylab("KRT5 logcounts")+
+  guides(color = "none")+
   scale_color_manual(values = metadata(sce)$colors$KRT57_score)
 
+y_side <- ggplot(cur_dat, aes(x = KRT5, fill=GMM_tumor_KRT5)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#F4B5BD')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.y = element_blank())+
+  coord_flip()
+
+x_side <- ggplot(cur_dat, aes(x = KRT7, fill=GMM_tumor_KRT7)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#9C964A')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())
+
+blankPlot <- ggplot()+geom_blank(aes(1,1)) + 
+  cowplot::theme_nothing()
+
+library(gridExtra)
+scatter_final <- grid.arrange(x_side, blankPlot, main, y_side, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
 
 ## Dim Red
 plotReducedDim(sce, dimred="UMAP", colour_by="KRT5_7_score")+
@@ -252,6 +276,7 @@ Heatmap(t(scaled_mat), name = "Scaled mean expression")+
   rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
   rowAnnotation(anno = anno_text(anno$KRT5_7_score))
 ```
+
 ```{r}
 # UMAP with stem/progenitor markers
 all_plots_UMAP <- lapply(stem,
@@ -422,13 +447,9 @@ pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/O
 all_plots_UMAP_keratins
 dev.off()
 
-pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_Scatter.pdf",height = 4, width = 6, onefile = FALSE)
-ggplot(cur_dat, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
-  geom_point(alpha = 0.5)+
-  theme_classic()+
-  xlab("KRT7 logcounts")+
-  ylab("KRT5 logcounts")+
-  scale_color_manual(values = metadata(sce)$colors$KRT57_score)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_Scatter_Density.pdf",height = 5, width = 6, onefile = FALSE)
+scatter_final <- grid.arrange(x_side, blankPlot, main, y_side, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
 dev.off()
 
 pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/scRNA_organoid/Organoid_scRNA_CK57score_PID_Barplot.pdf",height = 4, width = 7, onefile = FALSE)

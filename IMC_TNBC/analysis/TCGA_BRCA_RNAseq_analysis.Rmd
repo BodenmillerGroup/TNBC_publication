@@ -286,7 +286,7 @@ grid.arrange(x_side, blankPlot, main, y_side,
 ```{r}
 saveRDS(vsd,"/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
 saveRDS(res,"/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_res.rds")
-#res <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_res.rds") 
+res <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_res.rds") 
 #vsd <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/TCGA_BRCA_DESeq_PAM50_vsd.rds")
 ```
 
@@ -1567,7 +1567,7 @@ GMM_df <- data.frame(class_epi = ifelse(GMM_HLADR$classification == 2 & GMM_HLAD
                      uncertainty = GMM_HLADR$uncertainty)
 
 #Visualize GMM
-ggplot(GMM_df, aes(x = HLADR_exprs))+
+ggplot(GMM_df, aes(x = HLADR_exprs, fill = class_epi))+
   geom_density()+
   geom_rug(aes(color = class_epi))+
   theme_classic(base_size = 15)+
@@ -2142,7 +2142,7 @@ gseaplot2(gseKEGG, title = gseKEGG$Description[20], geneSetID = 1)
 dev.off()
 
 pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/TCGA_BRCA/TCGA_BRCA_PIDgroups_HLADRGMM.pdf", height = 4, width = 7, onefile = FALSE)
-ggplot(GMM_df, aes(x = HLADR_exprs))+
+ggplot(GMM_df, aes(x = HLADR_exprs, fill = class_epi))+
   geom_density()+
   geom_rug(aes(color = class_epi))+
   theme_classic(base_size = 15)+
