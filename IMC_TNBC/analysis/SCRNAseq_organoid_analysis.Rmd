@@ -246,7 +246,7 @@ Heatmap(assay(cluster_mean_sce, "logcounts"), col = viridis(100),name = "Mean Ex
 Heatmap(t(scaled_mat), name = "Scaled mean expression")
 
 # Add row annotations 
-Heatmap(t(scaled_mat), name = "Scaled mean expression")+
+Heatmap(t(scaled_mat), name = "Scaled mean expression", clustering_method_columns = "ward.D2", clustering_method_rows = "ward.D2")+
   rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
   rowAnnotation(anno = anno_text(anno$KRT5_7_score))
 ```

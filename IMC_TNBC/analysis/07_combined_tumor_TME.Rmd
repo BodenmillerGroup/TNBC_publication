@@ -4894,6 +4894,8 @@ library(cytomapper)
 ## Inflamed patients with B cell patches 
 img_ids <- colData(sce) %>% as.data.frame() %>% select(PID, sample_id, B_cell_score, spatial_CD8_pheno) %>% unique() %>% filter(spatial_CD8_pheno == "inflamed" & B_cell_score == "Large_B_patch") %>% pull(sample_id) %>% unique()
 
+#img_ids <- img_ids[1:5]
+
 # Select images
 cur_images <- images[img_ids]
 
@@ -4917,7 +4919,7 @@ cur_PID <- colData(sce) %>% as.data.frame %>% group_by(metacluster_combined) %>%
 
 cur_sample <- colData(sce) %>% as.data.frame %>% filter(PID %in% cur_PID) %>% pull(sample_id) %>% unique()
 
-cur_sample <- "ZTMA249.1_ZTMA249_ID_134_BX6Y2_19"
+#cur_sample <- "ZTMA249.1_ZTMA249_ID_134_BX6Y2_19"
 
 # Images
 cur_images <- images[cur_sample]

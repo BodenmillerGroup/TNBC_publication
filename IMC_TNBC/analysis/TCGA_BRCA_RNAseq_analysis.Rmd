@@ -792,7 +792,6 @@ dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "TNBC")+
 dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "TNBC", scale = "count")+
   scale_fill_manual(values = metadata(vsd)$colors$KRT57_score)
 
-#dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "TNBC", scale = "count", data.out = TRUE)
 
 dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "PAM50Call_RNAseq")+
     scale_fill_manual(values = metadata(vsd)$colors$KRT57_score)
@@ -809,6 +808,20 @@ dittoBarPlot(vsd, var = "PAM50Call_RNAseq", group.by = "KRT5_7_score", scale = "
 dittoBarPlot(vsd, var = "TNBC", group.by = "KRT5_7_score")
 dittoBarPlot(vsd, var = "TNBC", group.by = "KRT5_7_score", scale = "count")
 ```
+
+```{r}
+# Chi-square test to compare between TNBC status between KRT5/7 scores
+
+bar_out <- dittoBarPlot(vsd, var = "KRT5_7_score", group.by = "TNBC", scale = "count", data.out = TRUE)$data
+
+bar_test <- bar_out %>% filter(!grouping %in% "Undefined") %>% pivot_wider(names_from = grouping, id_cols = label, values_from = count) %>% column_to_rownames("label")
+
+bar_test_out <- chisq.test(bar_test)
+
+print(bar_test_out$p.value)
+```
+
+
 
 ## 4. Keratin expression comparison for PID groups 
 
@@ -1856,6 +1869,18 @@ dittoBarPlot(vsd, var = "PID_group_test", group.by = "TNBC",retain.factor.levels
 dittoBarPlot(vsd, var = "PID_group_test", group.by = "PAM50Call_RNAseq",retain.factor.levels = TRUE)+
   scale_fill_manual(values = group_color)+
   ggtitle("")
+```
+
+```{r}
+# Chi-square test to compare between TNBC status between KRT5/7 scores
+
+bar_out <- dittoBarPlot(vsd, var = "PID_group_test", group.by = "TNBC",retain.factor.levels = TRUE,data.out = TRUE)$data
+
+bar_test <- bar_out %>% filter(!grouping %in% "Undefined") %>% pivot_wider(names_from = grouping, id_cols = label, values_from = count) %>% column_to_rownames("label")
+
+bar_test_out <- chisq.test(bar_test)
+
+print(bar_test_out$p.value)
 ```
 
 ### IFN-G signature 

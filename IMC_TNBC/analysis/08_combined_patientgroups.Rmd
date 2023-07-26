@@ -744,7 +744,7 @@ ggplot(spatial_CD8, aes(x = BL_CD8_group_merg, y = fra, fill = spatial_CD8_pheno
 spatial_CD8 <- colData(sce) %>% as.data.frame() %>% select(BL_CD8_group_merg,B_cell_score) %>% group_by(BL_CD8_group_merg) %>% table() %>% as.data.frame
 spatial_CD8 <- spatial_CD8 %>% group_by(BL_CD8_group_merg) %>% mutate(fra = Freq/sum(Freq))
 
-ggplot(spatial_CD8, aes(x = BL_CD8_group_merg, y = Freq, fill = B_cell_score))+
+ggplot(spatial_CD8, aes(x = BL_CD8_group_merg, y = fra, fill = B_cell_score))+
   geom_bar(stat = "identity", color = "black")+
   theme_classic()+
   ylab("Fraction of PID")
@@ -1010,14 +1010,23 @@ Bscore <- Bscore %>% select(-Freq) %>% pivot_wider(id_cols = BL_CD8_group_merg,n
 B_out <- plot_df %>% pivot_wider(names_from = PID, values_from = n_Bpatch) %>% column_to_rownames("BL_CD8_group_merg")
 B_out <- B_out[match(rownames(Bscore),rownames(B_out)),]
 
-ha_score <- HeatmapAnnotation(B_cell_score = anno_barplot(Bscore, gp = gpar(fill = col_patch),width = unit(10, "mm")),
-                              B_cell_patch = anno_boxplot(as.matrix(B_out), gp = gpar(fill = "#B2DF8A"), which = "row",outline = FALSE),
+# Proportion of CD8 T cell groups per group
+
+CD8group <- colData(sce) %>% as.data.frame() %>% select(BL_CD8_group_merg,spatial_CD8_pheno) %>% group_by(BL_CD8_group_merg) %>% table() %>% as.data.frame
+CD8group <- CD8group %>% group_by(BL_CD8_group_merg) %>% mutate(fra = Freq/sum(Freq)) 
+CD8group <- CD8group %>% select(-Freq) %>% pivot_wider(id_cols = BL_CD8_group_merg,names_from = spatial_CD8_pheno,values_from = fra) %>% column_to_rownames("BL_CD8_group_merg") 
+
+col_patch <- setNames(brewer.pal(4,"Paired"),colnames(Bscore))
+col_CD8 <- c("steelblue1","navy","firebrick")
+ha_score <- HeatmapAnnotation(CD8_group = anno_barplot(CD8group, gp = gpar(fill = col_CD8),width = unit(10, "mm")),
+                              B_cell_score = anno_barplot(Bscore, gp = gpar(fill = col_patch),width = unit(10, "mm")),
+                              B_cell_patch = anno_boxplot(as.matrix(B_out), gp = gpar(fill = "#B2DF8A"), which = "row",outline = FALSE,width = unit(15, "mm")),
                             border = TRUE, 
                             annotation_name_rot = 90,
                             gap = unit(2,"mm"),
                             which = "row")
 
-col_patch <- setNames(brewer.pal(4,"Paired"),colnames(Bscore))
+ha_score + NULL
 
 ### 3. Plot heatmap ###
 
