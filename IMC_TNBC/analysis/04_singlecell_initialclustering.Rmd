@@ -293,10 +293,10 @@ nr_tum_3 <- colData(sce) %>% as.data.frame %>% select(cluster, GMM_Ecad) %>% tab
 fr_tum_3 <- as.data.frame(nr_tum_3) %>% pivot_wider(names_from = GMM_Ecad, values_from = Freq) %>% column_to_rownames("cluster")
 fr_tum_3 <- fr_tum_3 %>% transmute(fr_tum_3 = `Ecad+`/rowSums(fr_tum_3)) %>% as.data.frame()
 
-ha_meta <- HeatmapAnnotation(GMM_CK = anno_barplot(fr_tum, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
-                            GMM_Ecad = anno_barplot(fr_tum_3, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
-                            Astir_Epi = anno_barplot(fr_tum_2, width = unit(10, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
-                            n_cells = anno_barplot(n_cells$ncells, width = unit(10, "mm"),gp = gpar(fill = "violet", col = 1)),
+ha_meta <- HeatmapAnnotation(GMM_CK = anno_barplot(fr_tum, width = unit(15, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
+                            GMM_Ecad = anno_barplot(fr_tum_3, width = unit(15, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
+                            Astir_Epi = anno_barplot(fr_tum_2, width = unit(15, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
+                            n_cells = anno_barplot(n_cells$ncells, width = unit(15, "mm"),gp = gpar(fill = "violet", col = 1)),
                             border = TRUE, 
                             annotation_name_rot = 90,
                             gap = unit(1,"mm"),
@@ -683,7 +683,7 @@ pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/
 GMM_plot_exp_1/GMM_plot_unc_1
 dev.off()
 
-pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_EpiNonEpi_HeatmapGMMCC.pdf",width = 12,height = 7)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/04_initial_clus/TNBC_EpiNonEpi_HeatmapGMMCC.pdf",width = 15,height = 10)
 draw(h)
 dev.off()
 

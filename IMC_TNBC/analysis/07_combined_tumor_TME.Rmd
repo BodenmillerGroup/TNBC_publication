@@ -134,6 +134,7 @@ saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rd
 
 ```{r combined tSNE}
 #Read subsampled sce from pipeline 1
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 sce_sub <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds")
 
 #Add cluster_combined info
@@ -4941,6 +4942,14 @@ shiny::runApp(app, launch.browser = TRUE)
 
 
 
+## Save plots as png 
+
+```{r}
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_metacluster_TME_combined.pdf", width = 6, height = 5)
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_TME_combined")+
+  scale_color_manual(values = color_TME, limits = force)
+dev.off()
+```
 
 
 

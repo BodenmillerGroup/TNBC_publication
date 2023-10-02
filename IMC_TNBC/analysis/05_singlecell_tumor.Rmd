@@ -545,12 +545,11 @@ metadata(sce)$colors$metacluster <- metacluster_col
 # Metadata annotation
 ha_meta <- HeatmapAnnotation(cluster_110 = anno_simple(unfactor(anno$cluster_110), pch = unfactor(anno$cluster_110),border=TRUE,col=metadata(sce)$colors$cluster_110),
                             metacluster = anno_simple(unfactor(anno$metacluster), pch = unfactor(anno$metacluster),border=TRUE,col=metadata(sce)$colors$metacluster),
-                            n_cells = anno_barplot(n_cells$ncells, width = unit(10, "mm"),gp = gpar(fill = "#440154FF")),
-                            n_PID = anno_barplot(n_PID, width = unit(10, "mm"),gp = gpar(fill = "#440154FF")),
-                            grade = anno_barplot(grade, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$grade)),
-                            pT = anno_barplot(pT, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$pT_simple)),
-                            pN = anno_barplot(pN, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$pN_simple)),
-                            #cluster_cat = anno_barplot(cluster_CC, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$cluster_category)),
+                            n_cells = anno_barplot(n_cells$ncells, width = unit(15, "mm"),gp = gpar(fill = "#440154FF")),
+                            n_PID = anno_barplot(n_PID, width = unit(15, "mm"),gp = gpar(fill = "#440154FF")),
+                            grade = anno_barplot(grade, width = unit(15, "mm"),gp = gpar(fill = metadata(sce)$colors$grade)),
+                            pT = anno_barplot(pT, width = unit(15, "mm"),gp = gpar(fill = metadata(sce)$colors$pT_simple)),
+                            pN = anno_barplot(pN, width = unit(15, "mm"),gp = gpar(fill = metadata(sce)$colors$pN_simple)),
                             border = TRUE, 
                             annotation_name_rot = 90,
                             gap = unit(1,"mm"),
@@ -568,14 +567,6 @@ h_meta <- Heatmap(t(assay(cluster_mean_sce, "exprs")),
         clustering_method_columns = "ward.D2",
         row_split = anno$metacluster,
         cluster_row_slices = FALSE)+
-  # Heatmap(t(assay(other_mean_sce, "exprs")),
-  #       column_title = "other_channels",
-  #       col = col_exprs,
-  #       name= "mean exprs",
-  #       show_row_names = FALSE,
-  #       show_column_names =  TRUE,
-  #       clustering_method_rows = "ward.D2",
-  #       clustering_method_columns = "ward.D2")+
   ha_meta+
   ha_spatial
 
@@ -3005,7 +2996,7 @@ pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tu
 p1+p2+p3 
 dev.off()
 
-pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_Cluster_Metacluster.pdf",width = 14,height = 9)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_Cluster_Metacluster.pdf",width = 14,height = 12)
 draw(h_meta)
 dev.off()
 
