@@ -543,16 +543,16 @@ metadata(sce)$colors$cluster_110 <- cluster_col
 metadata(sce)$colors$metacluster <- metacluster_col
 
 # Metadata annotation
-ha_meta <- HeatmapAnnotation(cluster_110 = anno_simple(unfactor(anno$cluster_110), pch = unfactor(anno$cluster_110),border=TRUE,col=metadata(sce)$colors$cluster_110),
-                            metacluster = anno_simple(unfactor(anno$metacluster), pch = unfactor(anno$metacluster),border=TRUE,col=metadata(sce)$colors$metacluster),
-                            n_cells = anno_barplot(n_cells$ncells, width = unit(15, "mm"),gp = gpar(fill = "#440154FF")),
-                            n_PID = anno_barplot(n_PID, width = unit(15, "mm"),gp = gpar(fill = "#440154FF")),
+ha_meta <- HeatmapAnnotation(cluster_110 = anno_simple(unfactor(anno$cluster_110), pch = unfactor(anno$cluster_110),width = unit(8, "mm"), border=TRUE,col=metadata(sce)$colors$cluster_110),
+                            metacluster = anno_simple(unfactor(anno$metacluster), pch = unfactor(anno$metacluster),width = unit(8, "mm"), border=TRUE,col=metadata(sce)$colors$metacluster),
+                            n_cells = anno_barplot(n_cells$ncells, width = unit(12, "mm"),gp = gpar(fill = "#440154FF")),
+                            n_PID = anno_barplot(n_PID, width = unit(12, "mm"),gp = gpar(fill = "#440154FF")),
                             grade = anno_barplot(grade, width = unit(15, "mm"),gp = gpar(fill = metadata(sce)$colors$grade)),
                             pT = anno_barplot(pT, width = unit(15, "mm"),gp = gpar(fill = metadata(sce)$colors$pT_simple)),
                             pN = anno_barplot(pN, width = unit(15, "mm"),gp = gpar(fill = metadata(sce)$colors$pN_simple)),
                             border = TRUE, 
                             annotation_name_rot = 90,
-                            gap = unit(1,"mm"),
+                            gap = unit(2,"mm"),
                             which = "row")
                             
 ### 3. Plot heatmap ###
@@ -2996,7 +2996,7 @@ pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tu
 p1+p2+p3 
 dev.off()
 
-pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_Cluster_Metacluster.pdf",width = 14,height = 12)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Heatmap_Cluster_Metacluster.pdf",width = 13,height = 13)
 draw(h_meta)
 dev.off()
 
@@ -3084,7 +3084,7 @@ ggsurvplot(fit,
           palette = "Set1") 
 dev.off()
 
-pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DiffAbun_Node.pdf", width = 8, height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DiffAbun_Node.pdf", width = 5, height = 4, onefile = FALSE)
 ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+

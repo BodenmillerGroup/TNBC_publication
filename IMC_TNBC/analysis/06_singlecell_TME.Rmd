@@ -544,13 +544,13 @@ metadata(sce)$colors$cluster_130 <- cluster_col
 metadata(sce)$colors$immune_metacluster <- metacluster_col
 
 # Metadata annotation
-ha_meta <- HeatmapAnnotation(cluster_130 = anno_simple(unfactor(anno$cluster_130), pch = unfactor(anno$cluster_130),border=TRUE,gp = gpar(fill = "white")),
+ha_meta <- HeatmapAnnotation(cluster_130 = anno_simple(unfactor(anno$cluster_130), width = unit(8, "mm"), pch = unfactor(anno$cluster_130),border=TRUE,gp = gpar(fill = "white")),
                             metacluster = anno_simple(unfactor(anno$metacluster),border=TRUE,col=metadata(sce)$colors$immune_metacluster),
                             n_cells = anno_barplot(n_cells$ncells, width = unit(10, "mm"),gp = gpar(fill = "#440154FF")),
                             n_PID = anno_barplot(n_PID, width = unit(10, "mm"),gp = gpar(fill = "#440154FF")),
-                            grade = anno_barplot(grade, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$grade)),
-                            pT = anno_barplot(pT, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$pT_simple)),
-                            pN = anno_barplot(pN, width = unit(10, "mm"),gp = gpar(fill = metadata(sce)$colors$pN_simple)),
+                            grade = anno_barplot(grade, width = unit(12, "mm"),gp = gpar(fill = metadata(sce)$colors$grade)),
+                            pT = anno_barplot(pT, width = unit(12, "mm"),gp = gpar(fill = metadata(sce)$colors$pT_simple)),
+                            pN = anno_barplot(pN, width = unit(12, "mm"),gp = gpar(fill = metadata(sce)$colors$pN_simple)),
                             border = TRUE, 
                             annotation_name_rot = 90,
                             gap = unit(1,"mm"),
@@ -1661,7 +1661,7 @@ pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_
 p4
 dev.off()
 
-pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_HeatmapCluster.pdf",width = 11,height = 7)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_CC_HeatmapCluster.pdf",width = 10,height = 6)
 draw(h,annotation_legend_list = list(lgd_astir, lgd_meta))
 dev.off()
 

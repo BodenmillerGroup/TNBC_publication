@@ -3466,12 +3466,22 @@ spatialpheno_mean_sce <- aggregateAcrossCells(sce_tumor, ids = sce_tumor$spatial
 
 mat_scaled<- t(scale(t(assay(spatialpheno_mean_sce, "exprs"))))
 
+
+highest_cat <- mat_scaled %>% as.data.frame() %>% rownames_to_column("gene") %>% pivot_longer(cols = 2:4, names_to = "spatial_CD8", values_to = "exprs") %>% group_by(gene) %>% mutate(max = max(exprs)) %>% filter(exprs == max) %>% select(gene, spatial_CD8) %>% as.data.frame() %>% column_to_rownames("gene")
+
 ## Visualize 
 
 # Heatmap 
-Heatmap(assay(spatialpheno_mean_sce, "exprs"), col = viridis(100), name = "exprs", cluster_columns = FALSE, row_names_side = "left", show_row_dend = FALSE)+
-  Heatmap(mat_scaled, name = "scaled exprs", cluster_columns = FALSE)+
+h <- Heatmap(assay(spatialpheno_mean_sce, "exprs"), col = viridis(100), name = "exprs", cluster_columns = FALSE, row_names_side = "left", show_row_dend = FALSE)+
+  #Heatmap(mat_scaled, name = "scaled exprs", cluster_columns = FALSE)+
+  rowAnnotation(cat = anno_simple(highest_cat, col = metadata(sce)$colors$spatial_CD8_pheno, width = unit(10, "mm")))+
   rowAnnotation(test = anno_text(test_result$psignif.adj))
+
+lgd_cat <- Legend(title = "Highest_exprs", at = names(metadata(sce)$colors$spatial_CD8_pheno), 
+              legend_gp = gpar(fill = metadata(sce)$colors$spatial_CD8_pheno))
+
+
+draw(h,annotation_legend_list = list(lgd_cat))
 
 # Violin plot
 plotExpression(spatialpheno_mean_PID, 
@@ -5042,9 +5052,10 @@ plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "analysis_cat")+#shape_by =
   scale_color_manual(values = metadata(sce)$colors$analysis_cat)
 dev.off()
 
-pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TMEmetacluster.pdf",width = 6,height = 6, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TMEmetacluster.pdf",width = 5,height = 5, onefile = FALSE)
 plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "metacluster_tumor_combined")+#shape_by = "analysis_cat")+
-  scale_color_manual(values = color_TME, limits = force)
+  scale_color_manual(values = color_TME, limits = force)+
+  guides(color = "none")
 dev.off()
 
 pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/TSNE_TUMORmetacluster.pdf",width = 6,height = 6, onefile = FALSE)
@@ -5287,6 +5298,10 @@ dev.off()
 
 pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Mixing_score_DFS.pdf",width = 5,height = 6, onefile = FALSE)
 mix_DFS
+dev.off()
+
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Tumor_exprs_SpatialCD8.pdf",width = 6,height = 5, onefile = FALSE)
+draw(h,annotation_legend_list = list(lgd_cat))
 dev.off()
 
 ```
