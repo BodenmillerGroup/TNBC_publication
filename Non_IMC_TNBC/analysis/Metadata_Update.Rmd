@@ -497,7 +497,7 @@ draw(sample_anno)
 dev.off()
 ```
 
-#4. Combined - ZTMA174, ZTMA249 and ZTMA21/26
+#4. Combined - ZTMA174, ZTMA249
 
 ### Load all metadata
 
@@ -517,9 +517,9 @@ Meta_249$TMANr <- "TMA249"
 Meta_249$HER2_case <- FALSE
 Meta_249_comb <- Meta_249 %>% select("TMANr","ID_Number","PID","n_samples","age","lehmann_subtype","grade","pT","pT_simple","pN","pN_simple","pM","pM_simple","status_OS","OS_months", "status_DFS","DFS_months","OS_data","DFS_data","HER2_case") %>% mutate_all(as.character)
 
-Meta_2126_comb <- Meta_2126 %>% select("TMANr","ID_Number","PID","n_samples","age","grade","pT","pT_simple","pN","pN_simple","pM","pM_simple","status_OS","OS_months", "status_DFS","DFS_months","OS_data","DFS_data","HER2_case") %>% mutate_all(as.character)
+#Meta_2126_comb <- Meta_2126 %>% select("TMANr","ID_Number","PID","n_samples","age","grade","pT","pT_simple","pN","pN_simple","pM","pM_simple","status_#OS","OS_months", "status_DFS","DFS_months","OS_data","DFS_data","HER2_case") %>% mutate_all(as.character)
 
-Meta <- bind_rows(Meta_174_comb,Meta_249_comb, Meta_2126_comb)
+Meta <- bind_rows(Meta_174_comb,Meta_249_comb) #Meta_2126_comb)
 
 Meta$tumor_size_cm <- as.numeric(Meta$tumor_size_cm)
 ```
@@ -573,6 +573,8 @@ write.csv(Meta, "/Users/lasmey/Desktop/TNBC/Metadaten/Metadata_Combined_TNBC_LM.
 
 ```{r save combined}
 Meta <- read.csv("/Users/lasmey/Desktop/TNBC/Metadaten/Metadata_Combined_TNBC_LM.csv")
+
+Meta <- Meta %>% filter(!TMANr %in% c("TMA21","TMA26"))
 ```
 
 ### Print heatmap based overview
@@ -585,7 +587,8 @@ library(ggsci)
 library(RColorBrewer)
 
 #Filter for columns to visualize
-Meta_viz <- Meta %>% filter(HER2_case == FALSE) %>% select(TMANr,PID,n_samples,grade,pT_simple,pN_simple,pM_simple,OS_data, DFS_data, age_bin, tumor_size_cm, lehmann_subtype) 
+Meta_viz <- Meta %>% #filter(HER2_case == FALSE) %>% 
+  select(TMANr,PID,n_samples,grade,pT_simple,pN_simple,pM_simple,OS_data, DFS_data, age_bin, tumor_size_cm, lehmann_subtype) 
 
 #Convert empty columns and NAs for easier handling with ComplexHeatmap package
 Meta_viz[is.na(Meta_viz)] <- "NA"
@@ -633,8 +636,8 @@ sample_anno <- HeatmapAnnotation(TMANr = Meta_viz$TMANr,
                                 pM_simple = Meta_viz$pM_simple,
                                 OS_data = Meta_viz$OS_data,
                                 DFS_data = Meta_viz$DFS_data,
-                                tumor_size_cm = Meta_viz$tumor_size_cm,
-                                lehmann_subtype = Meta_viz$lehmann_subtype,
+                                #tumor_size_cm = Meta_viz$tumor_size_cm,
+                                #lehmann_subtype = Meta_viz$lehmann_subtype,
                                 col = color_vectors,
                                 border = T,
                                 na_col = "black",
@@ -646,7 +649,7 @@ sample_anno <- HeatmapAnnotation(TMANr = Meta_viz$TMANr,
 #Display plot
 draw(sample_anno)
 
-pdf("~/Desktop/TNBC/Metadaten/Metadata_combined_HeatmapAnno.pdf",width=12,height = 7, onefile = FALSE)
+pdf("~/Desktop/TNBC/Metadaten/Metadata_combined_HeatmapAnno.pdf",width=9,height = 5, onefile = FALSE)
 sample_anno
 dev.off()
 ```

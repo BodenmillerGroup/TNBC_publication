@@ -9,31 +9,82 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Software
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(scuttle)
+library(scran)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(circlize)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(parallel)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(igraph)
+library(RColorBrewer)
+library(foreach)
+library(clValid)
+library(bluster)
+library(corrplot)
+```
+
 # Analysis of Jackson et al. (2020)
 
 ## Read in data 
 
 ```{r}
-devtools::install_github("https://github.com/BodenmillerGroup/imcdatasets/tree/full_datasets")
+library(imcdatasets)
 ```
+
+
+```{r}
+sce <- imcdatasets::JacksonFischer_2020_BreastCancer(data_type = c("sce"), full_dataset = TRUE)
+```
+
+## Filter for tumor cells 
 
 ```{r}
 # Subset for tumor metacluster
-sce <- sce[,sce$metacluster %in% c(14:27)]
+sce <- sce[,sce$cell_metacluster %in% c(14:27)]
 ```
 
-## 1. CK5/7 Signature 
+## CK5/7 Signature 
+
+### Define signature / PID groups 
 
 ```{r}
-## 5. CK5-7 signature
-# 1. CK5
-GMM_CK5 <- Mclust(assay(sce, "exprs")["CK5",], G = 2)
+## 5. KRT5-7 signature
+# 1. KRT5
+GMM_KRT5 <- Mclust(assay(sce, "exprs")["KRT5",], G = 2)
 
-GMM_df <- data.frame(class_epi = ifelse(GMM_CK5$classification == 2, 
-                                        "CK5+",
-                                        "CK5-"), 
-                     KRT5_exprs = assay(sce, "exprs")["CK5",],
-                     uncertainty = GMM_CK5$uncertainty)
+GMM_df <- data.frame(class_epi = ifelse(GMM_KRT5$classification == 2 & GMM_KRT5$uncertainty == 0, 
+                                        "KRT5+",
+                                        "KRT5-"), 
+                     KRT5_exprs = assay(sce, "exprs")["KRT5",],
+                     uncertainty = GMM_KRT5$uncertainty)
 
 #Visualize GMM
 ggplot(GMM_df, aes(x = KRT5_exprs, fill = class_epi))+
@@ -43,16 +94,16 @@ ggplot(GMM_df, aes(x = KRT5_exprs, fill = class_epi))+
   scale_fill_brewer(palette = "Set1")
   
 #Add GMM epi class to SCE
-sce$GMM_tumor_CK5 <- GMM_df$class_epi
+sce$GMM_tumor_KRT5 <- GMM_df$class_epi
 
-# 2. CK7
-GMM_CK7 <- Mclust(assay(sce, "exprs")["CK7",], G = 2)
+# 2. KRT7
+GMM_KRT7 <- Mclust(assay(sce, "exprs")["KRT7",], G = 2)
 
-GMM_df <- data.frame(class_epi = ifelse(GMM_CK7$classification == 2, 
-                                        "CK7+",
-                                        "CK7-"), 
-                     KRT7_exprs = assay(sce, "exprs")["CK7",],
-                     uncertainty = GMM_CK7$uncertainty)
+GMM_df <- data.frame(class_epi = ifelse(GMM_KRT7$classification == 2 & GMM_KRT7$uncertainty == 0, 
+                                        "KRT7+",
+                                        "KRT7-"), 
+                     KRT7_exprs = assay(sce, "exprs")["KRT7",],
+                     uncertainty = GMM_KRT7$uncertainty)
 
 #Visualize GMM
 ggplot(GMM_df, aes(x = KRT7_exprs, fill = class_epi))+
@@ -62,35 +113,497 @@ ggplot(GMM_df, aes(x = KRT7_exprs, fill = class_epi))+
   scale_fill_brewer(palette = "Set1")
   
 #Add GMM epi class to SCE
-sce$GMM_tumor_CK7 <- GMM_df$class_epi
+sce$GMM_tumor_KRT7 <- GMM_df$class_epi
 
 ## Combine CK5/7 GMM scores 
-sce$CK5_7_score <- ifelse(sce$GMM_tumor_CK5 == "CK5+" & sce$GMM_tumor_CK7 == "CK7+", "CK5/7+", 
-       ifelse(sce$GMM_tumor_CK5 == "CK5+" & sce$GMM_tumor_CK7 == "CK7-", "CK5+",
-              ifelse(sce$GMM_tumor_CK5 == "CK5-" & sce$GMM_tumor_CK7 == "CK7+", "CK7+","CK5/7-")))
+sce$KRT5_7_score <- ifelse(sce$GMM_tumor_KRT5 == "KRT5+" & sce$GMM_tumor_KRT7 == "KRT7+", "KRT5/7+", 
+       ifelse(sce$GMM_tumor_KRT5 == "KRT5+" & sce$GMM_tumor_KRT7 == "KRT7-", "KRT5+",
+              ifelse(sce$GMM_tumor_KRT5 == "KRT5-" & sce$GMM_tumor_KRT7 == "KRT7+", "KRT7+","KRT5/7-")))
 
 ## Visualize 
-cur_dat <- t(assay(sce,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("CK5","CK7")
+cur_dat <- t(assay(sce,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("KRT5","KRT7","KRT19","KRT14","KRT8_18")
+cur_dat$KRT5_7_score <- sce$KRT5_7_score[match(rownames(cur_dat), sce$cell_id)]
+cur_dat$GMM_tumor_KRT5 <- sce$GMM_tumor_KRT5[match(rownames(cur_dat), sce$cell_id)]
+cur_dat$GMM_tumor_KRT7 <- sce$GMM_tumor_KRT7[match(rownames(cur_dat), sce$cell_id)]
 
 
-cur_dat$CK5_7_score <- sce$CK5_7_score[match(rownames(cur_dat), sce$id)]
+library(wesanderson)
 
-ggplot(cur_dat, aes(x=CK7, y=CK5,color = CK5_7_score)) +
+metadata(sce)$colors$KRT5_7_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("KRT5/7-", "KRT5/7+", "KRT5+", "KRT7+"))
+
+main <- ggplot(cur_dat, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
   geom_point(alpha = 0.5)+
-  #stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
   theme_classic()+
-  xlab("CK7 exprs")+
-  ylab("CK5 exprs")
+  xlab("KRT7 exprs")+
+  ylab("KRT5 exprs")+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce)$colors$KRT5_7_score)
 
-colData(sce) %>% as.data.frame %>% group_by(CK5_7_score) %>% count() %>% ungroup() %>% mutate(fra = n/sum(n))
+y_side <- ggplot(cur_dat, aes(x = KRT5, fill=GMM_tumor_KRT5)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#F4B5BD')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())+
+  coord_flip()
 
-sce$PID <- as.character(sce$PID)
-plot_score_PID <- colData(sce) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
-plot_score_PID$clinical_type <- sce$clinical_type[match(plot_score_PID$PID, sce$PID)]
+x_side <- ggplot(cur_dat, aes(x = KRT7, fill=GMM_tumor_KRT7)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#9C964A')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())
 
-colData(sce)
+blankPlot <- ggplot()+geom_blank(aes(1,1)) + 
+  cowplot::theme_nothing()
+
+library(gridExtra)
+
+grid.arrange(x_side, blankPlot, main, y_side, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
 
 
-ggplot(plot_score_PID, aes(x=PID, y=fra, fill = CK5_7_score))+
-  geom_tile(position = "fill")
 ```
+
+
+### Keratin expression per signature
+
+```{r}
+cur_dat <- t(assay(sce,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("KRT5","KRT7","KRT19","KRT14","KRT8_18")
+cur_dat$KRT5_7_score <- sce$KRT5_7_score[match(rownames(cur_dat), sce$cell_id)]
+
+cur_dat_long <- cur_dat %>% pivot_longer(1:5, names_to = "gene", values_to = "exprs")
+
+ggplot(cur_dat_long, aes(x = KRT5_7_score, y = exprs, color = KRT5_7_score))+
+  geom_boxplot(outlier.colour = NA)+
+  facet_wrap(~gene)+
+  theme_classic()+
+  scale_color_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+ggplot(cur_dat_long, aes(x = gene, y = exprs, color = KRT5_7_score))+
+  geom_boxplot(outlier.colour = NA)+
+  facet_wrap(~KRT5_7_score)+
+  theme_classic()+
+  scale_color_manual(values = metadata(sce)$colors$KRT5_7_score)
+```
+
+### Barplot visualization 
+
+```{r}
+## 3. Barplot visualization 
+library(dittoSeq)
+
+## TNBC type 
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "tumor_TNBC_type")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "tumor_TNBC_type", scale = "count")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+## Clinical subtype 
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "tumor_clinical_type")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "tumor_clinical_type", scale = "count")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+```
+
+
+### Define patient groups
+
+```{r}
+## Define patient groups 
+plot_score_patient_id <- colData(sce) %>% as.data.frame %>% group_by(patient_id,KRT5_7_score) %>% count() %>% group_by(patient_id) %>% mutate(fra = n/sum(n))
+
+ggplot(plot_score_patient_id, aes(x=patient_id, y=fra, fill = KRT5_7_score))+
+  geom_tile(position = "fill")
+
+plot_heat_patient_id <- plot_score_patient_id %>% pivot_wider(id_cols = patient_id, values_from = fra, names_from = KRT5_7_score) %>% column_to_rownames("patient_id")
+plot_heat_patient_id[is.na(plot_heat_patient_id)] <- 0
+
+testCL<- clValid(plot_heat_patient_id,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
+plot(testCL, legend = FALSE)
+
+
+h <- Heatmap(plot_heat_patient_id,
+             name = "Proportion",
+             col = viridis(100), 
+             row_split=4,
+             show_row_names = FALSE)
+
+h <- draw(h)
+
+plot_heat_patient_id_scaled <- t(scale(t(plot_heat_patient_id)))
+
+h_scaled <- draw(Heatmap(plot_heat_patient_id_scaled, clustering_method_rows = "ward.D2",
+             clustering_method_columns = "ward.D2", row_split=5))
+```
+
+```{r}
+row_order_h <- row_order(h)
+
+anno <- colData(sce) %>% as.data.frame %>% dplyr::select(patient_id) %>% unique()
+anno$CK5_7_group <- NA
+
+for(i in seq_along(row_order_h)){
+anno$CK5_7_group <- as.factor(ifelse(anno$patient_id %in% rownames(plot_heat_patient_id)[row_order_h[[i]]], i, anno$CK5_7_group))
+}
+
+anno$tumor_clinical_type <- sce$tumor_clinical_type[match(anno$patient_id, sce$patient_id)]
+
+sce$CK5_7_group <- anno$CK5_7_group[match(sce$patient_id, anno$patient_id)]
+```
+
+
+#### TNBC only 
+
+```{r}
+sce_TNBC <- sce[, sce$tumor_clinical_type == "TripleNeg"]
+```
+
+
+```{r}
+## Define patient groups 
+plot_score_patient_id <- colData(sce_TNBC) %>% as.data.frame %>% group_by(patient_id,KRT5_7_score) %>% count() %>% group_by(patient_id) %>% mutate(fra = n/sum(n))
+
+ggplot(plot_score_patient_id, aes(x=patient_id, y=fra, fill = KRT5_7_score))+
+  geom_tile(position = "fill")
+
+plot_heat_patient_id <- plot_score_patient_id %>% pivot_wider(id_cols = patient_id, values_from = fra, names_from = KRT5_7_score) %>% column_to_rownames("patient_id")
+plot_heat_patient_id[is.na(plot_heat_patient_id)] <- 0
+
+testCL<- clValid(plot_heat_patient_id,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
+plot(testCL, legend = FALSE)
+
+
+h <- Heatmap(plot_heat_patient_id,
+             name = "Proportion",
+             col = viridis(100), 
+             clustering_method_rows = "ward.D2",
+             clustering_method_columns = "ward.D2",
+             row_split=4,
+             show_row_names = FALSE)
+
+h <- draw(h)
+```
+
+
+```{r}
+row_order_h <- row_order(h)
+
+anno <- colData(sce_TNBC) %>% as.data.frame %>% dplyr::select(patient_id) %>% unique()
+anno$CK5_7_group <- NA
+
+for(i in seq_along(row_order_h)){
+anno$CK5_7_group <- as.factor(ifelse(anno$patient_id %in% rownames(plot_heat_patient_id)[row_order_h[[i]]], i, anno$CK5_7_group))
+}
+
+anno$tumor_clinical_type <- sce_TNBC$tumor_clinical_type[match(anno$patient_id, sce_TNBC$patient_id)]
+
+sce_TNBC$CK5_7_group <- anno$CK5_7_group[match(sce_TNBC$patient_id, anno$patient_id)]
+```
+
+
+
+
+
+
+
+
+
+## Survival analysis 
+
+
+Clean metadata for censoring 
+
+```{r}
+## DFS status 
+sce$patient_DFS_status <- ifelse(sce$patient_status %in% c("death","death by primary disease", "alive w metastases"), 1, 0)
+sce$patient_OS_status <- ifelse(sce$patient_status %in% c("death","death by primary disease"), 1, 0)
+
+
+## TNM staging 
+sce$pT_simple <- str_extract(sce$tumor_PTNM_T, "[:digit:]")
+sce$pN_simple <- str_extract(sce$tumor_PTNM_N, "[:digit:]")
+sce$pM_simple <- str_extract(sce$tumor_PTNM_M, "[:digit:]")
+```
+
+### Cox model
+
+#### Proportions 
+
+##### Univariate setting 
+
+```{r}
+library(survival)
+library(survminer)
+
+patient_id_KRT57 <- colData(sce) %>% as.data.frame() %>% select(KRT5_7_score,patient_id) %>% group_by(patient_id) %>% table() %>% as.data.frame
+
+patient_id_KRT57 <- patient_id_KRT57 %>% group_by(patient_id) %>% mutate(fra = Freq/sum(Freq))
+
+patient_id_KRT57$KRT5_7_score <- str_replace(patient_id_KRT57$KRT5_7_score,"\\+","positive")
+patient_id_KRT57$KRT5_7_score <- str_replace(patient_id_KRT57$KRT5_7_score,"\\/","_")
+patient_id_KRT57$KRT5_7_score <- str_replace(patient_id_KRT57$KRT5_7_score,"\\-","negative")
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+patient_id_metagroups <- patient_id_KRT57 %>% pivot_wider(id_cols = "patient_id",names_from = "KRT5_7_score",values_from = "fra") %>% column_to_rownames("patient_id")
+#colnames(patient_id_metagroups) <- paste0("KRT57_",colnames(patient_id_metagroups))
+
+## 1. Based on continuous cluster proportions
+Cox_df <- patient_id_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$patient_DFS_status[match(rownames(Cox_df),sce$patient_id)]
+Cox_df$DFS_months <- sce$patient_DFS_months[match(rownames(Cox_df),sce$patient_id)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -KRT5_7negative) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ ", paste(covariates, collapse = " + "),"+ KRT5_7negative"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratiDFS
+#hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0,185))+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
+```
+
+##### Multivariate setting 
+
+```{r}
+library(survival)
+library(survminer)
+
+patient_id_KRT57 <- colData(sce) %>% as.data.frame() %>% select(KRT5_7_score,patient_id) %>% group_by(patient_id) %>% table() %>% as.data.frame
+
+patient_id_KRT57 <- patient_id_KRT57 %>% group_by(patient_id) %>% mutate(fra = Freq/sum(Freq))
+
+patient_id_KRT57$KRT5_7_score <- str_replace(patient_id_KRT57$KRT5_7_score,"\\+","positive")
+patient_id_KRT57$KRT5_7_score <- str_replace(patient_id_KRT57$KRT5_7_score,"\\/","_")
+patient_id_KRT57$KRT5_7_score <- str_replace(patient_id_KRT57$KRT5_7_score,"\\-","negative")
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+patient_id_metagroups <- patient_id_KRT57 %>% pivot_wider(id_cols = "patient_id",names_from = "KRT5_7_score",values_from = "fra") %>% column_to_rownames("patient_id")
+#colnames(patient_id_metagroups) <- paste0("KRT57_",colnames(patient_id_metagroups))
+
+## 1. Based on continuous cluster proportions
+Cox_df <- patient_id_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$patient_DFS_status[match(rownames(Cox_df),sce$patient_id)]
+Cox_df$DFS_months <- sce$patient_DFS_months[match(rownames(Cox_df),sce$patient_id)]
+
+Cox_df$age <- sce$patient_age[match(rownames(Cox_df),sce$patient_id)]
+Cox_df$grade <- as.factor(sce$tumor_grade[match(rownames(Cox_df),sce$patient_id)])
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$patient_id)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$patient_id)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$patient_id)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, pM_simple, -KRT5_7negative) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ KRT5_7negative"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratiDFS
+#hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0,185))+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
+```
+
+#### Patient group 
+
+##### Univariate setting 
+
+```{r}
+library(survival)
+library(survminer)
+
+PID_CK57 <- colData(sce) %>% as.data.frame() %>% select(CK5_7_group,patient_id) %>% group_by(patient_id) %>% table() %>% as.data.frame
+
+PID_CK57 <- PID_CK57 %>% group_by(patient_id) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+patient_id_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "patient_id",names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("patient_id")
+colnames(patient_id_metagroups) <- paste0("CK57_",colnames(patient_id_metagroups))
+
+## 1. Based on continuous cluster proportions
+Cox_df <- patient_id_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$patient_DFS_status[match(rownames(Cox_df),sce$patient_id)]
+Cox_df$DFS_months <- sce$patient_DFS_months[match(rownames(Cox_df),sce$patient_id)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -CK57_2) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ ", paste(covariates, collapse = " + "),"+ CK57_2"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratiDFS
+#hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
+```
+
+##### Multivariate setting 
+
+```{r}
+PID_CK57 <- colData(sce) %>% as.data.frame() %>% select(CK5_7_group,patient_id) %>% group_by(patient_id) %>% table() %>% as.data.frame
+
+PID_CK57 <- PID_CK57 %>% group_by(patient_id) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+patient_id_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "patient_id",names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("patient_id")
+colnames(patient_id_metagroups) <- paste0("CK57_",colnames(patient_id_metagroups))
+
+## 1. Based on continuous cluster proportions
+Cox_df <- patient_id_metagroups
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$patient_DFS_status[match(rownames(Cox_df),sce$patient_id)]
+Cox_df$DFS_months <- sce$patient_DFS_months[match(rownames(Cox_df),sce$patient_id)]
+
+Cox_df$age <- sce$patient_age[match(rownames(Cox_df),sce$patient_id)]
+Cox_df$grade <- as.factor(sce$tumor_grade[match(rownames(Cox_df),sce$patient_id)])
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$patient_id)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$patient_id)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$patient_id)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, pM_simple, -CK57_2) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+ CK57_2"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+
+#Plot hazard ratiDFS
+#hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
+```
+
+
+### Kaplan-Meier 
+
+```{r}
+patient_id_metagroups$KRT5_7positive_mean <- ifelse(patient_id_metagroups$KRT5_7positive > mean(patient_id_metagroups$KRT5_7positive), "High","Low")
+
+sce$KRT57_pos_mean <- patient_id_metagroups$KRT5_7positive_mean[match(sce$patient_id, rownames(patient_id_metagroups))]
+```
+
+```{r}
+#Assess survival impact 
+library(survival)
+library(survminer)
+
+cur_surv <- colData(sce) %>% as.data.frame() %>% select(patient_id, patient_OS_months, patient_DFS_months, patient_DFS_status, patient_OS_status, CK5_7_group,KRT57_pos_mean) %>% unique() #%>% #filter(CK5_7_group %in% c("3","4"))
+
+#Plot survival curves
+fit <- survfit(Surv(patient_DFS_months, patient_DFS_status) ~ CK5_7_group, data = cur_surv)
+print(fit)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic() # Change ggplot2 theme
+)
+```
+
+
+```{r}
+sce$tumor_TNBC_type <- ifelse(sce$tumor_clinical_type == "TripleNeg", "TNBC", 
+       ifelse(sce$tumor_clinical_type != "", "Not_TNBC", "Undefined"))
+```
+
+
+
+
+
+
+
+
