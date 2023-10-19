@@ -185,28 +185,6 @@ ggplot(cur_dat_long, aes(x = gene, y = exprs, color = KRT5_7_score))+
   scale_color_manual(values = metadata(sce)$colors$KRT5_7_score)
 ```
 
-### Barplot visualization 
-
-```{r}
-## 3. Barplot visualization 
-library(dittoSeq)
-
-## TNBC type 
-dittoBarPlot(sce, var = "KRT5_7_score", group.by = "tumor_TNBC_type")+
-  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
-
-dittoBarPlot(sce, var = "KRT5_7_score", group.by = "tumor_TNBC_type", scale = "count")+
-  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
-
-## Clinical subtype 
-dittoBarPlot(sce, var = "KRT5_7_score", group.by = "tumor_clinical_type")+
-  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
-
-dittoBarPlot(sce, var = "KRT5_7_score", group.by = "tumor_clinical_type", scale = "count")+
-  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
-
-```
-
 
 ### Define patient groups
 
@@ -220,7 +198,7 @@ ggplot(plot_score_patient_id, aes(x=patient_id, y=fra, fill = KRT5_7_score))+
 plot_heat_patient_id <- plot_score_patient_id %>% pivot_wider(id_cols = patient_id, values_from = fra, names_from = KRT5_7_score) %>% column_to_rownames("patient_id")
 plot_heat_patient_id[is.na(plot_heat_patient_id)] <- 0
 
-testCL<- clValid(plot_heat_patient_id,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "ward")
+testCL<- clValid(plot_heat_patient_id,nClust = 2:20,clMethods = c("hierarchical","agnes","kmeans"),validation="internal",metric="euclidean", method = "average")
 plot(testCL, legend = FALSE)
 
 
@@ -228,18 +206,27 @@ h <- Heatmap(plot_heat_patient_id,
              name = "Proportion",
              col = viridis(100), 
              row_split=4,
+             #clustering_method_rows = "ward.D2",
+             #clustering_method_columns = "ward.D2",
              show_row_names = FALSE)
 
-h <- draw(h)
+
 
 plot_heat_patient_id_scaled <- t(scale(t(plot_heat_patient_id)))
 
-h_scaled <- draw(Heatmap(plot_heat_patient_id_scaled, clustering_method_rows = "ward.D2",
-             clustering_method_columns = "ward.D2", row_split=5))
+h_scaled <- Heatmap(plot_heat_patient_id_scaled, row_split = 4)
+
+
+h_scaled + h
+
+# Draw for row_order access
+h_scaled <- draw(h_scaled)
+h <- draw(h)
+
 ```
 
 ```{r}
-row_order_h <- row_order(h)
+row_order_h <- row_order(h_scaled)
 
 anno <- colData(sce) %>% as.data.frame %>% dplyr::select(patient_id) %>% unique()
 anno$CK5_7_group <- NA
@@ -251,6 +238,10 @@ anno$CK5_7_group <- as.factor(ifelse(anno$patient_id %in% rownames(plot_heat_pat
 anno$tumor_clinical_type <- sce$tumor_clinical_type[match(anno$patient_id, sce$patient_id)]
 
 sce$CK5_7_group <- anno$CK5_7_group[match(sce$patient_id, anno$patient_id)]
+
+unique(sce$CK5_7_group)
+
+metadata(sce)$colors$CK5_7_group <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("2", "4", "1", "3"))
 ```
 
 
@@ -304,8 +295,54 @@ sce_TNBC$CK5_7_group <- anno$CK5_7_group[match(sce_TNBC$patient_id, anno$patient
 
 
 
+### Barplot visualization 
+
+```{r}
+sce$tumor_TNBC_type <- ifelse(sce$tumor_clinical_type == "TripleNeg", "TNBC", 
+       ifelse(sce$tumor_clinical_type != "", "Not_TNBC", "Undefined"))
+```
+
+```{r}
+## 3. Barplot visualization 
+library(dittoSeq)
+
+### SCORE 
+
+## TNBC type 
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "tumor_TNBC_type")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "tumor_TNBC_type", scale = "count")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+## Clinical subtype 
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "tumor_clinical_type")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "tumor_clinical_type", scale = "count")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+### GROUP 
+
+## TNBC type 
+dittoBarPlot(sce, var = "CK5_7_group", group.by = "tumor_TNBC_type")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_group)+
+  ylab("Fraction of patients")
+
+dittoBarPlot(sce, var = "CK5_7_group", group.by = "tumor_TNBC_type", scale = "count")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_group)+
+  ylab("Number of patients")
+
+## Clinical subtype 
+dittoBarPlot(sce, var = "CK5_7_group", group.by = "tumor_clinical_type")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_group)+
+  ylab("Fraction of patients")
 
 
+dittoBarPlot(sce, var = "CK5_7_group", group.by = "tumor_clinical_type", scale = "count")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_group)+
+  ylab("Number of patients")
+```
 
 
 
@@ -578,7 +615,7 @@ sce$KRT57_pos_mean <- patient_id_metagroups$KRT5_7positive_mean[match(sce$patien
 library(survival)
 library(survminer)
 
-cur_surv <- colData(sce) %>% as.data.frame() %>% select(patient_id, patient_OS_months, patient_DFS_months, patient_DFS_status, patient_OS_status, CK5_7_group,KRT57_pos_mean) %>% unique() #%>% #filter(CK5_7_group %in% c("3","4"))
+cur_surv <- colData(sce) %>% as.data.frame() %>% select(patient_id, patient_OS_months, patient_DFS_months, patient_DFS_status, patient_OS_status, CK5_7_group) %>% unique() #%>% #filter(CK5_7_group %in% c("3","4"))
 
 #Plot survival curves
 fit <- survfit(Surv(patient_DFS_months, patient_DFS_status) ~ CK5_7_group, data = cur_surv)
@@ -595,10 +632,7 @@ ggsurvplot(fit,
 ```
 
 
-```{r}
-sce$tumor_TNBC_type <- ifelse(sce$tumor_clinical_type == "TripleNeg", "TNBC", 
-       ifelse(sce$tumor_clinical_type != "", "Not_TNBC", "Undefined"))
-```
+
 
 
 
