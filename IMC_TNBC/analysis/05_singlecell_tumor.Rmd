@@ -1734,6 +1734,60 @@ theme(axis.text.x = element_text(angle = 90))
 #hr_prop
 ```
 
+```{r}
+# not using one-hot encoding but factors - easier to write and interpret?
+library(survival)
+library(survminer)
+
+## 1. Based on patient groupings
+Cox_df <- data.frame(row.names = unique(sce$PID))
+
+#add covariates for correction
+Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
+Cox_df$DFS_months <- sce$DFS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$CK5_7_group <- factor(sce$CK5_7_group[match(rownames(Cox_df),sce$PID)], levels = c("4","3","2","1"))
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ ", paste(covariates, collapse = " + ")))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res_1 <- summary(multi_model)
+
+plot_df_prop_1 <- data.frame(group = rownames(multi_res_1$coefficients),
+                      p_value = signif(multi_res_1$coefficients[,"Pr(>|z|)"],3),
+                      HR = signif(multi_res_1$coefficients[,"exp(coef)"],3),
+                      CI_low = signif(multi_res_1$conf.int[,"lower .95"],3),
+                      CI_high = signif(multi_res_1$conf.int[,"upper .95"],3),
+                      wald_test = signif(multi_res_1$waldtest["pvalue"],3))
+
+
+#Plot hazard ratiDFS
+#hr_prop <- 
+ggplot(plot_df_prop_1, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0,40))+
+#scale_y_continuous(trans = "log10")
+theme(axis.text.x = element_text(angle = 90))
+
+#hr_prop
+```
+
 Univariate 
 
 ```{r}
