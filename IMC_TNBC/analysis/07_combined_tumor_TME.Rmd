@@ -4,7 +4,7 @@ author: "Lasse Meyer"
 date: "`r Sys.Date()`"
 output: html_document
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -2208,9 +2208,12 @@ ggplot(dist_df, aes(x = reorder(metacluster_combined, mean), y = mean))+
 sce_tumor <- sce[,sce$analysis_cat == "tumor"]
 sce_tumor$metacluster_combined <- unfactor(sce_tumor$metacluster_combined)
 
-# For PID with MC8 patch 
-patch_MC8_PID <- colData(sce) %>% as.data.frame() %>% filter(!is.na(patch_tumor_8)) %>% pull(PID) %>% unique()
-sce_tumor_MC8 <- sce_tumor[,sce_tumor$PID %in% patch_MC8_PID]
+# For PID with at least 5 MC8 cells 
+PID_overall <- colData(sce_tumor) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_MC8_overall <- PID_overall %>% group_by(PID) %>% filter(metacluster_combined == "tumor_8" & Freq > 5)
+
+sce_tumor_MC8 <- sce_tumor[,sce_tumor$PID %in% PID_MC8_overall$PID]
 
 interaction_tumor_MC8 <- testInteractions(sce_tumor_MC8, 
                  group_by = "sample_id", 
@@ -2223,7 +2226,7 @@ interaction_tumor <- testInteractions(sce_tumor,
                   group_by = "sample_id", 
                   label = "metacluster_combined", 
                   colPairName = "neighborhood", 
-                  BPPARAM = MulticoreParam(workers = 15))
+                  BPPARAM = MulticoreParam())
 ```
 
 Visualization 
@@ -2238,10 +2241,9 @@ interaction_tumor_MC8 %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %
         theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   theme_classic()
 
-interaction_tumor_plot <- interaction_tumor %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% filter(to_label != "tumor_8") %>%
+interaction_tumor_plot <- interaction_tumor_MC8 %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% filter(to_label != "tumor_8") %>%
     group_by(from_label, to_label) %>%
     summarize(sum_sigval = sum(sigval, na.rm = TRUE))
-
 
 ggplot(interaction_tumor_plot) +
         geom_tile(aes(reorder(to_label,sum_sigval), from_label, fill = sum_sigval)) +
@@ -2574,21 +2576,17 @@ ggplot(PID_CK57_overall_plot) +
 sce_tumor <- sce[,sce$analysis_cat == "tumor"]
 
 # For PID with CK5/7 patch 
-patch_CK57_PID <- colData(sce) %>% as.data.frame() %>% filter(!is.na(patch_CK57pos)) %>% pull(PID) %>% unique()
-sce_tumor_CK57 <- sce_tumor[,sce_tumor$PID %in% patch_CK57_PID]
+PID_overall <- colData(sce_tumor) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_MC8_overall <- PID_overall %>% group_by(PID) %>% filter(metacluster_combined == "tumor_8" & Freq > 5)
+
+sce_tumor_CK57 <- sce_tumor[,sce_tumor$PID %in% PID_MC8_overall$PID]
 
 interaction_tumor_CK57 <- testInteractions(sce_tumor_CK57, 
                  group_by = "sample_id", 
                  label = "CK5_7_score", 
                  colPairName = "neighborhood", 
                  BPPARAM = MulticoreParam())
-
-
-interaction_tumor_CK57_total <- testInteractions(sce_tumor, 
-                  group_by = "sample_id", 
-                  label = "CK5_7_score", 
-                  colPairName = "neighborhood", 
-                  BPPARAM = MulticoreParam(workers = 15))
 ```
 
 Visualization 
@@ -2686,6 +2684,42 @@ p2 <- dittoBarPlot(sce[,!is.na(sce$CD8Tcell_type)], var = "CD8Tcell_type", group
   ggtitle("")
 
 p1 / p2
+```
+
+Visualization 
+
+```{r}
+# Select images of interest
+cur_sample <- (colData(sce) %>% as.data.frame %>% select(sample_id, spatial_CD8_pheno) %>% group_by(sample_id) %>% filter(spatial_CD8_pheno == "inflamed") %>% count() %>% arrange(desc(n)) %>% pull(sample_id))[1:10]
+
+cur_images <- images[mcols(images)$sample_id %in% cur_sample]
+cur_masks <- masks[mcols(masks)$sample_id %in% cur_sample]
+cur_sce <- sce[,sce$sample_id %in% cur_sample & sce$metacluster_tumor_combined %in% c("tumor", "CD8_T_cell")]
+
+cur_sce$CD8Tcell_tumor_type <- ifelse(is.na(cur_sce$CD8Tcell_type), "tumor", cur_sce$CD8Tcell_type)
+```
+
+We will use cytoviewer for image exploration and download
+
+```{r}
+library(cytoviewer)
+app <- cytoviewer(image = cur_images, mask = cur_masks, object = cur_sce, img_id = "sample_id", cell_id = "ObjectNumber")
+
+shiny::runApp(app)
+```
+
+
+```{r}
+plotSpatial(
+  object = sce[, sce$sample_id == "ZTMA174.2_ZTMA174_B06.22442_10_AX2Y2_93" & sce$metacluster_tumor_combined %in% c("tumor", "CD8_T_cell")], 
+  img_id = "sample_id", 
+  node_color_by = "CD8Tcell_type", 
+  node_shape_by = "metacluster_tumor_combined", 
+  colPairName = "neighborhood", 
+  draw_edges = TRUE, 
+  nodes_first = FALSE, 
+  directed = FALSE)+
+  scale_color_manual(values = c("navy", "steelblue1", "firebrick"))
 ```
 
 ```{r}
@@ -3491,6 +3525,30 @@ plotExpression(spatialpheno_mean_PID,
     theme(axis.text.x =  element_text(angle = 90))+
     scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno)
 ```
+
+```{r}
+set.seed(22)
+
+cur_sce <- sce[,sce$metacluster_tumor_combined %in% c("tumor")]
+
+cur_cells <- sample(seq_len(ncol(cur_sce)), 100000)
+
+# Heatmap visualization - DittoHeatmap
+dittoHeatmap(cur_sce[,cur_cells],
+             genes = rownames(sce) %in% c("HLADR","Ki67", "Vimentin"),
+             assay = "min_max", 
+             heatmap.colors = viridis(100), 
+             scale = "none", 
+             cluster_cols = FALSE, 
+             annot.by = c("spatial_CD8_pheno"))
+
+plotExpression(cur_sce[,cur_cells], 
+               features = c("HLADR"),
+               x = "spatial_CD8_pheno", exprs_values = "exprs", 
+               colour_by = "spatial_CD8_pheno") 
+
+```
+
 
 ### Tumor patch analysis 
 
@@ -4894,7 +4952,6 @@ diffabun_plot_cd8_3 <- ggplot(DA, aes(x = logFC, y = logCPM))+
 ```{r}
 images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_TNBC_new.rds")
 masks <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
-sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
 ```
 
 ```{r}
@@ -4913,15 +4970,6 @@ cur_images <- images[img_ids]
 #Subset mask and object
 cur_mask <- masks[img_ids]
 cur_sce <- sce[,sce$sample_id %in% names(cur_images)]
-```
-
-We will use cytoviewer for image exploration and download
-
-```{r}
-library(cytoviewer)
-app <- cytoviewer(image = cur_images, mask = cur_mask, object = cur_sce, img_id = "sample_id", cell_id = "ObjectNumber")
-
-shiny::runApp(app, launch.browser = TRUE)
 ```
 
 ```{r}

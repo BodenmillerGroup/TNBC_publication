@@ -964,7 +964,7 @@ plotSpatial(sce_val[,sce_val$sample_id %in% cur_sample & sce_val$metacluster_pre
 ## 9. Focus on MC8 frequency / patches / dominant PID 
 
 ```{r, message=FALSE}
-sce <- readRDS("/mnt/tnbc_volume/TNBC_all/data_analysis/04_sce_TNBC_Clus_com.rds")
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/04_sce_TNBC_Clus_com.rds")
 ```
 
 Filter sce for validation cohort
@@ -978,7 +978,7 @@ Add predicted metacluster labels
 
 ```{r}
 # Read sce object (tumor cells from Janas data with predicted metacluster)
-sce_val_tumor <- readRDS("/mnt/tnbc_volume/TNBC_all/data_analysis/04_sce_TNBC_Clus_com_tumor_predicted.rds")
+sce_val_tumor <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/04_sce_TNBC_Clus_com_tumor_predicted.rds")
 
 sce$metacluster_predict <- sce_val_tumor$metacluster_predict[match(sce$cell_id, sce_val_tumor$cell_id)]
 
@@ -1071,11 +1071,22 @@ ggplot(PID_MC8_overall_plot) +
 Interaction testing 
 
 ```{r}
-interaction_tumor <- testInteractions(sce[,sce$metacluster_predict != "Unknown"], 
+sce_tumor <- sce[,sce$metacluster_predict != "Unknown"]
+
+sce_tumor$metacluster_predict <- unfactor(sce_tumor$metacluster_predict)
+
+# For PID with at least 5 MC8 cells 
+PID_overall <- colData(sce_tumor) %>% as.data.frame() %>% select(metacluster_predict,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_MC8_overall <- PID_overall %>% group_by(PID) %>% filter(metacluster_predict == "tumor_8" & Freq > 5)
+
+sce_tumor_MC8 <- sce_tumor[,sce_tumor$PID %in% PID_MC8_overall$PID]
+
+interaction_tumor <- testInteractions(sce_tumor_MC8, 
                   group_by = "sample_id", 
                   label = "metacluster_predict", 
                   colPairName = "neighborhood", 
-                  BPPARAM = MulticoreParam(workers = 15))
+                  BPPARAM = MulticoreParam())
 ```
 
 ```{r}

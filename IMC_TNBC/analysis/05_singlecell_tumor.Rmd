@@ -1586,7 +1586,7 @@ ggplot(plot_score_PID, aes(x = CK5_7_score, y = fra))+
 library(survival)
 library(survminer)
 
-cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, CK5_7_group, OS_months, DFS_months, status_DFS, status_OS) %>% unique() #%>% filter(CK5_7_group %in% c("1","4"))
+cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, CK5_7_group, OS_months, DFS_months, status_DFS, status_OS) %>% unique() %>% filter(CK5_7_group %in% c("1","4"))
 
 #Plot survival curves
 fit <- survfit(Surv(DFS_months, status_DFS) ~ CK5_7_group, data = cur_surv)
@@ -1598,7 +1598,7 @@ ggsurvplot(fit,
           risk.table.col = "strata", # Change risk table color by groups
           linetype = "strata", # Change line type by groups
           surv.median.line = "hv", # Specify median survival
-          ggtheme = theme_classic(), # Change ggplot2 theme
+          ggtheme = theme_classic()
           #palette = "Set1",
           #log.rank.weights = "n"
 )
@@ -1686,8 +1686,11 @@ PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("PID")
 colnames(PID_metagroups) <- paste0("CK57_",colnames(PID_metagroups))
 
+PID_metagroup_ch[PID_metagroup_ch == "0"] <- "A"
+PID_metagroup_ch[PID_metagroup_ch == "1"] <- "B"
+
 ## 1. Based on continuous cluster proportions
-Cox_df <- PID_metagroups
+Cox_df <- PID_metagroup_ch
 
 #add covariates for correction
 Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
