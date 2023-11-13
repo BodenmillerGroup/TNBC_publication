@@ -259,6 +259,7 @@ p1+p2+p3
 # p4
 
 ```
+
 ## Add missing metadata 
 
 ```{r}
@@ -273,6 +274,43 @@ colData <- colData(sce) %>% as.data.frame() %>% select("PID","age","grade","pT",
 for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simple", "pN", "pN_simple", "status_OS","status_DFS", "OS_months","DFS_months")]) {
   colData(sce)[,entry] <- meta[,entry][match(colData(sce)[,"PID"],meta[,"PID"])]
 }
+```
+
+```{r}
+# Mark by pre-treatment information
+sce$pretreatment <- str_detect(sce$pT, "y")
+```
+
+```{r}
+# Proportion of pre-treatment per metacluster
+pretreatment_mc <- colData(sce) %>% as.data.frame() %>% select(metacluster,pretreatment) %>% group_by(metacluster) %>% table() %>% as.data.frame
+pretreatment_mc <- pretreatment_mc %>% group_by(metacluster) %>% mutate(fra = Freq/sum(Freq)) 
+
+ggplot(pretreatment_mc, aes(x = metacluster, y = fra, fill = pretreatment))+
+  geom_tile(position = "stack",color = "black")+#+alpha = 0.5)+
+  theme_classic()+
+  ylab("Fraction of cells per group")+
+  scale_fill_brewer(palette = "Set1")
+
+
+# Proportion of pre-treatment per CK57 group
+pretreatment_CK57 <- colData(sce) %>% as.data.frame() %>% select(CK5_7_group,pretreatment) %>% group_by(CK5_7_group) %>% table() %>% as.data.frame
+pretreatment_CK57 <- pretreatment_CK57 %>% group_by(CK5_7_group) %>% mutate(fra = Freq/sum(Freq)) 
+
+ggplot(pretreatment_CK57, aes(x = CK5_7_group, y = fra, fill = pretreatment))+
+  geom_tile(position = "stack",color = "black")+#+alpha = 0.5)+
+  theme_classic()+
+  ylab("Fraction of cells per group")+
+  scale_fill_brewer(palette = "Set1")
+
+n_pt <- colData(sce) %>% as.data.frame() %>% select(PID, pretreatment) %>% unique() %>% group_by(pretreatment) %>% count()
+n_pt <- n_pt %>% ungroup() %>% mutate(fra = n/sum(n))
+
+ggplot(n_pt, aes(x = "Cohort", y = fra, fill = pretreatment))+
+  geom_tile(position = "stack",color = "black")+#+alpha = 0.5)+
+  theme_classic()+
+  ylab("Fraction of PID per group")+
+  scale_fill_brewer(palette = "Set1")
 ```
 
 # 2. Heatmap visualization
@@ -583,6 +621,7 @@ draw(h_meta)
 # 
 # draw(h_cluster_anno)
 ```
+
 
 ```{r save object}
 #Save sce after metacluster assignment
@@ -1354,9 +1393,15 @@ ggplot(test_plot, aes(mean_fra, dif_fra, color = PID))+
   scale_color_manual(values = metadata(sce)$colors$PID)+
   guides(color = "none")+
   theme_classic()
-  
 ```
 
+
+```{r}
+ggplot(pretreatment_CK57, aes(x = cat, y = fra, fill = pretreatment))+
+  geom_tile(position = "stack",color = "black")+
+  theme_classic()+
+  ylab("Fraction of PID")
+```
 
 ### Age and fraction correlation - MC8 / CK5/7 scores
 
@@ -1678,7 +1723,8 @@ Multivariate
 library(survival)
 library(survminer)
 
-PID_CK57 <- colData(sce) %>% as.data.frame() %>% select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_CK57 <- colData(sce) %>% as.data.frame() %>% #filter(pretreatment == FALSE) %>% 
+  select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 
 PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
@@ -1686,11 +1732,8 @@ PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("PID")
 colnames(PID_metagroups) <- paste0("CK57_",colnames(PID_metagroups))
 
-PID_metagroup_ch[PID_metagroup_ch == "0"] <- "A"
-PID_metagroup_ch[PID_metagroup_ch == "1"] <- "B"
-
 ## 1. Based on continuous cluster proportions
-Cox_df <- PID_metagroup_ch
+Cox_df <- PID_metagroups
 
 #add covariates for correction
 Cox_df$status_DFS <- sce$status_DFS[match(rownames(Cox_df),sce$PID)]
@@ -1797,7 +1840,8 @@ Univariate
 library(survival)
 library(survminer)
 
-PID_CK57 <- colData(sce) %>% as.data.frame() %>% select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_CK57 <- colData(sce) %>% as.data.frame() %>% #filter(pretreatment == FALSE) %>% 
+  select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 
 PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
@@ -2045,7 +2089,7 @@ Multivariate
 library(survival)
 library(survminer)
 
-PID_metacluster <- colData(sce) %>% as.data.frame() %>% select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metacluster <- colData(sce) %>% as.data.frame() #%>% filter(pretreatment == FALSE) %>% select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 PID_metacluster <- PID_metacluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
 ### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
@@ -2083,8 +2127,7 @@ plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
 
 
 #Plot hazard ratiDFS
-#hr_prop <- 
-ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
 geom_point(size = 4)+
 geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
 #coord_cartesian(ylim=c(0,50))+
@@ -2093,7 +2136,7 @@ scale_color_brewer(palette = "Set1")+
 xlab("Tumor metaclusters")+
 ylab("HR for con_prop")+
 theme_classic()+
-coord_cartesian(ylim=c(0,185))+
+coord_cartesian(ylim=c(0,200))+
 #scale_y_continuous(trans = "log10")
 theme(axis.text.x = element_text(angle = 90))
 
@@ -2274,7 +2317,7 @@ summary(res.cut)
 plot(res.cut, "MC8", palette = "npg")
 
 res.cat <- surv_categorize(res.cut)
-fit <- survfit(Surv(DFS_months, status_DFS) ~MC8, data = res.cat)
+fit <- survfit(Surv(DFS_months, status_DFS) ~ MC8, data = res.cat)
 
 ggsurvplot(fit,
           pval = TRUE,
@@ -2284,10 +2327,6 @@ ggsurvplot(fit,
           surv.median.line = "hv", # Specify median survival
           ggtheme = theme_classic(), # Change ggplot2 theme
           palette = "Set1") 
-  
-  
-  
-  
   
   
   

@@ -521,7 +521,6 @@ upset_1
 
 sce_sub <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_SUB_TNBC_Clus.rds")
 
-
 ## 1. Visualize TSNE
 #panCK and GMM_CK
 p1 <- plotReducedDim(sce_sub, dimred = "TSNE", by_exprs_values = "exprs",colour_by = "panCK")
@@ -558,6 +557,12 @@ all_plots_TSNE <- lapply(c(rownames(sce_sub)[rowData(sce_sub)$use_channel]),
 library(cowplot)
 plots_TSNE_exp <- plot_grid(plotlist = all_plots_TSNE)
 plots_TSNE_exp
+```
+
+```{r}
+# Mark by pre-treatment information
+sce_sub$pretreatment <- str_detect(sce_sub$pT, "y")
+plotReducedDim(sce_sub, dimred = "TSNE",colour_by = "pretreatment")
 ```
 
 ## Estimate fraction of tumor cells for each sample/image
