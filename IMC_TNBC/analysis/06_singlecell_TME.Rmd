@@ -286,6 +286,30 @@ for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simpl
 }
 ```
 
+```{r}
+# Mark by pre-treatment information
+sce$pretreatment_pT <- str_detect(sce$pT, "y")
+sce$pretreatment_pN <- str_detect(sce$pN, "y")
+
+test_df <- colData(sce) %>% as.data.frame %>% select(PID, pT, pT_simple, pN, pN_simple, pretreatment_pT, pretreatment_pN) %>% unique() %>% filter(pretreatment_pN == TRUE)
+
+sce$pretreatment <- sce$pretreatment_pT
+
+metadata(sce)$colors$pretreatment <- setNames(brewer.pal(4,"Set3")[3:4], sort(unique(sce$pretreatment)))
+```
+
+```{r}
+# Proportion of pre-treatment per metacluster
+pretreatment_mc <- colData(sce) %>% as.data.frame() %>% select(immune_metacluster,pretreatment) %>% group_by(immune_metacluster) %>% table() %>% as.data.frame
+pretreatment_mc <- pretreatment_mc %>% group_by(immune_metacluster) %>% mutate(fra = Freq/sum(Freq)) 
+
+ggplot(pretreatment_mc, aes(x = immune_metacluster, y = fra, fill = pretreatment))+
+  geom_tile(position = "stack",color = "black")+#+alpha = 0.5)+
+  theme_classic()+
+  ylab("Fraction of cells per group")+
+  scale_fill_manual(values = metadata(sce)$colors$pretreatment)
+```
+
 # 2. Heatmap visualization
 
 ## Heatmap with different scales 
@@ -904,7 +928,7 @@ row_sorted <- hc$order
 # Define annotation dataframe
 cur_df <- cur_df[row_sorted,]
 
-anno <- colData(sce) %>% as.data.frame %>% select(PID, age_bin, grade, pT_simple, pN_simple, pM_simple) %>% unique()
+anno <- colData(sce) %>% as.data.frame %>% select(PID, age_bin, grade, pT_simple, pN_simple, pM_simple, pretreatment) %>% unique()
 anno <- anno[match(rownames(cur_df), anno$PID),]
 
 # Plot annotation dataframe with ComplexHeatmap
@@ -913,12 +937,13 @@ fraction_anno <- HeatmapAnnotation(MC_fractions = anno_barplot(cur_df, gp=gpar(f
                                    height = unit(25,"cm"),
                                    width = unit(11,"cm"),
                                    show_row_names = FALSE), 
-                          PID = anno_simple(anno$PID, col=metadata(sce)$colors$PID, border=TRUE),
+                         # PID = anno_simple(anno$PID, col=metadata(sce)$colors$PID, border=TRUE),
                           age = anno_simple(anno$age_bin, col = metadata(sce)$colors$age_bin, border = TRUE),
                           grade = anno_simple(anno$grade, col = metadata(sce)$colors$grade, border = TRUE),
                           pT = anno_simple(anno$pT_simple, col=metadata(sce)$colors$pT_simple, border=TRUE),
                           pN = anno_simple(anno$pN_simple, col=metadata(sce)$colors$pN_simple, border=TRUE),
                           pM = anno_simple(anno$pM_simple, col=metadata(sce)$colors$pM_simple, border = TRUE),
+                          pretreatment = anno_simple(as.character(anno$pretreatment), col=metadata(sce)$colors$pretreatment, border = TRUE),
                           border = TRUE, 
                           #annotation_name_rot = 90,
                           gap = unit(1,"mm"),

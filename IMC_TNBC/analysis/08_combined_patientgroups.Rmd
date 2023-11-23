@@ -79,6 +79,20 @@ library(wesanderson)
 metadata(sce)$colors$CK5_7_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("CK5/7-", "CK5/7+", "CK5+", "CK7+"))
 ```
 
+## Add missing metadata 
+
+```{r}
+# Mark by pre-treatment information
+sce$pretreatment_pT <- str_detect(sce$pT, "y")
+sce$pretreatment_pN <- str_detect(sce$pN, "y")
+
+test_df <- colData(sce) %>% as.data.frame %>% select(PID, pT, pT_simple, pN, pN_simple, pretreatment_pT, pretreatment_pN) %>% unique() %>% filter(pretreatment_pN == TRUE)
+
+sce$pretreatment <- sce$pretreatment_pT
+
+metadata(sce)$colors$pretreatment <- setNames(brewer.pal(4,"Set3")[3:4], sort(unique(sce$pretreatment)))
+```
+
 ## Based on spatial CD8 phenotype and CK5/7 scores 
 
 ```{r}
@@ -135,7 +149,6 @@ alluvial_wide(df_alluvial,
   theme_classic()
 ```
 
-
 ### Kaplan-Meier 
 
 ```{r}
@@ -144,8 +157,8 @@ library(survival)
 library(survminer)
 
 cur_surv <- colData(sce) %>% as.data.frame() %>% 
-  dplyr::select(PID, BL_CD8_group_merg, OS_months, DFS_months, status_DFS, status_OS) %>% 
-  #filter(BL_CD8_group %in% c("4_inflamed","4_cold/excluded")) %>%
+  dplyr::select(PID, BL_CD8_group_merg, OS_months, DFS_months, status_DFS, status_OS, pretreatment) %>% 
+  filter(pretreatment == "FALSE") %>%
   unique()
 
 # Define colors 
@@ -719,9 +732,14 @@ pheatmap(log2(tab2 + 1), color = viridis(100),name = "log2(count+1)")
 pheatmap(log2(tab3 + 1), color = viridis(100),name = "log2(count+1)")
 
 ```
+
 ```{r save_objects, message = FALSE, warning=FALSE}
 #Save sce
 saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/08_sce_PIDgroup.rds")
+```
+
+```{r}
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/08_sce_PIDgroup.rds")
 ```
 
 # 2. Patient group visualization

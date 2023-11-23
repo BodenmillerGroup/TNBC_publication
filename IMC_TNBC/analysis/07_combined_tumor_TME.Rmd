@@ -140,6 +140,7 @@ sce_sub <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/04_sce_SUB_T
 #Add cluster_combined info
 sce_sub$cluster_combined <- sce$cluster_combined[match(sce_sub$cell_id, sce$cell_id)]
 sce_sub$metacluster_combined <- sce$metacluster_combined[match(sce_sub$cell_id, sce$cell_id)]
+sce_sub$pretreatment <- sce$pretreatment[match(sce_sub$cell_id, sce$cell_id)]
 
 #sub cluster categories
 sce_sub$metacluster_tumor_combined <- sce$metacluster_tumor_combined[match(sce_sub$cell_id, sce$cell_id)]
@@ -163,6 +164,9 @@ plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "PID")+#shape_by = "analysi
 plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "TMANr")+#shape_by = "analysis_cat")+
   scale_color_manual(values = metadata(sce)$colors$TMANr)
 
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "pretreatment")+#shape_by = "analysis_cat")+
+  scale_color_manual(values = metadata(sce)$colors$pretreatment)
+
 plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "analysis_cat")+#shape_by = "analysis_cat")+
   scale_color_manual(values = metadata(sce)$colors$analysis_cat)
 
@@ -185,6 +189,30 @@ meta <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Metada
 for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simple", "pN", "pN_simple", "status_OS","status_DFS", "OS_months","DFS_months")]) {
   colData(sce)[,entry] <- meta[,entry][match(colData(sce)[,"PID"],meta[,"PID"])]
 }
+```
+
+```{r}
+# Mark by pre-treatment information
+sce$pretreatment_pT <- str_detect(sce$pT, "y")
+sce$pretreatment_pN <- str_detect(sce$pN, "y")
+
+test_df <- colData(sce) %>% as.data.frame %>% select(PID, pT, pT_simple, pN, pN_simple, pretreatment_pT, pretreatment_pN) %>% unique() %>% filter(pretreatment_pN == TRUE)
+
+sce$pretreatment <- sce$pretreatment_pT
+
+metadata(sce)$colors$pretreatment <- setNames(brewer.pal(4,"Set3")[3:4], sort(unique(sce$pretreatment)))
+```
+
+```{r}
+# Proportion of pre-treatment per category 
+pretreatment_mc <- colData(sce) %>% as.data.frame() %>% select(spatial_CD8_pheno,pretreatment) %>% group_by(spatial_CD8_pheno) %>% table() %>% as.data.frame
+pretreatment_mc <- pretreatment_mc %>% group_by(spatial_CD8_pheno) %>% mutate(fra = Freq/sum(Freq)) 
+
+ggplot(pretreatment_mc, aes(x = spatial_CD8_pheno, y = fra, fill = pretreatment))+
+  geom_tile(position = "stack",color = "black")+#+alpha = 0.5)+
+  theme_classic()+
+  ylab("Fraction of cells per group")+
+  scale_fill_manual(values = metadata(sce)$colors$pretreatment)
 ```
 
 # 2. Image visualization
