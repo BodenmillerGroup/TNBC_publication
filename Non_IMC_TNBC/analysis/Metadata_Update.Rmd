@@ -502,9 +502,9 @@ dev.off()
 ### Load all metadata
 
 ```{r}
-Meta_174 <- read_csv("/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA174_TNBC_LM_processed.csv")
-Meta_249 <- read_csv("/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA249_TNBC_LM_processed.csv")
-Meta_2126 <- read_csv("/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA21_26_Jana_TNBC_LM_processed.csv")
+Meta_174 <- read_csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/ZTMA174_TNBC_LM_processed.csv")
+Meta_249 <- read_csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/ZTMA249_TNBC_LM_processed.csv")
+#Meta_2126 <- read_csv("/Users/lasmey/Desktop/TNBC/Metadaten/ZTMA21_26_Jana_TNBC_LM_processed.csv")
 ```
 
 ### Combine metadata from all 
@@ -568,11 +568,11 @@ Meta <- Meta %>% mutate(age_bin = ifelse(age <= 40, "27-40",
 ```
 
 ```{r save combined}
-write.csv(Meta, "/Users/lasmey/Desktop/TNBC/Metadaten/Metadata_Combined_TNBC_LM.csv")
+write.csv(Meta, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv")
 ```
 
 ```{r save combined}
-Meta <- read.csv("/Users/lasmey/Desktop/TNBC/Metadaten/Metadata_Combined_TNBC_LM.csv")
+Meta <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv")
 
 Meta <- Meta %>% filter(!TMANr %in% c("TMA21","TMA26"))
 ```
@@ -586,9 +586,12 @@ library(foreach)
 library(ggsci)
 library(RColorBrewer)
 
+# Add neoadjuvant info 
+Meta$pretreatment <- str_detect(Meta$pT, "y")
+
 #Filter for columns to visualize
 Meta_viz <- Meta %>% #filter(HER2_case == FALSE) %>% 
-  select(TMANr,PID,n_samples,grade,pT_simple,pN_simple,pM_simple,OS_data, DFS_data, age_bin, tumor_size_cm, lehmann_subtype) 
+  select(TMANr,PID,n_samples,grade,pT_simple,pN_simple,pM_simple,OS_data, DFS_data, age_bin, tumor_size_cm, lehmann_subtype, pretreatment) 
 
 #Convert empty columns and NAs for easier handling with ComplexHeatmap package
 Meta_viz[is.na(Meta_viz)] <- "NA"
@@ -614,6 +617,8 @@ pN_simple = setNames(c(colorRampPalette(brewer.pal(9, "Purples"))(length(unique(
                 sort(unique(Meta_viz$pN_simple))),
 pM_simple = setNames(c(colorRampPalette(brewer.pal(3, "PuRd"))(length(unique(Meta_viz$pM_simple))-1),"black"), 
                 sort(unique(Meta_viz$pM_simple))),
+pretreatment = setNames(c(colorRampPalette(brewer.pal(4, "Set3")[3:4])(length(unique(Meta_viz$pretreatment))-1),"black"), 
+                c("FALSE","TRUE","NA")),
 OS_data = setNames(c("black","grey"),sort(unique(Meta_viz$OS_data))),
 DFS_data = setNames(c("black","grey"),sort(unique(Meta_viz$DFS_data))),
 age_bin = setNames(c(colorRampPalette(brewer.pal(11, "BrBG"))(length(unique(Meta_viz$age_bin))-1),"black"), 
@@ -622,8 +627,10 @@ lehmann_subtype = setNames(c(colorRampPalette(brewer.pal(9, "Set1"))(length(uniq
                 sort(unique(Meta_viz$lehmann_subtype)))
 )
 
+
+
 #Save color vector  object for downstream usage
-saveRDS(color_vectors,file="/Volumes/rcc_volume/TNBC/data_analysis/color_meta.rds")
+#saveRDS(color_vectors,file="/Volumes/rcc_volume/TNBC/data_analysis/color_meta.rds")
 
 #Heatmap Annotation
 sample_anno <- HeatmapAnnotation(TMANr = Meta_viz$TMANr,
@@ -634,6 +641,7 @@ sample_anno <- HeatmapAnnotation(TMANr = Meta_viz$TMANr,
                                  pT_simple = Meta_viz$pT_simple,
                                 pN_simple = Meta_viz$pN_simple,
                                 pM_simple = Meta_viz$pM_simple,
+                                pretreatment = Meta_viz$pretreatment,
                                 OS_data = Meta_viz$OS_data,
                                 DFS_data = Meta_viz$DFS_data,
                                 #tumor_size_cm = Meta_viz$tumor_size_cm,
@@ -649,7 +657,7 @@ sample_anno <- HeatmapAnnotation(TMANr = Meta_viz$TMANr,
 #Display plot
 draw(sample_anno)
 
-pdf("~/Desktop/TNBC/Metadaten/Metadata_combined_HeatmapAnno.pdf",width=9,height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/Metadata_combined_HeatmapAnno.pdf",width=9,height = 5, onefile = FALSE)
 sample_anno
 dev.off()
 ```
