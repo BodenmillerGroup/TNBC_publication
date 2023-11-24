@@ -657,7 +657,7 @@ sample_anno <- HeatmapAnnotation(TMANr = Meta_viz$TMANr,
 #Display plot
 draw(sample_anno)
 
-pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/Metadata_combined_HeatmapAnno.pdf",width=9,height = 5, onefile = FALSE)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/Metadata_combined_HeatmapAnno.pdf",width=12,height = 5, onefile = FALSE)
 sample_anno
 dev.off()
 ```

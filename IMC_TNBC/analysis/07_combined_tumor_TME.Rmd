@@ -5343,6 +5343,15 @@ ggplot(cur_plot) +
   ggtitle(paste("p (Chi-Square) = ",cur_test_out$p.value))
 dev.off()
 
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_NAT_phenotype.pdf",width = 5,height = 4, onefile = FALSE)
+ggplot(pretreatment_mc, aes(x = spatial_CD8_pheno, y = fra, fill = pretreatment))+
+  geom_tile(position = "stack",color = "black")+#+alpha = 0.5)+
+  theme_classic()+
+  ylab("Fraction of cells per group")+
+  scale_fill_manual(values = metadata(sce)$colors$pretreatment)
+dev.off()
+
+
 pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/07_combined/Spatial_CD8_Tumor_expression.pdf",width = 7,height = 6, onefile = FALSE)
 Heatmap(assay(spatialpheno_mean_sce, "exprs"), col = viridis(100), name = "exprs", cluster_columns = FALSE, row_names_side = "left", show_row_dend = FALSE)+
   Heatmap(mat_scaled, name = "scaled exprs", cluster_columns = FALSE)+

@@ -1236,6 +1236,10 @@ pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC
 PID_DFS_1
 dev.off()
 
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_CD8_Kaplan_DFS_NAT.pdf",width = 5,height = 6, onefile = FALSE)
+PID_DFS_1
+dev.off()
+
 pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/08_PIDgroup/TNBC_PIDgroup_BL_CD8_pbMDS.pdf",width = 4,height = 4, onefile = FALSE)
 pbMDS(sce_cat, by = "cluster_id", 
       features = rownames(sce_cat)[rowData(sce_cat)$use_channel], 

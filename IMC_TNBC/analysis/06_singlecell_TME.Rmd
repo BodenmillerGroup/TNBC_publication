@@ -1757,13 +1757,6 @@ hr_cat/
 hr_cat_GMM
 dev.off()
 
-
-
-
-
-
-
-
 pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/06_TME/TNBC_TME_FractionHeatmap.pdf", width = 8, height = 18, onefile = FALSE)
 fraction_anno + NULL
 dev.off()

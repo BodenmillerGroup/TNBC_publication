@@ -2096,7 +2096,8 @@ Multivariate
 library(survival)
 library(survminer)
 
-PID_metacluster <- colData(sce) %>% as.data.frame() #%>% filter(pretreatment == FALSE) %>% select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metacluster <- colData(sce) %>% as.data.frame() %>% #filter(pretreatment == FALSE) %>% 
+  select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 PID_metacluster <- PID_metacluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
 
 ### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
@@ -3040,14 +3041,14 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
   labs(color = "cluster")
 ```
 
-## For CK5_7 groups 
+### For CK5_7 groups 
 
 ```{r}
 ### Differential abundance analysis based on edgeR
 library(edgeR)
 
 sce <- sce
-abundances <- table(sce$CK5_7_score, sce$PID)
+abundances <- table(sce$CK5_7_group, sce$PID)
 abundances <- unclass(abundances) 
 head(abundances)
 
@@ -3116,7 +3117,7 @@ ggplot(DA, aes(cluster, y = logFC))+
 ggplot(DA, aes(x = logFC, y = -log10(FDR)))+
   geom_point(aes(col=cluster, size = -log10(FDR)))+
     geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
-  scale_color_manual(values = metadata(sce)$colors$CK5_7_score)+
+  scale_color_manual(values = metadata(sce)$colors$CK5_7_group)+
   xlab("logFC (pN: 0 vs 1/2/3)")+
   ylab("-log10(FDR)")+
   theme_classic()+
@@ -3129,7 +3130,7 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
                  size = -log10(FDR)))+
   geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
-  scale_color_manual(values = metadata(sce)$colors$CK5_7_score)+
+  #scale_color_manual(values = metadata(sce)$colors$CK5_7_group)+
   xlab("logFC (Neoadjuvant: FALSE vs TRUE)")+
   ylab("Abundance (logCPM)")+
   theme_classic()+
@@ -3345,6 +3346,14 @@ ggplot(out_bar, aes(x = category, y = n, fill = dominant))+
   scale_fill_brewer(palette = "Set1")
 dev.off()
 
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57group_NAT.pdf", width = 5)
+ggplot(pretreatment_CK57, aes(x = CK5_7_group, y = fra, fill = pretreatment))+
+  geom_tile(position = "stack",color = "black")+#+alpha = 0.5)+
+  theme_classic()+
+  ylab("Fraction of cells per group")+
+  scale_fill_manual(values = metadata(sce)$colors$pretreatment)
+dev.off()
+
 
 pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Dominant_Scatter.pdf", height = 6, width = 9)
 ggplot(test_plot, aes(mean_fra, dif_fra, color = PID))+
@@ -3383,6 +3392,10 @@ ggsurvplot(fit,
           palette = "Set1") 
 dev.off()
 
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Kaplan_DFS_mean.pdf", width = 6, height = 6, onefile = FALSE)
+p1
+dev.off()
+
 pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DiffAbun_Node.pdf", width = 5, height = 4, onefile = FALSE)
 ggplot(DA, aes(x = logFC, y = logCPM))+
   geom_point(aes(col= cluster, 
@@ -3396,6 +3409,18 @@ ggplot(DA, aes(x = logFC, y = logCPM))+
   labs(color = "cluster")
 dev.off()
 
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_DiffAbun_NAT.pdf", width = 4, height = 5, onefile = FALSE)
+ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
+  scale_color_manual(values = metadata(sce)$colors$metacluster)+
+  xlab("logFC (Neoadjuvant: FALSE vs TRUE)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+dev.off()
 
 pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_CK57score_Heatmap.pdf", width = 11, onefile = FALSE)
 h
