@@ -205,14 +205,18 @@ metadata(sce)$colors$pretreatment <- setNames(brewer.pal(4,"Set3")[3:4], sort(un
 
 ```{r}
 # Proportion of pre-treatment per category 
-pretreatment_mc <- colData(sce) %>% as.data.frame() %>% select(spatial_CD8_pheno,pretreatment) %>% group_by(spatial_CD8_pheno) %>% table() %>% as.data.frame
+pretreatment_mc <- colData(sce) %>% as.data.frame() %>% select(PID, spatial_CD8_pheno,pretreatment) %>% unique() %>% select(-PID) %>% group_by(spatial_CD8_pheno) %>% table() %>% as.data.frame
 pretreatment_mc <- pretreatment_mc %>% group_by(spatial_CD8_pheno) %>% mutate(fra = Freq/sum(Freq)) 
+
+cur_test <- pretreatment_mc %>% pivot_wider(names_from = spatial_CD8_pheno, id_cols = pretreatment, values_from = Freq) %>% column_to_rownames("pretreatment")
+cur_test_out <- chisq.test(cur_test)
 
 ggplot(pretreatment_mc, aes(x = spatial_CD8_pheno, y = fra, fill = pretreatment))+
   geom_tile(position = "stack",color = "black")+#+alpha = 0.5)+
   theme_classic()+
   ylab("Fraction of cells per group")+
-  scale_fill_manual(values = metadata(sce)$colors$pretreatment)
+  scale_fill_manual(values = metadata(sce)$colors$pretreatment)+
+  ggtitle(paste0("p (ChiSqu) = ", round(cur_test_out$p.value,2)))
 ```
 
 # 2. Image visualization
@@ -5348,7 +5352,8 @@ ggplot(pretreatment_mc, aes(x = spatial_CD8_pheno, y = fra, fill = pretreatment)
   geom_tile(position = "stack",color = "black")+#+alpha = 0.5)+
   theme_classic()+
   ylab("Fraction of cells per group")+
-  scale_fill_manual(values = metadata(sce)$colors$pretreatment)
+  scale_fill_manual(values = metadata(sce)$colors$pretreatment)+
+  ggtitle(paste0("p (ChiSqu) = ", round(cur_test_out$p.value,2)))
 dev.off()
 
 

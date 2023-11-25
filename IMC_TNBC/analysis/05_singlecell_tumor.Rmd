@@ -277,6 +277,8 @@ for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simpl
 ```
 
 ```{r}
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+
 # Mark by pre-treatment information
 sce$pretreatment_pT <- str_detect(sce$pT, "y")
 sce$pretreatment_pN <- str_detect(sce$pN, "y")
@@ -290,7 +292,7 @@ metadata(sce)$colors$pretreatment <- setNames(brewer.pal(4,"Set3")[3:4], sort(un
 
 ```{r}
 # Proportion of pre-treatment per metacluster
-pretreatment_mc <- colData(sce) %>% as.data.frame() %>% select(metacluster,pretreatment) %>% group_by(metacluster) %>% table() %>% as.data.frame
+pretreatment_mc <- colData(sce) %>% as.data.frame() %>% select(PID, metacluster,pretreatment) %>% unique() %>% select(-PID) %>% group_by(metacluster) %>% table() %>% as.data.frame
 pretreatment_mc <- pretreatment_mc %>% group_by(metacluster) %>% mutate(fra = Freq/sum(Freq)) 
 
 ggplot(pretreatment_mc, aes(x = metacluster, y = fra, fill = pretreatment))+
@@ -301,14 +303,18 @@ ggplot(pretreatment_mc, aes(x = metacluster, y = fra, fill = pretreatment))+
 
 
 # Proportion of pre-treatment per CK57 group
-pretreatment_CK57 <- colData(sce) %>% as.data.frame() %>% select(CK5_7_group,pretreatment) %>% group_by(CK5_7_group) %>% table() %>% as.data.frame
+pretreatment_CK57 <- colData(sce) %>% as.data.frame() %>% select(PID, CK5_7_group,pretreatment) %>% unique() %>% select(-PID) %>% group_by(CK5_7_group) %>% table() %>% as.data.frame
 pretreatment_CK57 <- pretreatment_CK57 %>% group_by(CK5_7_group) %>% mutate(fra = Freq/sum(Freq)) 
+
+cur_test <- pretreatment_CK57 %>% pivot_wider(names_from = CK5_7_group, id_cols = pretreatment, values_from = Freq) %>% column_to_rownames("pretreatment")
+cur_test_out <- fisher.test(cur_test)
 
 ggplot(pretreatment_CK57, aes(x = CK5_7_group, y = fra, fill = pretreatment))+
   geom_tile(position = "stack",color = "black")+#+alpha = 0.5)+
   theme_classic()+
   ylab("Fraction of cells per group")+
-  scale_fill_manual(values = metadata(sce)$colors$pretreatment)
+  scale_fill_manual(values = metadata(sce)$colors$pretreatment)+
+  ggtitle(paste0("p (Fisher) = ", round(cur_test_out$p.value,2)))
 
 n_pt <- colData(sce) %>% as.data.frame() %>% select(PID, pretreatment) %>% unique() %>% group_by(pretreatment) %>% count()
 n_pt <- n_pt %>% ungroup() %>% mutate(fra = n/sum(n))
@@ -1730,7 +1736,7 @@ Multivariate
 library(survival)
 library(survminer)
 
-PID_CK57 <- colData(sce) %>% as.data.frame() %>% #filter(pretreatment == FALSE) %>% 
+PID_CK57 <- colData(sce) %>% as.data.frame() %>% filter(pretreatment == FALSE) %>% 
   select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 
 PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
@@ -1847,7 +1853,7 @@ Univariate
 library(survival)
 library(survminer)
 
-PID_CK57 <- colData(sce) %>% as.data.frame() %>% #filter(pretreatment == FALSE) %>% 
+PID_CK57 <- colData(sce) %>% as.data.frame() %>% filter(pretreatment == FALSE) %>% 
   select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
 
 PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
@@ -3351,7 +3357,8 @@ ggplot(pretreatment_CK57, aes(x = CK5_7_group, y = fra, fill = pretreatment))+
   geom_tile(position = "stack",color = "black")+#+alpha = 0.5)+
   theme_classic()+
   ylab("Fraction of cells per group")+
-  scale_fill_manual(values = metadata(sce)$colors$pretreatment)
+  scale_fill_manual(values = metadata(sce)$colors$pretreatment)+
+  ggtitle(paste0("p (Fisher) = ", round(cur_test_out$p.value,2)))
 dev.off()
 
 
