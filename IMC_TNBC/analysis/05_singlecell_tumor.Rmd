@@ -4,7 +4,7 @@ author: "Lasse Meyer"
 date: "`r Sys.Date()`"
 output: html_document
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -276,6 +276,8 @@ for (entry in colnames(meta)[colnames(meta) %in% c("age","grade","pT", "pT_simpl
 }
 ```
 
+### Neoadjuvant information 
+
 ```{r}
 sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
 
@@ -283,11 +285,31 @@ sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumo
 sce$pretreatment_pT <- str_detect(sce$pT, "y")
 sce$pretreatment_pN <- str_detect(sce$pN, "y")
 
-test_df <- colData(sce) %>% as.data.frame %>% select(PID, pT, pT_simple, pN, pN_simple, pretreatment_pT, pretreatment_pN, CK5_7_group) %>% unique() %>% filter(pretreatment_pN == TRUE)
-
-sce$pretreatment <- sce$pretreatment_pT
+sce$pretreatment <- sce$pretreatment_pT #use y-prefix of T stage
 
 metadata(sce)$colors$pretreatment <- setNames(brewer.pal(4,"Set3")[3:4], sort(unique(sce$pretreatment)))
+
+# Extract T and N stage tables (for Supplements)
+sce$pT <- ifelse(str_detect(sce$pT, "T[1-4]"), sce$pT, NA)
+sce$pN <- ifelse(str_detect(sce$pN, "N[0-3]"), sce$pN, NA)
+
+T_table <- colData(sce) %>% as.data.frame %>% select(PID, pT, pT_simple, pN, pN_simple, pretreatment) %>% unique() %>% group_by(pT_simple, pT) %>% count()
+
+N_table <- colData(sce) %>% as.data.frame %>% select(PID, pT, pT_simple, pN, pN_simple, pretreatment) %>% unique() %>% group_by(pN_simple, pN) %>% count()
+
+library(readxl)
+write_csv(T_table, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/T_stage_table.csv")
+write_csv(N_table, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/N_stage_table.csv")
+```
+
+```{r}
+# Create new T stage category
+T_table$pT_combined <- ifelse(T_table$pT %in% c("pT1a", "pT1b", "pT1c"), "pT1", 
+       ifelse(T_table$pT %in% c("ypT1a", "ypT1"), "ypT1", 
+              ifelse(T_table$pT == "pT4b", "pT4", T_table$pT)))
+
+sce$pT_combined <- T_table$pT_combined[match(sce$pT, T_table$pT)]
+unique(sce$pT_combined)
 ```
 
 ```{r}
@@ -2123,6 +2145,11 @@ Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
 Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
 Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
 
+# Cox_df$pT_simple <- factor(sce$pT[match(rownames(Cox_df),sce$PID)], levels = c("pT1a", "pT1b", "pT1c", "pT3", "pT4b", "pT4", "ypT1", "ypT2", 
+# "ypT1a", "ypT3", NA, "pT2"))
+# Cox_df$pN_simple <- factor(sce$pN[match(rownames(Cox_df),sce$PID)], levels = c("pN0", "pN1", "pN3", "ypN2", "ypN3", "ypN0", "cN1","pN2"))
+# Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
 #Based on proportions
 covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -MC1) %>% colnames
 
@@ -2248,7 +2275,7 @@ ylab("HR for GMM")+
 theme_classic()+
 theme(axis.text.x = element_text(angle = 90))
 
-hr_mean
+hr_GMM
 
 hr_prop/
 hr_mean/
@@ -3497,7 +3524,7 @@ coord_cartesian(ylim=c(0,60))+
 theme(axis.text.x = element_text(angle = 90))
 dev.off()
 
-pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS_Meta_Uni.pdf", height = 4, width = 6)
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/05_tumor/TNBC_Tumor_Cox_HR_DFS_Meta_Uni_pT_fine.pdf", height = 4, width = 6)
 hr_prop
 dev.off()
 
