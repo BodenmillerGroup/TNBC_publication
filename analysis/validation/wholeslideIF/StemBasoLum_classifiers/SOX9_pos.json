@@ -1,0 +1,36 @@
+{
+  "object_classifier_type": "SimpleClassifier",
+  "function": {
+    "classifier_fun": "ClassifyByMeasurementFunction",
+    "measurement": "Nucleus: SOX9 mean",
+    "pathClassEquals": {
+      "name": "Cy7",
+      "color": [
+        255,
+        0,
+        20
+      ]
+    },
+    "pathClassAbove": {
+      "name": "Cy7",
+      "color": [
+        255,
+        0,
+        20
+      ]
+    },
+    "threshold": 1600.0
+  },
+  "pathClasses": [
+    {
+      "name": "Cy7",
+      "color": [
+        255,
+        0,
+        20
+      ]
+    }
+  ],
+  "filter": "CELLS",
+  "timestamp": 1682511316413
+}

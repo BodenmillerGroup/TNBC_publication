@@ -1,0 +1,36 @@
+{
+  "object_classifier_type": "SimpleClassifier",
+  "function": {
+    "classifier_fun": "ClassifyByMeasurementFunction",
+    "measurement": "Cell: CK19 mean",
+    "pathClassEquals": {
+      "name": "Cy5",
+      "color": [
+        255,
+        0,
+        20
+      ]
+    },
+    "pathClassAbove": {
+      "name": "Cy5",
+      "color": [
+        255,
+        0,
+        20
+      ]
+    },
+    "threshold": 1400.0
+  },
+  "pathClasses": [
+    {
+      "name": "Cy5",
+      "color": [
+        255,
+        0,
+        20
+      ]
+    }
+  ],
+  "filter": "CELLS",
+  "timestamp": 1682506799070
+}

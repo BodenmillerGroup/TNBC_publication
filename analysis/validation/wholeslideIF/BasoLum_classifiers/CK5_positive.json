@@ -1,0 +1,36 @@
+{
+  "object_classifier_type": "SimpleClassifier",
+  "function": {
+    "classifier_fun": "ClassifyByMeasurementFunction",
+    "measurement": "Cell: CK5 mean",
+    "pathClassEquals": {
+      "name": "Cy7",
+      "color": [
+        255,
+        0,
+        255
+      ]
+    },
+    "pathClassAbove": {
+      "name": "Cy7",
+      "color": [
+        255,
+        0,
+        255
+      ]
+    },
+    "threshold": 1000.0
+  },
+  "pathClasses": [
+    {
+      "name": "Cy7",
+      "color": [
+        255,
+        0,
+        255
+      ]
+    }
+  ],
+  "filter": "DETECTIONS_ALL",
+  "timestamp": 1678115783297
+}
