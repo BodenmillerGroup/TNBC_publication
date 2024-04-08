@@ -1,5 +1,13 @@
-# IMC_TNBC
+# Code repository - TNBC IMC study
 
-A [workflowr][] project.
+This repository contains all analysis scripts for the triple negative breast cancer IMC study from Meyer et al., 2024. It is structured as a [workflowr](https://workflowr.github.io/workflowr/) project.
 
-[workflowr]: https://github.com/workflowr/workflowr
+**DISCLAIMER:** The manuscript associated with this code is in the peer-review process and thus the code will change accordingly,
+
+## Repository structure
+
+The `analysis/` directory contains all relevant data analysis scripts for *IMC* data analysis. It contains two sub-folders `/metadata/` and `/validation/` with respective scripts (including scripts for *IF* quantification / *TCGA BRCA* / *scRNAseq* organoid analysis).
+
+### Software requirements
+
+All **R code** was run with `R version 4.3.2 (2023-10-31)` on Ubuntu 20.04.4. Each `.Rmd` file contains a **Software requirements** section that list all relevant packages for data analysis and processing.
