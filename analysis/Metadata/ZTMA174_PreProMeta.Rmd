@@ -1,0 +1,48 @@
+---
+title: "ZTMA174_PreProMeta"
+author: "Lasse Meyer"
+date: '2022-07-18'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## ZTMA174 Metadata pre-processing 
+
+```{r libraries}
+library(haven)
+library(tidyverse)
+library(S4Vectors)
+library(foreach)
+```
+
+```{r load and process sav}
+raw <- read_sav("~/Desktop/TNBC/Metadaten/Raw/ZTMA174 tripNeg Tumoren 14.03.2022_Bodenmiller .sav")
+
+#cut dataframe at TMANr.1
+cur_dat <- raw %>% filter(TMANr %in% c(1,11))
+
+#remove unrelevant columns 
+colnames(cur_dat)
+
+cur_dat <- cur_dat %>% select(-OP_Datum, -MeineArbeit, -VAR00006, -OP_Datum)
+
+#most columns are labbeled doubles (see haven package)
+colnames(cur_dat)
+
+#return labels as dataframe
+label_df <- foreach(i = seq_along(cur_dat), .combine = "cbind")%do%{
+  as_factor(cur_dat[,i])
+}
+
+#change some columns back
+label_df$StatusOS <- zap_labels(cur_dat$StatusOS)
+label_df$StatusRezidv <- zap_labels(cur_dat$StatusRezidv)
+label_df$TMANr <- "TMA174"
+
+#write out xlsv
+write_excel_csv(label_df, "~/Desktop/TNBC/Metadaten/ZTMA174_TNBC_LM_new.csv")
+```
+

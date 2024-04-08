@@ -1,3 +1,5 @@
-# TNBC
+# IMC_TNBC
 
-Collection of data analysis scripts for triple negative breast cancer project - Lasse
+A [workflowr][] project.
+
+[workflowr]: https://github.com/workflowr/workflowr

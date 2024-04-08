@@ -1,0 +1,77 @@
+---
+title: "00_datajana_filerenaming_selection"
+author: "Lasse Meyer"
+date: "4/20/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data preparation - Jana lymph node project TNBC data
+
+Includes additional 96 samples (same panel, different acquisition time)
+
+```{r data preparation}
+##Libraries
+library(tidyverse)
+
+### 1. Image/Masks renaming
+images_info <- read_csv("/Volumes/tnbc_volume/TNBC_Jana/images.csv")
+
+#img directory
+img_files <- list.files("/Volumes/tnbc_volume/TNBC_Jana/img",full.names = TRUE)
+
+img_names <- images_info$acquisition_description[match(img_files,images_info$image)]
+img_names <- paste0(img_files,".tiff")
+
+#rename
+file.rename(from = img_files,to = img_names)
+
+
+### 2. Select TNBC cases from Janas dataset 
+#Load metadata
+metadata_jana <- read_csv("/Volumes/tnbc_volume/TNBC_Jana/Metadata_cleaned.csv")
+unique(metadata_jana$Mol_Signature)
+unique(metadata_jana$TissueType)
+
+#Filter TNBC and primary tumors (n=95/96 samples)
+TNBC_jana <- metadata_jana %>% filter(ArrayNr != "ZTMA27",Mol_Signature == "Triple negative" & TissueType %in% c("primary tumor","tumor recurrence"))
+
+#Get TNBC locations
+TNBC_loc <- TNBC_jana %>% select(ArrayNr,UBTMA_location) %>% unite(col = TNBC_loc,ArrayNr,UBTMA_location,sep = "_") %>% pull(TNBC_loc)
+
+#Load files
+img_files <- list.files("/Volumes/tnbc_volume/TNBC_Jana/img",full.names = TRUE)
+img_files
+
+#Get TMA locations for all files
+TMA_number <- str_split(str_split(img_files,"/",simplify = TRUE)[,6],"_",simplify = TRUE)[,1]
+UBTMA_all <- str_split(img_files,"_",simplify = TRUE)[,5]
+TMA_loc <- paste0(TMA_number,"_",UBTMA_all)
+
+#Check overlap
+summary(TMA_loc %in% TNBC_loc)
+summary(TNBC_loc %in% TMA_loc)
+
+TNBC_loc[!TNBC_loc %in% TMA_loc] #missing: "ZTMA21_560" "ZTMA21_19"  "ZTMA21_111" "ZTMA26_18"  "ZTMA26_44"  "ZTMA26_248"
+
+
+#Filter files for TNBC cases
+img_files_TNBC <- img_files[TMA_loc %in% TNBC_loc] #total of 96 samples
+img_files_TNBC
+
+img_files_notTNBC <- img_files[!TMA_loc %in% TNBC_loc] #total of 1153 samples
+
+
+###3. Clean up data directory 
+#Remove files that are not TNBC (raw data would still be available)
+file.remove(img_files_notTNBC)
+
+#Double-check that files are all TNBC cases
+#img directory
+img_files <- list.files("/Volumes/tnbc_volume/TNBC_Jana/img",full.names = TRUE)
+summary(img_files %in% img_files_TNBC)
+```
+
