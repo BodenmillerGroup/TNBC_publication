@@ -1,0 +1,147 @@
+---
+title: "01_lib_read_data"
+author: "Lasse Meyer"
+date: "1/24/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SingleCellExperiment)
+
+#Data processing
+library(CATALYST)
+library(scuttle)
+library(scater)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(viridis)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(BiocParallel)
+```
+
+## Read in single-cell information from TMA-based TNBC study
+based on [SingleCellExperiment](https://bioconductor.org/packages/release/bioc/html/SingleCellExperiment.html)
+class (or [SpatialExperiment]())
+
+### steinbock generated data
+The `read_steinbock` function provided by `imcRtools` can now be used to read in
+`steinbock` generated data. 
+
+```{r read and inspect steinbock}
+sce <- read_steinbock("/mnt/tnbc_volume/TNBC_all/",intensities_folder = "intensities",regionprops_folder = "regionprops", graphs_folder = "neighbors",return_as = "sce")
+sce
+```
+
+## Single-cell processing
+
+We can set the `colnames` of the object to generate unique identifiers per cell:
+
+```{r set-colnames}
+colnames(sce) <- sce$cell_id <- paste0(sce$sample_id, "_", sce$ObjectNumber)
+
+rownames(sce) <- rowData(sce)$clean_target
+```
+
+It is also often the case that sample-specific `metadata` are available externally. This metadata is available as an external csv file:
+
+```{r add-meta}
+meta <- read.csv("/mnt/tnbc_volume/TNBC_all/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
+
+meta_249 <- read.csv("/mnt/rcc_volume/TNBC/data_analysis/03_data/ZTMA249_TNBC_LM_processed_bysample.csv",row.names = 1) %>% select(ID_Number,PID)
+
+unique(sce$sample_id)
+
+## Add PID (different way of sample annotation for 174, 249 and 21/26)
+PID_df <- data.frame(sample_id = unique(sce$sample_id),
+           ZTMA174_ID = str_split(unique(sce$sample_id),"_",simplify = TRUE)[,3],
+           ZTMA249_ID = str_split(unique(sce$sample_id),"_",simplify = TRUE)[,4], 
+           ZTMA2126_ID = str_replace(paste0(str_split(unique(sce$sample_id),"_",simplify = TRUE)[,1], "_",
+                                            str_split(unique(sce$sample_id),"_",simplify = TRUE)[,3]), "Z",""))
+
+meta$TMA_ID <- paste0(meta$TMANr, "_",meta$ID_Number)
+  
+PID_df$ZTMA249_PID <- meta_249$PID[match(PID_df$ZTMA249_ID,meta_249$ID_Number)]
+PID_df <- PID_df %>% mutate(PID = ifelse(ZTMA174_ID == "ID",ZTMA249_PID,ZTMA174_ID)) 
+
+PID_df$PID <- ifelse(str_detect(PID_df$PID,"B"),PID_df$PID, meta$PID[match(PID_df$ZTMA2126_ID, meta$TMA_ID)])
+
+sce$PID <- PID_df$PID[match(sce$sample_id,PID_df$sample_id)]
+
+# Remove sample with no available PID (ZTMA249.1_ZTMA249_ID_247_CX7Y1_99)
+sce <- sce[,!is.na(sce$PID)]
+
+## Add other relevant metadata based on PID
+for (entry in colnames(meta)[!colnames(meta) %in% c("PID","ID_Number","OS_data","DFS_data","TMA_ID")]) {
+  colData(sce)[,entry] <- meta[,entry][match(colData(sce)[,"PID"],meta[,"PID"])]
+}
+```
+
+**Define interesting channels**
+
+Subset markers of interest for downstream analysis.
+
+```{r select-features}
+rowData(sce)$use_channel <- !grepl("DNA|Histone", rowData(sce)$clean_target)
+```
+
+**Define color schemes**
+
+We will already at this point define color schemes for different metadata
+entries which will be helpful for downstream data visualizations. 
+
+```{r color-scheme}
+colors <- readRDS("/mnt/rcc_volume/TNBC/data_analysis/color_meta.rds")
+colors
+
+metadata(sce)$colors <- colors
+```
+
+**Transform counts**
+
+Problem: Right-skewed distribution (bias from highly expressing cells)
+Solution: Count transformation using an inverse hyperbolic sine function (arcsinh; common in flow cytometry) = leads to linear-like scale near zero and log-like scale beyond a threshold (`cofactor`)
+We apply a `cofactor` of `1`. 
+
+```{r transform-counts, message=FALSE, fig.width=7,fig.height=10}
+set.seed(22)
+cur_id <- sample(sce$sample_id,5)
+
+#Raw counts
+multi_dittoPlot(sce[,sce$sample_id %in% cur_id], vars = rownames(sce)[rowData(sce)$clean_target %in% c("panCK","Vimentin","CD45","CD3","CD68")],
+               group.by = "PID", plots = c("ridgeplot"), 
+               assay = "counts", 
+               color.panel = metadata(sce)$colors$PID)
+
+#Transformed counts
+assay(sce, "exprs") <- asinh(counts(sce)/1)
+
+multi_dittoPlot(sce[,sce$sample_id %in% cur_id], vars = rownames(sce)[rowData(sce)$clean_target %in% c("panCK","Vimentin","CD45","CD3","CD68")],
+               group.by = "PID", plots = c("ridgeplot"), 
+               assay = "exprs", 
+               color.panel = metadata(sce)$colors$PID)
+
+```
+
+## Save single cell object for downstream analysis
+
+Note that masks and images were loaded, modified and saved in the [00_seg_mesmer_QC.Rmd]() script. 
+
+```{r save-objects-read-data}
+saveRDS(sce, "/mnt/tnbc_volume/TNBC_all/data_analysis/01_sce_TNBC_com.rds")
+```
+
+

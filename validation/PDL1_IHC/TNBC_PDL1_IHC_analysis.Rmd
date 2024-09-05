@@ -1,0 +1,166 @@
+---
+title: "TNBC_Raza_analysis"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(scuttle)
+library(scater)
+library(scran)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(circlize)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(parallel)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(Rphenograph)
+library(igraph)
+library(RColorBrewer)
+library(foreach)
+library(clValid)
+library(bluster)
+library(psych)
+library(corrplot)
+library(psych)
+
+#Batch correction
+library(batchelor)
+```
+
+# TNBC data analysis - PDL1 IHC stainings
+
+## Load sce 
+
+```{r}
+##Load sce
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
+```
+
+## Read in data
+
+```{r}
+# Patient selection
+inflamed_candidates <- read_csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/TNBC_PDL1_IHC.csv") 
+inflamed_candidates$spatial_CD8_pheno <- sce$spatial_CD8_pheno[match(inflamed_candidates$PID, sce$PID)]
+inflamed_candidates$pM_simple <- sce$pM_simple[match(inflamed_candidates$PID, sce$PID)]
+
+# PDL1 IHC results
+PDL1_results <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Lasse_TNBC_CPS_20240723GU.xlsx", col_names = TRUE) 
+PDL1_results$PID <- str_replace(str_split(PDL1_results$ID, "_", simplify = TRUE)[,1], "-", ".")
+PDL1_results$CPS_score <- round(PDL1_results$`CPS (continuous variable)`,0)
+```
+
+```{r}
+# Add results
+inflamed_candidates$CPS_score <- PDL1_results$CPS_score[match(inflamed_candidates$PID, PDL1_results$PID)]
+inflamed_candidates$CPS_results <- PDL1_results$`CPS(Positive or Negative)`[match(inflamed_candidates$PID, PDL1_results$PID)]
+
+# Add cut-off cases 
+inflamed_candidates$CPS_score_fine <- ifelse(inflamed_candidates$CPS_score >= 10, "CPS >= 10", ifelse(inflamed_candidates$CPS_score < 5, "CPS < 5", "CPS 5-10"))
+```
+
+```{r}
+# Spatial Pheno
+out_PDL1 <- inflamed_candidates %>% group_by(CPS_results, spatial_CD8_pheno) %>% dplyr::count() %>% group_by(spatial_CD8_pheno) %>% mutate(fra = n/sum(n))
+
+fisher_out <- fisher.test(xtabs(n ~ spatial_CD8_pheno + CPS_results, data = out_PDL1))
+fisher_out
+
+ggplot(out_PDL1, aes(x = spatial_CD8_pheno, y = fra, fill = CPS_results))+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("#ECD2FC", "#8019C0"))+
+  ggtitle(paste0("p (Fisher) = ", round(fisher_out$p.value, 4)))
+```
+
+```{r}
+# Spatial Pheno Merg
+out_PDL1 <- inflamed_candidates %>% group_by(CPS_results, spatial_CD8_pheno_merg) %>% dplyr::count() %>% group_by(spatial_CD8_pheno_merg) %>% mutate(fra = n/sum(n))
+
+fisher_out <- fisher.test(xtabs(n ~ spatial_CD8_pheno_merg + CPS_results, data = out_PDL1))
+fisher_out
+
+ggplot(out_PDL1, aes(x = spatial_CD8_pheno_merg, y = fra, fill = CPS_results))+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("#ECD2FC", "#8019C0"))+
+  ggtitle(paste0("p (Fisher) = ", round(fisher_out$p.value, 4)))
+```
+
+```{r}
+inflamed_candidates$PID <- factor(inflamed_candidates$PID, levels = inflamed_candidates %>% arrange(desc(CPS_score),desc(spatial_CD8_pheno)) %>% pull(PID))
+
+ggplot(inflamed_candidates, aes(x = PID, y = CPS_score, fill = CPS_score_fine))+
+  geom_bar(stat = "identity", color = "black")+
+  geom_rug(aes(color = spatial_CD8_pheno), sides = "b", linewidth = 3)+
+  geom_hline(yintercept = 10, linetype = "dashed")+
+  theme_classic()+
+  scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno)+
+  scale_fill_manual(values = c("#ECD2FC","#8019C0", "#BF8CDF"))+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+
+## Save plots as pdf
+
+```{r save_plots}
+##IMPORTANT: change to chunk output in console for this last part 
+
+##save plots as pdf (vector graphics)
+
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/PDL1_IHC/CPS_results_spatialCD8pheno_bar.pdf", width = 4, height = 5)
+ggplot(out_PDL1, aes(x = spatial_CD8_pheno, y = fra, fill = CPS_results))+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("#ECD2FC", "#8019C0"))+
+  ggtitle(paste0("p (Fisher) = ", round(fisher_out$p.value, 4)))
+dev.off()
+
+
+
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/PDL1_IHC/CPS_score_fine_spatialCD8pheno_PID.pdf", width = 8, height = 5)
+ggplot(inflamed_candidates, aes(x = PID, y = CPS_score, fill = CPS_score_fine))+
+  geom_bar(stat = "identity", color = "black")+
+  geom_rug(aes(color = spatial_CD8_pheno), sides = "b", linewidth = 3)+
+  geom_hline(yintercept = 10)+
+  geom_hline(yintercept = 5, linetype = "dashed")+
+  theme_classic()+
+  scale_color_manual(values = metadata(sce)$colors$spatial_CD8_pheno)+
+  scale_fill_manual(values = c("#ECD2FC","#8019C0", "#BF8CDF"))+
+  theme(axis.text.x = element_text(angle = 90))
+dev.off()
+
+```

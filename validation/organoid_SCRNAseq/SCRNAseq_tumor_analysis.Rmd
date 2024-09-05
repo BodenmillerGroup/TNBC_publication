@@ -1,0 +1,609 @@
+---
+title: "SCRNAseq_tumor_analysis"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(scuttle)
+library(scater)
+library(scran)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(circlize)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(parallel)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(Rphenograph)
+library(igraph)
+library(RColorBrewer)
+library(foreach)
+library(clValid)
+library(bluster)
+library(psych)
+library(corrplot)
+library(psych)
+
+#Batch correction
+library(batchelor)
+```
+
+# scRNAseq analysis - Tumor cell analysis
+
+Data from GSE161529 - 8 TNBC patients (4 BRCA-/+) - Pal et al. (2021, EMBO Journal)
+
+
+## 1. Load sce and subset to tumor cells
+
+Subset sce to focus on tumor cells
+
+```{r}
+sce <- readRDS("/mnt/tnbc_volume/GSE161529/data_analysis/sce_scRNA_anacat.rds")
+
+sce <- sce[,sce$analysis_cat == "Epithelial"] 
+sce
+```
+
+## 2. Feature selection 
+
+```{r}
+var_sce <- modelGeneVar(sce)
+hvg_sce <- getTopHVGs(var_sce, prop=0.1)
+hvg <- str(hvg_sce)
+
+# Check whether cytokeratin 5/7 are part of hvgs
+summary(hvg_sce %in% c("KRT5","KRT7"))
+
+# Add to sce
+rowSubset(sce, "HVG_tumor") <- getTopHVGs(var_sce, prop=0.1)
+colnames(rowData(sce))
+```
+
+## 3. Dimensionality reduction
+
+```{r}
+# Visualize 
+sce <- runTSNE(sce, subset_row = rowData(sce)$HVG_tumor, dimred = "fastMNN", name = "TSNE_MNN_tumor",BPPARAM = MulticoreParam())
+plotReducedDim(sce, dimred="TSNE_MNN_tumor", colour_by="PID")
+```
+
+## 4. Graph-based clustering
+
+```{r}
+graph_clust <- clusterCells(x = sce, use.dimred = "fastMNN",
+                      BLUSPARAM = NNGraphParam(k=30,
+                                               cluster.fun ="louvain",
+                                               type="jaccard",
+                                               BPPARAM=MulticoreParam(workers = 20)))
+
+sce$tumor_cluster_30 <- graph_clust                   
+
+graph_clust <- clusterCells(x = sce, use.dimred = "fastMNN",
+                      BLUSPARAM = NNGraphParam(k=50,
+                                               cluster.fun ="louvain",
+                                               type="jaccard",
+                                               BPPARAM=MulticoreParam(workers = 20)))
+                      
+sce$tumor_cluster_50 <- graph_clust
+
+graph_clust <- clusterCells(x = sce, use.dimred = "fastMNN",
+                      BLUSPARAM = NNGraphParam(k=70,
+                                               cluster.fun ="louvain",
+                                               type="jaccard",
+                                               BPPARAM=MulticoreParam(workers = 20)))
+                      
+sce$tumor_cluster_70 <- graph_clust
+
+graph_clust <- clusterCells(x = sce, use.dimred = "fastMNN",
+                      BLUSPARAM = NNGraphParam(k=90,
+                                               cluster.fun ="louvain",
+                                               type="jaccard",
+                                               BPPARAM=MulticoreParam(workers = 20)))
+                      
+sce$tumor_cluster_90 <- graph_clust
+
+# Define cluster colors
+cluster_col <- setNames(colorRampPalette(brewer.pal(9, "Paired"))(length(unique(sce$tumor_cluster_90))),unique(sce$tumor_cluster_90))
+
+plotReducedDim(sce, dimred="TSNE_MNN_tumor", colour_by="tumor_cluster_90", text_by = "tumor_cluster_70")+
+  scale_color_manual(values = cluster_col)
+plotReducedDim(sce, dimred="TSNE_MNN_tumor", colour_by="tumor_cluster_70", text_by = "tumor_cluster_70")+
+  scale_color_manual(values = cluster_col)
+
+```
+
+### Cluster stability testing
+
+```{r}
+#Pairwise rand index 
+#Agreement between two clustering approaches - ARI > 0.5 = "good" similarity
+pairwiseRand(sce$tumor_cluster_30,sce$tumor_cluster_50, mode = "index")
+pairwiseRand(sce$tumor_cluster_50,sce$tumor_cluster_70, mode = "index")
+pairwiseRand(sce$tumor_cluster_70,sce$tumor_cluster_90, mode = "index")
+
+#Over different resolution parameters - Silhouette width [-1,1,max], Purity[0,1,max], Root-mean-squared difference [min]
+clusters <- colnames(colData(sce))[str_detect(colnames(colData(sce)),"tumor_cluster_[:digit:]")]
+df <- foreach(i = seq_along(clusters),.combine = rbind) %do% {
+num_clus <- length(unique(colData(sce)[,clusters[i]]))
+sil <- approxSilhouette(reducedDim(sce, "fastMNN"), clusters=colData(sce)[,clusters[i]])
+rmsd <- clusterRMSD(reducedDim(sce, "fastMNN"), clusters=colData(sce)[,clusters[i]])
+data.frame(num_clus = num_clus,
+           k = as.numeric(str_split(clusters[i],"_",simplify = TRUE)[,3]), 
+           sil = mean(sil$width), 
+#           purity = mean(purity$purity),
+           rmsd = sum(rmsd))
+}
+
+
+p1 <- ggplot(df, aes(x=k, y=num_clus))+
+  geom_point(aes(k, num_clus, col = num_clus))+
+  geom_line(aes(k, num_clus,col=num_clus))+
+  theme_classic()+
+  scale_color_continuous(type = "viridis")
+
+p2 <- ggplot(df, aes(x=k, y=rmsd))+
+  geom_point(aes(k, rmsd, col = rmsd))+
+  geom_line(aes(k, rmsd,col=rmsd))+
+  theme_classic()+
+  scale_color_continuous(type = "viridis")
+
+p3 <- ggplot(df, aes(x=k, y=sil))+
+  geom_point(aes(k, sil, col = sil))+
+  geom_line(aes(k, sil,col=sil))+
+  theme_classic()+
+  scale_color_continuous(type = "viridis")
+  
+p1+p2+p3 
+# k=90 for downstream analysis
+```
+
+## 5. CK5-7 signature
+
+```{r}
+## add CK5 and CK7 GMM
+# 1. CK5
+GMM_CK5 <- Mclust(assay(sce, "logcounts")["KRT5",], G = 2)
+
+GMM_df <- data.frame(#class_epi = ifelse(GMM_CK5$classification == 2, "KRT5+", "KRT5-"), 
+                     class_epi = ifelse(assay(sce, "logcounts")["KRT5",] > quantile(assay(sce, "logcounts")["KRT5",])[4], "KRT5+", "KRT5-"), 
+                     KRT5_exprs = assay(sce, "logcounts")["KRT5",],
+                     uncertainty = GMM_CK5$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT5_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_tumor_KRT5 <- GMM_df$class_epi
+
+# 2. CK7
+GMM_CK7 <- Mclust(assay(sce, "logcounts")["KRT7",], G = 2)
+
+GMM_df <- data.frame(#class_epi = ifelse(GMM_CK7$classification == 2, "KRT7+", "KRT7-"), 
+                     class_epi = ifelse(assay(sce, "logcounts")["KRT7",] > quantile(assay(sce, "logcounts")["KRT7",])[4], "KRT7+", "KRT7-"),
+                     KRT7_exprs = assay(sce, "logcounts")["KRT7",],
+                     uncertainty = GMM_CK7$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT7_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_tumor_KRT7 <- GMM_df$class_epi
+
+## Combine KRT5/7 GMM scores 
+sce$KRT5_7_score <- ifelse(sce$GMM_tumor_KRT5 == "KRT5+" & sce$GMM_tumor_KRT7 == "KRT7+", "KRT5/7+", 
+       ifelse(sce$GMM_tumor_KRT5 == "KRT5+" & sce$GMM_tumor_KRT7 == "KRT7-", "KRT5+",
+              ifelse(sce$GMM_tumor_KRT5 == "KRT5-" & sce$GMM_tumor_KRT7 == "KRT7+", "KRT7+","KRT5/7-")))
+
+metadata(sce)$colors$KRT5_7_score <- setNames(colorRampPalette(brewer.pal(4,"Set1"))(length(unique(sce$KRT5_7_score))),unique(sce$KRT5_7_score))
+
+## Visualization 
+# 1. Scatter/Density Plots
+# dittoScatterPlot(
+#     object = sce,
+#     x.var = "KRT7", y.var = "KRT5",
+#     color.var = "KRT5_7_score")
+
+cur_dat <- t(assay(sce,"logcounts")) %>% as.matrix %>% as.data.frame %>% select("KRT5","KRT7")
+cur_dat$KRT5_7_score <- sce$KRT5_7_score[match(rownames(cur_dat), sce$cell_id)]
+
+main <- ggplot(cur_dat, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
+  geom_point(alpha = 0.5)+
+  stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "density", bins = 15)+
+  theme_classic()+
+  xlab("KRT7 logcounts")+
+  ylab("KRT5 logcounts")+
+  scale_color_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+cur_dat$GMM_tumor_KRT5 <- sce$GMM_tumor_KRT5[match(rownames(cur_dat),sce$cell_id)]
+y <- ggplot(cur_dat, aes(x=KRT5, fill=GMM_tumor_KRT5)) + 
+  geom_density(alpha=0.5) + 
+  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)+
+  guides(fill = "none")+
+  theme_classic()
+
+cur_dat$GMM_tumor_KRT7 <- sce$GMM_tumor_KRT7[match(rownames(cur_dat),sce$cell_id)]
+x <- ggplot(cur_dat, aes(x=KRT7, fill=GMM_tumor_KRT7)) + 
+  geom_density(alpha=0.5) + 
+  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)+
+  guides(fill = "none")+
+  theme_classic()
+
+main/(y+x)
+
+
+colData(sce) %>% as.data.frame %>% group_by(KRT5_7_score) %>% dplyr::count() %>% ungroup() %>% mutate(fra = n/sum(n))
+
+
+# 2. Reduced Dims Plot 
+plotReducedDim(sce, dimred = "TSNE_MNN_tumor", 
+               colour_by = "KRT5", 
+               by_exprs_values = "logcounts")
+
+plotReducedDim(sce, dimred = "TSNE_MNN_tumor", 
+               colour_by = "KRT7", 
+               by_exprs_values = "logcounts")
+
+plotReducedDim(sce, dimred = "TSNE_MNN_tumor", 
+               colour_by = "KRT8", 
+               by_exprs_values = "logcounts")
+
+plotReducedDim(sce, dimred = "TSNE_MNN_tumor", 
+               colour_by = "KRT19", 
+               by_exprs_values = "logcounts")
+
+plotReducedDim(sce, dimred = "TSNE_MNN_tumor", 
+               colour_by = "KRT18", 
+               by_exprs_values = "logcounts")
+
+plotReducedDim(sce, dimred="TSNE_MNN_tumor", colour_by="KRT5_7_score")+
+  scale_color_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+# 3. Expression plot
+plotExpression(sce, features=c("KRT5", "KRT7", "KRT8", "KRT14","KRT18","KRT19", "KRT15"),
+    x="KRT5_7_score", colour_by="KRT5_7_score")+
+  theme_classic()+
+  scale_color_manual(values = metadata(sce)$colors$KRT5_7_score)
+```
+
+```{r}
+library(tidyverse)
+for_plot <- colData(sce) %>% as.data.frame %>%
+    group_by(tumor_cluster_70, KRT5_7_score) %>%
+    dplyr::summarize(count = n()) %>%
+    mutate(freq = count / sum(count)) %>%
+    pivot_wider(id_cols = KRT5_7_score, names_from = tumor_cluster_70, 
+                values_from = freq, values_fill = 0) %>%
+    ungroup() %>%
+    column_to_rownames("KRT5_7_score")
+
+Heatmap(for_plot,
+        name = "Proportion",
+        col = viridis(100),
+        show_row_names = TRUE)
+```
+
+```{r}
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "PID")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)+
+  guides(fill = "none")+
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "PID", scale = "count")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT5_7_score)
+
+dittoBarPlot(sce, var = "PID", group.by = "KRT5_7_score")+
+dittoBarPlot(sce, var = "PID", group.by = "KRT5_7_score", scale = "count")
+```
+
+Save sce
+
+```{r}
+saveRDS(sce, "/mnt/tnbc_volume/GSE161529/data_analysis/sce_scRNA_tumor.rds")
+
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/GSE161529/data_analysis/sce_scRNA_tumor.rds")
+
+library(wesanderson)
+metadata(sce)$colors$KRT57_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("KRT5/7-", "KRT5/7+","KRT5+", "KRT7+"))
+```
+
+
+### Visualize in clusters based on marker expressions 
+
+
+```{r}
+library(readxl)
+breast_majorCT <- read_excel("/mnt/rcc_volume/TNBC/data_analysis/03_data/BreastMajorCellTypeSignatures_GrayEtAl_2022.xlsx")
+
+breast_majorCT <- breast_majorCT %>% select(AV, HS, BA) %>% pivot_longer(cols = 1:3, names_to = "CT", values_to = "Gene")
+```
+
+### Keratins 
+
+```{r}
+# Define keratins of interest
+keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM")
+
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$KRT5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rowData(sce)$Symbol %in% keratins)
+
+scaled_mat <- t(scale(t(assay(cluster_mean_sce, "logcounts"))))
+
+column_order <- column_order(Heatmap(assay(cluster_mean_sce, "logcounts"),
+        col = viridis(100),
+        name = "mean logcounts",
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        cluster_row_slices = FALSE))
+
+Heatmap(assay(cluster_mean_sce, "logcounts"),
+        col = viridis(100),
+        name = "mean logcounts",
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        cluster_row_slices = FALSE)+
+Heatmap(scaled_mat,
+        name = "scaled logcounts",
+        column_order = column_order,
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        cluster_row_slices = FALSE)
+
+```
+
+```{r}
+# Define stem markers of interest
+stem <- c("SOX9","KIT","PROM1","YAP1","HDAC2","NOTCH1","TNF","NFKB1","CD44","ALDH1A3","EZH2", "MUC1")#,"BRCA1","BRCA2""ANXA8""NT5E""TGFB2"
+
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$KRT5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rowData(sce)$Symbol %in% stem)
+
+scaled_mat <- t(scale(t(assay(cluster_mean_sce, "logcounts"))))
+
+column_order <- column_order(Heatmap(assay(cluster_mean_sce, "logcounts"),
+        col = viridis(100),
+        name = "mean logcounts",
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        cluster_row_slices = FALSE))
+
+Heatmap(assay(cluster_mean_sce, "logcounts"),
+        col = viridis(100),
+        name = "mean logcounts",
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        cluster_row_slices = FALSE)
+
+Heatmap(scaled_mat,
+        name = "scaled logcounts",
+        column_order = column_order,
+        show_column_names =  TRUE, 
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2",
+        cluster_row_slices = FALSE)
+
+```
+
+```{r}
+library(readxl)
+AV_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 1)
+
+colnames(AV_sig) <- c("pan_AV", "BL_enriched","AP_enriched")
+
+# Extract unique genes that were up- or down-regulated in each signature 
+panAV_sig_up <- AV_sig$pan_AV
+panAV_sig_up <- panAV_sig_up[!is.na(panAV_sig_up)]
+
+BL_sig_up <- AV_sig$BL_enriched
+BL_sig_up <- BL_sig_up[!is.na(BL_sig_up)]
+
+AP_sig_up <- AV_sig$AP_enriched
+AP_sig_up <- AP_sig_up[!is.na(AP_sig_up)]
+```
+
+```{r}
+## 1. pan AV signature per PID group 
+panAV_sig_up_rel <- panAV_sig_up[panAV_sig_up %in% rownames(sce)]
+
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = DataFrame(sce$KRT5_7_score,sce$PID),
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rowData(sce)$Symbol %in% panAV_sig_up_rel)
+
+test <- as.data.frame(scale(t(assay(cluster_mean_sce, "logcounts")), center = TRUE))
+
+plot_df <- data.frame(signature_score = rowSums(test,na.rm = TRUE), cat = cluster_mean_sce$sce.KRT5_7_score, PID = cluster_mean_sce$sce.PID)
+
+#Boxplot 
+ggplot(plot_df, aes(x = cat, y = signature_score))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  #scale_color_manual(values = metadata(sce)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Luminal progenitor signature (Lim et al.)")+
+  stat_compare_means()
+```
+```{r}
+## 1. pan AV signature per PID group 
+panAV_sig_up_rel <- panAV_sig_up[panAV_sig_up %in% rownames(sce)]
+
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = DataFrame(sce$KRT5_7_score),
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rowData(sce)$Symbol %in% panAV_sig_up_rel)
+
+test <- as.data.frame(scale(t(assay(cluster_mean_sce, "logcounts")), center = TRUE))
+
+plot_df <- data.frame(signature_score = rowSums(test,na.rm = TRUE), cat = cluster_mean_sce$sce.KRT5_7_score)
+
+#Boxplot 
+ggplot(plot_df, aes(x = cat, y = signature_score))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  #scale_color_manual(values = metadata(sce)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Luminal progenitor signature (Lim et al.)")+
+  stat_compare_means()
+
+# Heatmap 
+test$cat <- cluster_mean_sce$sce.KRT5_7_score
+
+test_out <- test %>% pivot_longer(cols = 1:41, names_to = "genes", values_to = "exprs") %>% group_by(cat,genes) %>% summarize(sum = sum(exprs))
+
+test_plot <- test_out %>% pivot_wider(names_from = genes, values_from = sum) %>% column_to_rownames("cat")
+
+Heatmap(test_plot)
+
+```
+
+
+## 6. Differential gene expression analysis
+
+A) DEG between KRT5/7+ and all others 
+
+```{r}
+sce$KRT5_7_score_sum <- ifelse(sce$KRT5_7_score == "KRT5/7+", "KRT5/7+", "Not_KRT5/7+")
+sce$KRT5_7_score_sum <- factor(sce$KRT5_7_score_sum, levels = c("Not_KRT5/7+","KRT5/7+"))
+```
+
+Create pseudobulk-profiles (sample-label combination)
+
+```{r}
+summed <- aggregateAcrossCells(sce, id=colData(sce)[,c("KRT5_7_score_sum", "PID")])
+summed
+```
+
+
+```{r}
+between.res <- pseudoBulkDGE(summed,
+    label=rep("dummy", ncol(summed)),
+    design=~factor(PID) + KRT5_7_score_sum,
+    coef="KRT5_7_score_sumKRT5/7+")[[1]]
+
+plot_df <- between.res %>% as.data.frame %>% arrange(PValue) %>% rownames_to_column(var = "gene") %>% mutate(sig = ifelse(FDR<0.05, TRUE, FALSE))
+sig.up <- plot_df %>% filter(FDR<0.05 & logFC > 0) %>% pull(gene)
+
+# Volcano plot
+ggplot(plot_df, aes(x = logFC, y = -log10(FDR)))+
+  geom_point(aes(col=sig, size = -log10(FDR)))+
+  geom_label_repel(data = plot_df %>% filter(FDR<0.05), aes(label = gene))+
+  scale_color_brewer(palette = "Set1")+
+  xlab("logFC (KRT5_7_score)")+
+  ylab("-log10(FDR)")+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+```
+
+B) DEG between KRT5/7+ and KRT5/7-
+
+Create pseudobulk-profiles (sample-label combination)
+
+```{r}
+summed <- aggregateAcrossCells(sce, id=colData(sce)[,c("KRT5_7_score", "PID")])
+summed
+```
+
+Subset to specific comparison 
+
+```{r}
+summed.sub <- summed[,summed$KRT5_7_score %in% c("KRT5/7+", "KRT5/7-")]
+
+# Using a dummy value for the label to allow us to include multiple cell types
+# in the fitted model; otherwise, each cell type will be processed separately.
+between.res <- pseudoBulkDGE(summed.sub,
+    label=rep("dummy", ncol(summed.sub)),
+    design=~factor(PID) + KRT5_7_score,
+    coef="KRT5_7_scoreKRT5/7+")
+
+plot_df <- between.res %>% as.data.frame %>% arrange(PValue) %>% rownames_to_column(var = "gene") %>% mutate(sig = ifelse(FDR<0.05, TRUE, FALSE))
+
+sig.up <- plot_df %>% filter(FDR<0.05 & logFC > 0) %>% pull(gene)
+
+
+# Volcano plot
+ggplot(plot_df, aes(x = logFC, y = -log10(FDR)))+
+  geom_point(aes(col=sig, size = -log10(FDR)))+
+  geom_label_repel(data = plot_df %>% filter(FDR<0.05), aes(label = gene))+
+  scale_color_brewer(palette = "Set1")+
+  xlab("logFC (KRT5_7_score)")+
+  ylab("-log10(FDR)")+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.1), linetype = "dashed")+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+```
+
+## 7. Gene set enrichment analysis 
+
+```{r}
+# goana() requires Entrez IDs, some of which map to multiple
+# symbols - hence the unique() in the call below.
+library(org.Hs.eg.db)
+entrez.ids <- mapIds(org.Hs.eg.db, keys=unique(rowData(sce)$Symbol), 
+                     column="ENTREZID", keytype="SYMBOL")
+entrez.ids.DE <- mapIds(org.Hs.eg.db, keys=sig.up, 
+                     column="ENTREZID", keytype="SYMBOL")
+library(limma)
+go.out <- goana(unique(entrez.ids.DE), species="Hs", 
+                universe=unique(entrez.ids))
+
+
+# Only keeping biological process terms that are not overly general
+go.out <- go.out[order(go.out$P.DE),]
+go.useful <- go.out[go.out$Ont=="BP" & go.out$N <= 100,]
+
+plot_go_BP <- go.useful[1:10,] #Top10 Genes
+
+ggplot(plot_go_BP, aes(x = reorder(Term,-P.DE), y = -log10(P.DE)))+
+  geom_bar(stat = "identity", fill = "firebrick", color = "black")+
+  coord_flip()+
+  theme_classic()
+```
+
+

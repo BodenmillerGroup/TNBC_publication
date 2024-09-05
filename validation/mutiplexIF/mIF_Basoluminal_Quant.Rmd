@@ -1,0 +1,854 @@
+---
+title: "mIF_basoluminal_quant.Rmd"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+#Data containers
+library(SpatialExperiment)
+library(SingleCellExperiment)
+
+#Data processing
+library(scuttle)
+library(scater)
+library(scran)
+library(imcRtools)
+
+#Data visualization
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(circlize)
+
+#Utilities
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(parallel)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(Rphenograph)
+library(igraph)
+library(RColorBrewer)
+library(foreach)
+library(clValid)
+library(bluster)
+library(psych)
+library(corrplot)
+library(psych)
+library(wesanderson)
+```
+
+# 1. Multiplex immunofluorescence quantification 
+
+Read old sce for colors 
+
+```{r}
+sce_old <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+metadata(sce_old)$colors$CK5_7_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("CK5/7-", "CK5/7+", "CK5+", "CK7+"))
+```
+
+## Read in data 
+
+```{r}
+measurement_IF <- read_csv("/mnt/central_nas/tnbc_volume/TNBC_IF/mIF/measurements.csv") 
+```
+
+```{r}
+colnames(measurement_IF) <- str_replace(str_replace_all(str_replace(colnames(measurement_IF), "Cell:", ""), " ",""), "mean","")
+
+# Create image, patient and cell identifiers
+
+measurement_IF$Image <- str_split(measurement_IF$Image, "\\.", simplify = TRUE)[,1]
+
+measurement_IF$PID <- paste0(str_split(measurement_IF$Image, "_", simplify = TRUE)[,3], ".", str_split(measurement_IF$Image, "_", simplify = TRUE)[,4])
+
+cell_id <- foreach(i = unique(measurement_IF$Image),.combine = "c")%do%{ 
+  cur_dat <- measurement_IF %>% filter(Image == i)
+  cur_out <- paste0(cur_dat$Image, "_", seq(rownames(cur_dat)))
+  return(cur_out)
+  }
+
+measurement_IF$cell_id <- cell_id
+```
+
+### Remove bad-quality patients 
+
+```{r}
+measurement_IF <- measurement_IF %>% filter(PID != "B14.30715")
+```
+
+### Add SOX9 - nuclear and cytoplasmic expression
+
+```{r}
+SOX9_IF <- read_csv("/mnt/central_nas/tnbc_volume/TNBC_IF/mIF/SOX9nuc_cyto.csv") 
+```
+
+```{r}
+colnames(SOX9_IF) <- str_replace(str_replace_all(str_replace(colnames(SOX9_IF), ": ", "_"), " ",""), "mean","")
+
+# Create image, patient and cell identifiers
+
+SOX9_IF$Image <- str_split(SOX9_IF$Image, "\\.", simplify = TRUE)[,1]
+
+SOX9_IF$PID <- paste0(str_split(SOX9_IF$Image, "_", simplify = TRUE)[,3], ".", str_split(SOX9_IF$Image, "_", simplify = TRUE)[,4])
+
+cell_id <- foreach(i = unique(SOX9_IF$Image),.combine = "c")%do%{ 
+  cur_dat <- SOX9_IF %>% filter(Image == i)
+  cur_out <- paste0(cur_dat$Image, "_", seq(rownames(cur_dat)))
+  return(cur_out)
+  }
+
+SOX9_IF$cell_id <- cell_id
+```
+
+```{r}
+# Add info
+measurement_IF$SOX9_nuc <- SOX9_IF$Nucleus_SOX9[match(measurement_IF$cell_id, SOX9_IF$cell_id)]
+measurement_IF$SOX9_cyto <- SOX9_IF$Cytoplasm_SOX9[match(measurement_IF$cell_id, SOX9_IF$cell_id)]
+
+## Replace H3K27AC cell expression with nuclear expression
+measurement_IF$H3K27AC <- SOX9_IF$Nucleus_H3K27AC[match(measurement_IF$cell_id, SOX9_IF$cell_id)]
+```
+
+
+## Create SCE object 
+
+
+```{r}
+# Assays
+assay <- measurement_IF %>% select(-Image, -ObjectID, -Name, -ROI, -CentroidXµm, -CentroidYµm, -Area, -PID, -cell_id)
+
+## Remove ANXA8 due to NAs
+assay <- assay %>% select(-ANXA8)
+rownames(assay) <- measurement_IF$cell_id
+
+# Coldata 
+meta <- measurement_IF %>% select(Image, ObjectID, Name, ROI, CentroidXµm, CentroidYµm, Area, PID, cell_id)
+rownames(meta) <- measurement_IF$cell_id
+```
+
+```{r}
+# Create SingleCellExperiment object 
+sce <- SingleCellExperiment(assays = list(counts = t(assay)),
+                            colData = meta)
+sce
+```
+
+## Tumor selection 
+
+```{r}
+dittoRidgePlot(sce, var = "panCK", assay = "counts", group.by = "Image")
+```
+
+### Manual panCK scoring 
+
+Based on Qupath visual feedback and quality control
+
+```{r}
+sce$panCK_manual <- ifelse(assay(sce, "counts")["panCK",] > 1200, "panCK+", "panCK-")
+sce$CK5_manual <- ifelse(assay(sce, "counts")["CK5",] > 3500, "CK5+", "CK5-") # Robust results between 3000-3500
+sce$CK7_manual <- ifelse(assay(sce, "counts")["CK7",] > 625, "CK7+", "CK7-") # Robust results between 600-650
+```
+
+### GMM 
+
+```{r}
+set.seed(22)
+
+## panCK GMM
+GMM_panCK <- Mclust(assay(sce, "counts")["panCK",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_panCK$classification == 2 & GMM_panCK$uncertainty == 0, 
+                                        "panCK+",
+                                        "panCK-"), 
+                     panCK_exprs = assay(sce, "counts")["panCK",],
+                     uncertainty = GMM_panCK$uncertainty)
+
+
+cutoff <- mean(c((GMM_df %>% filter(class_epi == "panCK+") %>% arrange(panCK_exprs) %>% pull(panCK_exprs))[1],
+(GMM_df %>% filter(class_epi == "panCK-") %>% arrange(desc(panCK_exprs)) %>% pull(panCK_exprs))[1]))
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = panCK_exprs, fill = class_epi))+
+  geom_density()+
+  geom_rug()+
+  theme_classic(base_size = 15)+
+  geom_vline(xintercept = cutoff)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")+
+  ggtitle(paste0("GMM cutoff = ", cutoff))
+
+# Add to sce
+sce$panCK_GMM <- GMM_df$class_epi
+```
+
+```{r}
+set.seed(22)
+
+## CK5 GMM
+GMM_CK5 <- Mclust(assay(sce, "counts")["CK5",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK5$classification == 2 & GMM_CK5$uncertainty == 0, 
+                                        "CK5+",
+                                        "CK5-"), 
+                     CK5_exprs = assay(sce, "counts")["CK5",],
+                     uncertainty = GMM_CK5$uncertainty)
+
+
+cutoff <- mean(c((GMM_df %>% filter(class_epi == "CK5+") %>% arrange(CK5_exprs) %>% pull(CK5_exprs))[1],
+(GMM_df %>% filter(class_epi == "CK5-") %>% arrange(desc(CK5_exprs)) %>% pull(CK5_exprs))[1]))
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = CK5_exprs, fill = class_epi))+
+  geom_density()+
+  geom_rug()+
+  theme_classic(base_size = 15)+
+  geom_vline(xintercept = cutoff)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")+
+  ggtitle(paste0("GMM cutoff = ", cutoff))
+
+# Add to sce
+sce$CK5_GMM <- GMM_df$class_epi
+```
+
+```{r}
+set.seed(22)
+
+## CK7 GMM
+GMM_CK7 <- Mclust(assay(sce, "counts")["CK7",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK7$classification == 2, 
+                                        "CK7+",
+                                        "CK7-"), 
+                     CK7_exprs = assay(sce, "counts")["CK7",],
+                     uncertainty = GMM_CK7$uncertainty)
+
+
+cutoff <- mean(c((GMM_df %>% filter(class_epi == "CK7+") %>% arrange(CK7_exprs) %>% pull(CK7_exprs))[1],
+(GMM_df %>% filter(class_epi == "CK7-") %>% arrange(desc(CK7_exprs)) %>% pull(CK7_exprs))[1]))
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = CK7_exprs, fill = class_epi))+
+  geom_density()+
+  geom_rug()+
+  theme_classic(base_size = 15)+
+  geom_vline(xintercept = cutoff)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")+
+  ggtitle(paste0("GMM cutoff = ", cutoff))
+
+# Add to sce
+sce$CK7_GMM <- GMM_df$class_epi
+```
+
+## Intensity transformation
+
+### Min max
+
+0,1 scaling and 99.7 percentile winsorization per marker
+
+```{r}
+library(spatialEco)
+mat_wins <- t(apply(counts(sce), MARGIN = 1, function(x) winsorize(x,p=c(0,0.997)))) # As original HIFI paper
+assay(sce, "min_max") <- mat_wins
+assay(sce, "min_max") <- assay(sce, "min_max") - rowMins(assay(sce, "min_max"))
+assay(sce, "min_max") <- assay(sce, "min_max") / (rowMaxs(assay(sce, "min_max")) - rowMins(assay(sce, "min_max")))
+```
+
+### Dimensionality reduction 
+
+```{r}
+# Select channels
+rowData(sce)$all_channel <- TRUE
+rowData(sce)$dim_channel <- !rownames(sce) %in% c("DAPI", "CD133", "CD49f", "Wnt4", "CD8a", "HLADR")
+
+rowData(sce)$cyto_channel <- rownames(sce) %in% c("panCK", "CK5", "CK7")
+
+# Subsample per image
+set.seed(22)
+sub <- colData(sce) %>% as.data.frame() %>% group_by("Image") %>% slice_sample(prop = 0.1) %>% arrange("Image") %>% pull(cell_id)
+sce_sub <- sce[,sce$cell_id %in% sub]
+
+#Run UMAP/TSNE on cluster channels
+sce_sub <- runUMAP(sce_sub[rowData(sce_sub)$cyto_channel,], n_neighbors = 100, pca = 50, exprs_values = "min_max",external_neighbors=TRUE, BPPARAM = MulticoreParam())
+
+sce_sub <- runTSNE(sce_sub[rowData(sce_sub)$cyto_channel,], exprs_values = "min_max",external_neighbors=TRUE, BPPARAM = MulticoreParam())
+
+## 1. Visualize UMAP and TSNE
+plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "Image")
+plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "panCK", by_exprs_values = "min_max", point_size = 0.5)
+plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "CK5", by_exprs_values = "min_max", point_size = 0.5)
+plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "CK7", by_exprs_values = "min_max", point_size = 0.5)
+plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "panCK_manual")
+plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "CK5_manual")
+plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "CK7_manual")
+
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "Image")
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "panCK", by_exprs_values = "min_max", point_size = 0.5)
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "CK5", by_exprs_values = "min_max", point_size = 0.5)
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "CK7", by_exprs_values = "min_max", point_size = 0.5)
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "panCK_manual")
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "CK5_manual")
+plotReducedDim(sce_sub, dimred = "TSNE", colour_by = "CK7_manual")
+
+#plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "CD8a", by_exprs_values = "min_max", point_size = 0.5)
+```
+
+### Final selection 
+
+```{r}
+sce_tumor <- sce[, sce$panCK_manual == "panCK+"]
+sce_tumor 
+```
+
+### Save objects 
+
+```{r}
+saveRDS(sce_tumor, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/mIF_sce_tumor.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/mIF_sce_full.rds")
+
+#sce_tumor <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/mIF_sce_tumor.rds")
+```
+
+
+# 2. Tumor analysis
+
+```{r}
+sce_full <- sce
+sce <- sce_tumor
+```
+
+## Visualization 
+
+```{r}
+dittoRidgePlot(sce, var = "CK7", assay = "counts", group.by = "Image")
+dittoRidgePlot(sce, var = "CK7", assay = "min_max", group.by = "Image")
+
+dittoRidgePlot(sce, var = "CK5", assay = "counts", group.by = "Image")
+dittoRidgePlot(sce, var = "CK5", assay = "min_max", group.by = "Image")
+
+dittoRidgePlot(sce, var = "ALDH1A3", assay = "counts", group.by = "Image")
+dittoRidgePlot(sce, var = "ALDH1A3", assay = "min_max", group.by = "Image")
+
+dittoRidgePlot(sce, var = "SOX9", assay = "counts", group.by = "Image")
+dittoRidgePlot(sce, var = "SOX9", assay = "min_max", group.by = "Image")
+```
+
+### Dimensionality reduction 
+
+```{r}
+# Select channels
+rowData(sce)$all_channel <- TRUE
+rowData(sce)$tumor_channel <- !rownames(sce) %in% c("DAPI", "panCK", "CD133", "CD49f", "Wnt4", "CD8a", "HLADR")
+
+# Subsample per image
+set.seed(22)
+sub <- colData(sce) %>% as.data.frame() %>% group_by("Image") %>% slice_sample(prop = 0.1) %>% arrange("Image") %>% pull(cell_id)
+sce_sub <- sce[,sce$cell_id %in% sub]
+
+#Run UMAP/TSNE on cluster channels
+sce_sub <- runUMAP(sce_sub[rowData(sce_sub)$tumor_channel,], n_neighbors = 50, pca = 30, exprs_values = "min_max",external_neighbors=TRUE, BPPARAM = MulticoreParam())
+
+## 1. Visualize UMAP and TSNE
+plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "Image")
+plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "CK5", by_exprs_values = "min_max", point_size = 0.5)
+plotReducedDim(sce_sub, dimred = "UMAP", colour_by = "CK7", by_exprs_values = "min_max", point_size = 0.5)
+```
+
+
+## CK5/CK7 manual scoring
+
+Based on Qupath visual feedback and quality control
+
+```{r}
+sce$CK5_manual <- ifelse(assay(sce, "counts")["CK5",] > 3500, "CK5+", "CK5-")
+sce$CK7_manual <- ifelse(assay(sce, "counts")["CK7",] > 625, "CK7+", "CK7-")
+```
+
+```{r}
+## Combine CK5/7 GMM scores 
+sce$CK5_7_score <- ifelse(sce$CK5_manual == "CK5+" & sce$CK7_manual == "CK7+", "CK5/7+", 
+       ifelse(sce$CK5_manual == "CK5+" & sce$CK7_manual == "CK7-", "CK5+",
+              ifelse(sce$CK5_manual == "CK5-" & sce$CK7_manual == "CK7+", "CK7+","CK5/7-")))
+```
+
+## Quality control 
+
+### Correlation of CK5/CK7 per duplicate 
+
+```{r}
+# mIF experiment
+cur_mIF <- colData(sce) %>% as.data.frame %>% group_by(Image, CK5_7_score, PID) %>% count() %>% group_by(Image) %>% mutate(fra = n/sum(n))
+
+plot_out <- foreach(i = unique(sce$PID), .combine = "rbind")%do%{
+  cur_cor <- cur_mIF %>% filter(PID == i) %>% pivot_wider(id_cols = CK5_7_score,names_from = Image, values_from = fra)
+  cur_out <- cor(cur_cor[,2], cur_cor[,3], method = "pearson")
+  out <- data.frame("category" = "PID", 
+                    "PID" = i, 
+                    "cor" = as.numeric(cur_out))
+  return(out)
+}
+
+plot_out 
+
+ggplot(plot_out, aes(x = category, y = cor))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), position=position_jitter(w=0.1))+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce_old)$colors$PID)+
+  theme_classic(base_size = 12)+
+  theme(axis.title.x = element_blank())+
+  scale_size_continuous()+
+  ylab("Cor CK5/CK7 group fractions per PID")+
+  ggtitle(paste("Spearman rho = ",round(median(plot_out$cor, na.rm = TRUE), digits = 4)))
+```
+
+### Correlation of marker expression 
+
+```{r}
+rowData(sce)$stem_channel <- rownames(sce) %in% c("CD24", "SOX9", "CD117", "CD44", "ALDH1A3", "H3K27AC", "YAP1", "ANXA8", "TNFAIP3",  "Notch1", "CD133") #CD133
+cor_sce <- as.data.frame(t(assay(sce,"min_max")[rowData(sce)$stem_channel,]))
+
+corrplot(cor(cor_sce,method = "pearson"), method="color", col=brewer.pal(n=8, name="RdBu"),  
+         type="upper", order="hclust",hclust.method = "ward.D2", 
+         addCoef.col = "black", addCoefasPercent = F,# Add coefficient of correlation
+         tl.col="black", tl.srt=40, #Text label color and rotation
+         # Combine with significance
+         #p.mat = , sig.level = 0.01, insig = "blank", 
+         # hide correlation coefficient on the principal diagonal
+         diag=F
+)
+```
+
+### Correlation of CK5/CK7 proportions 
+
+Correlating CK5/CK7 proportions
+
+```{r}
+# IF experiment 1
+cur_IF_1 <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/TNBC_IF_run_1celltype_fractions.csv",row.names = 1)
+
+colnames(cur_IF_1) <- c("CK5/7+", "CK5+", "CK7+")
+cur_IF_1 
+
+# mIF experiment
+cur_mIF <- colData(sce) %>% as.data.frame %>% filter(CK5_7_score %in% c("CK5/7+", "CK5+", "CK7+")) %>% group_by(PID, CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
+
+cur_mIF <- cur_mIF %>% pivot_wider(id_cols = PID, names_from = "CK5_7_score", values_from = "fra") %>% column_to_rownames("PID")
+cur_mIF
+
+
+# TO DO
+cur_IF_1 <- cur_IF_1[match(rownames(cur_mIF), rownames(cur_IF_1)),] #IF Basolum - Stem (Run 2)
+cur_IF_1 <- cur_IF_1[,match(colnames(cur_mIF), colnames(cur_IF_1))] #IF Basolum - Stem (Run 2)
+
+cur_mIF
+cur_IF_1
+
+paste0("BL:", cor(cur_IF_1$`CK5/7+`, cur_mIF$`CK5/7+`), " B:", cor(cur_IF_1$`CK5+`, cur_mIF$`CK5+`), " L:", cor(cur_IF_1$`CK7+`, cur_mIF$`CK7+`))
+
+corrplot(cor(cur_IF_1, cur_mIF,method = "pearson"), method="color", col=brewer.pal(n=8, name="RdBu"),  
+         type="upper", order="hclust",hclust.method = "ward.D2", 
+         addCoef.col = "black", addCoefasPercent = F,
+         tl.col="black", tl.srt=40,
+         diag=TRUE)
+```
+
+## Heatmap visualization 
+
+Based on the high correlation between images, we are selecting one image per patient for downstream visualization. 
+
+Define channels 
+
+```{r}
+rowData(sce)$all_channel <- TRUE
+
+rowData(sce)$keratin_channel <- rownames(sce) %in% c("CK19", "CK7", "CK5", "CK8_18", "CD14")
+rowData(sce)$stem_channel <- rownames(sce) %in% c("CD24", "SOX9", "CD117", "CD44", "ALDH1A3", "H3K27AC", "YAP1", "ANXA8", "TNFAIP3",  "Notch1", "CD133")
+```
+
+### Keratins 
+
+```{r}
+# Keratins
+# Do not really trust CK14, 8/18, 19 
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$CK5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$keratin_channel)
+
+Heatmap(t(assay(cluster_mean_sce, "min_max")), col = viridis(100))
+
+Heatmap(scale(t(assay(cluster_mean_sce, "min_max"))), name = "Scaled mean expression")+
+  rowAnnotation(n = anno_barplot(cluster_mean_sce$ncells, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(cluster_mean_sce$CK5_7_score))
+```
+```{r}
+sce_sub <- sce[,sce$Image %in% c("pyr_final_B08_42871_7_1", "pyr_final_B10_21451_30_2", "pyr_final_B08_33039_7_3", "pyr_final_B16_74059_16_2")]
+
+# Stem markers
+cluster_mean_sce <- aggregateAcrossCells(sce_sub, ids = sce_sub$CK5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce_sub)$keratin_channel)
+
+Heatmap(t(assay(cluster_mean_sce, "min_max")), col = viridis(100))
+
+Heatmap(scale(t(assay(cluster_mean_sce, "min_max"))), name = "Scaled mean expression")+
+  rowAnnotation(n = anno_barplot(cluster_mean_sce$ncells, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(cluster_mean_sce$CK5_7_score))
+```
+
+### Stem markers 
+
+#### Across PID and Images 
+
+```{r}
+# Stem markers
+cluster_mean_sce <- aggregateAcrossCells(sce, ids = sce$CK5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$stem_channel)
+
+Heatmap(t(assay(cluster_mean_sce, "min_max")), col = viridis(100))
+
+Heatmap(scale(t(assay(cluster_mean_sce, "min_max"))), name = "Scaled mean expression")+
+  rowAnnotation(n = anno_barplot(cluster_mean_sce$ncells, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(cluster_mean_sce$CK5_7_score))
+```
+
+#### Per PID or Image 
+
+```{r}
+heatmap_list <- list()
+
+for(i in unique(sce$PID)){
+
+  sce_PID <- sce[, sce$PID == i]
+
+  # Stem markers
+  cluster_mean_sce <- aggregateAcrossCells(sce_PID, ids = sce_PID$CK5_7_score,
+                                   statistics = "mean",
+                                   use.assay.type = "min_max",
+                                   subset.row = rowData(sce_PID)$stem_channel)
+  
+  #h_raw <- Heatmap(t(assay(cluster_mean_sce, "min_max")), name = paste0(i, "_raw"))
+  #h_raw <- draw(h_raw)
+  #heatmap_list[paste0(i, "_raw")] <- h_raw 
+  
+  h <- Heatmap(scale(t(assay(cluster_mean_sce, "min_max"))), name = paste0(i))+
+    rowAnnotation(n = anno_barplot(cluster_mean_sce$ncells, gp = gpar(fill = "#440154FF")))+
+    rowAnnotation(anno = anno_text(cluster_mean_sce$CK5_7_score))
+  h <- draw(h)
+  
+  heatmap_list[i] <- h
+}
+
+```
+
+
+```{r}
+heatmap_list <- list()
+
+for(i in unique(sce$Image)){
+
+  sce_PID <- sce[, sce$Image == i]
+
+  # Stem markers
+  cluster_mean_sce <- aggregateAcrossCells(sce_PID, ids = sce_PID$CK5_7_score,
+                                   statistics = "mean",
+                                   use.assay.type = "min_max",
+                                   subset.row = rowData(sce_PID)$stem_channel)
+  
+  #h_raw <- Heatmap(t(assay(cluster_mean_sce, "min_max")), name = paste0(i, "_raw"))
+  #h_raw <- draw(h_raw)
+  #heatmap_list[paste0(i, "_raw")] <- h_raw 
+  
+  h <- Heatmap(scale(t(assay(cluster_mean_sce, "min_max"))), name = paste0(i))+
+    rowAnnotation(n = anno_barplot(cluster_mean_sce$ncells, gp = gpar(fill = "#440154FF")))+
+    rowAnnotation(anno = anno_text(cluster_mean_sce$CK5_7_score))
+  h <- draw(h)
+  
+  heatmap_list[i] <- h
+}
+
+```
+
+
+
+#### For one image per PID 
+
+```{r}
+sce_sub <- sce[,sce$Image %in% c("pyr_final_B08_42871_7_1", "pyr_final_B10_21451_30_2", "pyr_final_B08_33039_7_3", "pyr_final_B16_74059_16_2")]
+
+# Stem markers
+cluster_mean_sce <- aggregateAcrossCells(sce_sub, ids = sce_sub$CK5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce_sub)$stem_channel)
+
+
+Heatmap(t(assay(cluster_mean_sce, "min_max")), col = viridis(100))
+Heatmap(t(assay(SOX9_mean_sce, "min_max")), col = viridis(100))
+
+Heatmap(scale(t(assay(cluster_mean_sce, "min_max"))), name = "Scaled mean expression")+
+  rowAnnotation(n = anno_barplot(cluster_mean_sce$ncells, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(cluster_mean_sce$CK5_7_score))
+```
+
+#### Average per PID 
+
+
+```{r}
+# Stem markers
+cluster_PID_mean_sce <- aggregateAcrossCells(sce, ids = DataFrame(sce$CK5_7_score,sce$PID),
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce)$stem_channel)
+
+cluster_mean_sce <- aggregateAcrossCells(cluster_PID_mean_sce, ids = cluster_PID_mean_sce$CK5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(cluster_PID_mean_sce)$stem_channel)
+
+Heatmap(t(assay(cluster_mean_sce, "min_max")), col = viridis(100))
+
+Heatmap(scale(t(assay(cluster_mean_sce, "min_max"))), name = "Scaled mean expression")+
+  rowAnnotation(anno = anno_text(cluster_mean_sce$CK5_7_score))
+```
+
+
+
+
+#### Annotation heatmap 
+
+All 
+
+```{r}
+cur_in <- colData(sce_sub) %>% as.data.frame %>% group_by(PID, CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n), total_n = sum(n))
+
+cur_CK <- cur_in %>% pivot_wider(id_cols = "PID", names_from = "CK5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+
+# Option: order by BL cell fraction
+row_sorted_fra <- cur_in %>% filter(CK5_7_score == "CK5/7+") %>% arrange(desc(fra)) %>% pull(PID)
+
+# Define annotation dataframe
+cur_CK <- cur_CK[row_sorted_fra,]
+cur_CK <- cur_CK[,c("CK5/7+", "CK5+", "CK7+", "CK5/7-")]
+
+anno <- cur_in %>% pivot_wider(id_cols = "PID", names_from = "CK5_7_score", values_from = "total_n") %>% column_to_rownames("PID")
+
+anno <- anno[match(rownames(cur_CK), rownames(anno)),]
+anno <- anno[,match(colnames(cur_CK), colnames(anno))]
+
+# Color
+library(wesanderson)
+
+cur_color_CK <- c("#85D4E3", "#F4B5BD", "#9C964A", "grey")
+
+# Plot annotation dataframe with ComplexHeatmap
+fraction_anno <- HeatmapAnnotation(PID = anno_text(rownames(anno)), 
+                                   CK_fractions = anno_barplot(cur_CK, gp=gpar(fill=cur_color_CK),
+                                                               bar_width = 1, height = unit(25,"cm"), width = unit(11,"cm"),
+                                                               show_row_names = TRUE, row_names_side = "left"),
+                                   total_n = anno_barplot(rowSums(anno), border = TRUE, gp = gpar(fill = "#440154FF"), width = unit(3,"cm")),
+                                   gap = unit(1,"mm"),
+                                   which = "row")
+h_1 <- fraction_anno + NULL
+
+lgd_1 <- Legend(title = "CK5_7_score", at = colnames(cur_CK), 
+              legend_gp = gpar(fill = cur_color_CK))
+             
+# Plot
+draw(h_1,annotation_legend_list = list(lgd_1))
+```
+TO DO for subset 
+
+## Heterogeneity analysis 
+
+Coefficient of variation for expression per gene per category
+
+```{r}
+expression_data <- assay(sce, "min_max")[rowData(sce)$use_channel,]
+#expression_data <- assay(sce, "min_max")[rowData(sce)$stem_channel,]
+#expression_data <- assay(sce, "min_max")[rowData(sce)$keratin_channel,]
+
+# Define a function to calculate CV
+calculate_cv <- function(x) {
+  mean_x <- mean(x)
+  sd_x <- sd(x)
+  if (mean_x == 0) return(NA)  # Handle zero mean case
+  return(sd_x / mean_x)
+}
+
+# Create a dataframe to store CV values for each category
+cv_results <- data.frame(Category = character(), CV = numeric(), stringsAsFactors = FALSE)
+
+# Calculate CV for each category
+cv_out <- foreach(cat = unique(sce$CK5_7_score), .combine = "rbind")%do%{
+  expression_values <- expression_data[, which(sce$CK5_7_score == cat)]
+  # Calculate CV for each gene (row) and take the mean
+  cv_per_gene <- apply(expression_values, 1, calculate_cv)
+  return(data.frame(cv = cv_per_gene, cat = cat))
+  }
+
+ggplot(cv_out, aes(x = cat, y = cv, fill = cat))+
+  geom_boxplot(outlier.colour = NA)+
+  theme_classic()+
+  scale_fill_manual(values = metadata(sce_old)$colors$CK5_7_score)
+```
+
+
+
+# 3. SOX9 nuclear vs. cytoplasmic staining 
+
+## SOX9 manual scoring 
+
+```{r}
+sce$SOX9_manual <- ifelse(assay(sce, "counts")["SOX9",] > 150, "SOX9+", "SOX9-")
+
+# Subset SCE
+sce_SOX9 <- sce[,sce$SOX9_manual == "SOX9+"]
+sce_SOX9
+
+rowData(sce_SOX9)$SOX9_channel <- rownames(sce) %in% c("SOX9_nuc", "SOX9_cyto")
+```
+
+## Heatmap visualization 
+
+```{r}
+# Stem markers
+cluster_mean_sce_SOX9 <- aggregateAcrossCells(sce_SOX9, ids = sce_SOX9$CK5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce_SOX9)$SOX9_channel)
+
+
+Heatmap(t(assay(cluster_mean_sce_SOX9, "min_max")), col = viridis(100))
+
+Heatmap(scale(t(assay(cluster_mean_sce_SOX9, "min_max"))), name = "Scaled mean expression")+
+  rowAnnotation(n = anno_barplot(cluster_mean_sce_SOX9$ncells, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(cluster_mean_sce_SOX9$CK5_7_score))
+```
+
+
+```{r}
+sce_SOX9_sub <- sce_SOX9[,sce_SOX9$Image %in% c("pyr_final_B08_42871_7_1", "pyr_final_B10_21451_30_2", "pyr_final_B08_33039_7_3", "pyr_final_B16_74059_16_2")]
+
+# Stem markers
+cluster_mean_sce_SOX9 <- aggregateAcrossCells(sce_SOX9_sub, ids = sce_SOX9_sub$CK5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce_SOX9_sub)$SOX9_channel)
+
+
+Heatmap(t(assay(cluster_mean_sce_SOX9, "min_max")), col = viridis(100))
+
+Heatmap(scale(t(assay(cluster_mean_sce_SOX9, "min_max"))), name = "Scaled mean expression")+
+  rowAnnotation(n = anno_barplot(cluster_mean_sce_SOX9$ncells, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(cluster_mean_sce_SOX9$CK5_7_score))
+```
+
+
+
+
+
+```{r}
+# Filter for SOX9-positive cells and tumor cells 
+# Create ratios and scores
+sce_SOX9$SOX9_nuc <- assay(sce_SOX9, "counts")["SOX9_nuc",]
+sce_SOX9$SOX9_cyto <- assay(sce_SOX9, "counts")["SOX9_cyto",]
+
+SOX_tumor <- colData(sce_SOX9) %>% as.data.frame %>% mutate(SOX9_nuc_cyto_ratio = (SOX9_nuc) / (SOX9_cyto)) %>% mutate(SOX9_nuc_cyto_score = ifelse(SOX9_nuc_cyto_ratio >= 1, "nuc_high", "cyto_high"), SOX9_nuc_cyto_score_fine = ifelse(SOX9_nuc_cyto_ratio > 1.1, "nuc_high", ifelse(SOX9_nuc_cyto_ratio < 0.9, "cyto_high", "balanced")))
+```
+
+
+```{r}
+plot_score <- SOX_tumor %>% group_by(CK5_7_score) %>% count(SOX9_nuc_cyto_score) %>% mutate(fra = n/sum(n))
+plot_score$CK5_7_score <- factor(plot_score$CK5_7_score, levels = c("CK5/7-", "CK7+","CK5+", "CK5/7+"))
+
+ggplot(plot_score, aes(x = CK5_7_score, y = fra, fill = SOX9_nuc_cyto_score))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_brewer(palette = "Reds")+
+  theme_classic()
+
+plot_score <- SOX_tumor %>% group_by(CK5_7_score) %>% count(SOX9_nuc_cyto_score_fine) %>% mutate(fra = n/sum(n))
+plot_score$CK5_7_score <- factor(plot_score$CK5_7_score, levels = c("CK5/7-", "CK7+","CK5+", "CK5/7+"))
+
+ggplot(plot_score, aes(x = CK5_7_score, y = fra, fill = SOX9_nuc_cyto_score_fine))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_brewer(palette = "Reds")+
+  theme_classic()
+
+plot_score_mean <- SOX_tumor %>% group_by(CK5_7_score) %>% summarise(mean = mean(SOX9_nuc_cyto_ratio))
+ht <- plot_score_mean %>% pivot_wider(names_from = CK5_7_score, values_from = mean)
+
+Heatmap(t(scale(t(ht))))
+Heatmap(ht, col = rev(viridis(100)))
+```
+
+
+
+# Save plots 
+
+```{r}
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/mIF_Basoluminal/mIF_CK57score_Heatmap_Keratin.pdf", height = 5, width = 8, onefile = FALSE)
+Heatmap(scale(t(assay(cluster_mean_sce, "min_max"))), name = "Scaled mean expression")+
+  rowAnnotation(n = anno_barplot(cluster_mean_sce$ncells, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(cluster_mean_sce$CK5_7_score))
+dev.off()
+
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/mIF_Basoluminal/mIF_CK57score_Heatmap_Stem.pdf", height = 5, width = 9, onefile = FALSE)
+Heatmap(scale(t(assay(cluster_mean_sce, "min_max"))), name = "Scaled mean expression")+
+  rowAnnotation(n = anno_barplot(cluster_mean_sce$ncells, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(cluster_mean_sce$CK5_7_score))
+dev.off()
+
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/mIF_Basoluminal/mIF_CK57score_Heatmap_SOX9_compartment.pdf", height = 5, width = 5, onefile = FALSE)
+Heatmap(scale(t(assay(cluster_mean_sce_SOX9, "min_max"))), name = "Scaled mean expression")+
+  rowAnnotation(n = anno_barplot(cluster_mean_sce_SOX9$ncells, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(cluster_mean_sce_SOX9$CK5_7_score))
+dev.off()
+
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/mIF_Basoluminal/mIF_CK57score_Correlation_Dup.pdf", height = 5, width = 4, onefile = FALSE)
+ggplot(plot_out, aes(x = category, y = cor))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), position=position_jitter(w=0.1), size = 4)+
+  scale_color_manual(values = metadata(sce_old)$colors$PID)+
+  theme_classic(base_size = 12)+
+  theme(axis.title.x = element_blank())+
+  ylab("Cor CK5/CK7 group fractions per PID")+
+  ggtitle(paste("Spearman rho = ",round(median(plot_out$cor, na.rm = TRUE), digits = 4)))
+dev.off()
+
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/mIF_Basoluminal/mIF_CK57score_Correlation_Exp.pdf", height = 5, width = 5, onefile = FALSE)
+corrplot(cor(cur_IF_1, cur_mIF,method = "pearson"), method="color", col=brewer.pal(n=8, name="RdBu"),  
+         type="upper", order="hclust",hclust.method = "ward.D2", 
+         addCoef.col = "black", addCoefasPercent = F,
+         tl.col="black", tl.srt=40,
+         diag=TRUE)
+dev.off()
+
+```
+
