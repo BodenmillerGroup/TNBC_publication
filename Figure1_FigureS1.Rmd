@@ -1,0 +1,246 @@
+---
+title: null
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# A stratification system for breast cancer based on basoluminal tumor cells and spatial tumor architecture, Meyer et al., 2025 
+
+# Figure 1 and Figure S1
+
+Data analysis scripts for re-creating Figure 1 and Figure S1. 
+
+# Software requirements
+
+```{r, message=FALSE,warning=FALSE}
+library(SingleCellExperiment)
+library(tidyverse)
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(scater)
+library(viridis)
+```
+
+# Read data
+
+```{r}
+# Available from Zenodo - DOI: 10.5281/zenodo.15396067
+# File paths have to be adjusted by the user
+
+## SCE objects
+sce_ALL_sub <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/SCE/sce_ALL_sub.rds")
+sce_ALL <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/SCE/sce_ALL.rds")
+
+## Other
+Meta_viz <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/OTHER/TNBC_discovery_metadata.csv")
+```
+
+# Figure 1
+
+## 1B
+
+```{r}
+# Arrange
+Meta_viz[is.na(Meta_viz)] <- "NA"
+Meta_viz <- Meta_viz %>% arrange(desc(pT_simple),desc(pN_simple), desc(grade))
+
+# Colors
+color_vectors <- list(
+TMANr = setNames(colorRampPalette(brewer.pal(3, "Dark2"))(length(unique(Meta_viz$TMANr))), 
+                sort(unique(Meta_viz$TMANr))),
+PID = setNames(colorRampPalette(brewer.pal(12, "Paired"))(length(unique(Meta_viz$PID))), 
+                sort(unique(Meta_viz$PID))),
+n_samples = setNames(colorRampPalette(brewer.pal(3, "Greens"))(length(unique(Meta_viz$n_samples))), 
+                sort(unique(Meta_viz$n_samples))),
+grade = setNames(c(colorRampPalette(brewer.pal(3, "Oranges"))(length(unique(Meta_viz$grade))-1),"black"), 
+                sort(unique(Meta_viz$grade))),
+pT_simple = setNames(c(colorRampPalette(brewer.pal(9, "Blues"))(length(unique(Meta_viz$pT_simple))-1),"black"), 
+                sort(unique(Meta_viz$pT_simple), na.last = TRUE)),
+pN_simple = setNames(c(colorRampPalette(brewer.pal(9, "Purples"))(length(unique(Meta_viz$pN_simple))-1),"black"), 
+                sort(unique(Meta_viz$pN_simple))),
+pM_simple = setNames(c(colorRampPalette(brewer.pal(3, "PuRd"))(length(unique(Meta_viz$pM_simple))-1),"black"), 
+                sort(unique(Meta_viz$pM_simple))),
+pretreatment = setNames(c(colorRampPalette(brewer.pal(4, "Set3")[3:4])(length(unique(Meta_viz$pretreatment))-1),"black"), 
+                c("FALSE","TRUE","NA")),
+OS_data = setNames(c("black","grey"),sort(unique(Meta_viz$OS_data))),
+DFS_data = setNames(c("black","grey"),sort(unique(Meta_viz$DFS_data))),
+age_bin = setNames(c(colorRampPalette(brewer.pal(11, "BrBG"))(length(unique(Meta_viz$age_bin))-1),"black"), 
+                sort(unique(Meta_viz$age_bin)))
+)
+
+# Heatmap Annotation
+sample_anno <- HeatmapAnnotation(TMANr = Meta_viz$TMANr,
+                                 PID = Meta_viz$PID,
+                                 age_bin = Meta_viz$age_bin,
+                                 n_samples = Meta_viz$n_samples,
+                                 grade = Meta_viz$grade,
+                                 pT_simple = Meta_viz$pT_simple,
+                                pN_simple = Meta_viz$pN_simple,
+                                pM_simple = Meta_viz$pM_simple,
+                                pretreatment = Meta_viz$pretreatment,
+                                OS_data = Meta_viz$OS_data,
+                                DFS_data = Meta_viz$DFS_data,
+                                col = color_vectors,
+                                border = T,
+                                na_col = "black",
+                                gap = unit(5, "points"),
+                                show_annotation_name = T,
+                                show_legend = c(PID = FALSE)
+)%v%NULL
+
+# Display plot
+draw(sample_anno)
+```
+
+## 1D
+
+Pixel and single-cell level IMC images were generated using [cytoviewer](https://github.com/BodenmillerGroup/cytoviewer).
+
+# Figure S1
+
+## S1A
+
+```{r}
+# Plot TSNE
+plotReducedDim(sce_ALL_sub, dimred = "TSNE", colour_by = "TMANr", point_size = 1)+
+  scale_color_manual(values = metadata(sce_ALL_sub)$colors$TMANr)
+
+plotReducedDim(sce_ALL_sub, dimred = "TSNE", colour_by = "PID", point_size = 1)+
+  scale_color_manual(values = metadata(sce_ALL_sub)$colors$PID)+
+  guides(color = "none")
+
+plotReducedDim(sce_ALL_sub, dimred = "TSNE", colour_by = "pretreatment", point_size = 1)+
+  scale_color_manual(values = metadata(sce_ALL_sub)$colors$pretreatment)
+```
+
+## S1B
+
+```{r}
+plotReducedDim(sce_ALL_sub, dimred = "TSNE", colour_by = "cluster_category", point_size = 1)+
+  scale_color_manual(values = metadata(sce_ALL_sub)$colors$cluster_category)
+```
+
+## S1C/D
+
+```{r, fig.width = 9}
+### 1. Heatmap body ###
+
+# Aggregate across cells
+mean_sce <- aggregateAcrossCells(sce_ALL, ids = sce_ALL$cluster_broad,
+                                 statistics = "mean",
+                                 use.assay.type = "min_max",
+                                 subset.row = rowData(sce_ALL)$use_channel)
+
+# Heatmap body color 
+col_main <- viridis(100)
+
+### 2. Heatmap annotation ###
+
+### 2.1 Spatial features
+
+#Select spatial features and average over clusters 
+spatial <- colData(sce_ALL) %>% as.data.frame %>% select(area,eccentricity,cluster_broad,n_neighbors)
+spatial <- spatial %>% select(-cluster_broad) %>% aggregate(by = list(cluster_broad = spatial$cluster_broad), FUN = mean) %>% column_to_rownames("cluster_broad")
+
+#Create Spatial Heatmap Annotation
+ha_spatial <- HeatmapAnnotation(
+    area = spatial$area,
+    eccentricity = spatial$eccentricity,
+    n_neighbors = spatial$n_neighbors, 
+    col = list(area = metadata(sce_ALL)$colors$area,
+               eccentricity = metadata(sce_ALL)$colors$eccentricity,
+               n_neighbors = metadata(sce_ALL)$colors$n_neighbors),
+    border = TRUE,
+    which = "row")
+
+### 2.2 Metadata features
+
+#Number of cells per cluster_broad 
+n_cells <- colData(mean_sce) %>% as.data.frame %>% select(cluster_broad, ncells)
+
+# GMM - panCK
+nr_tum <- colData(sce_ALL) %>% as.data.frame %>% select(cluster_broad, GMM_CK) %>% table()
+fr_tum <- as.data.frame(nr_tum) %>% pivot_wider(names_from = GMM_CK, values_from = Freq) %>% column_to_rownames("cluster_broad")
+fr_tum <- fr_tum %>% transmute(fr_tum = `panCK+`/rowSums(fr_tum)) %>% as.data.frame()
+
+# Astir
+nr_tum_2 <- colData(sce_ALL) %>% as.data.frame %>% select(cluster_broad, astir_type) %>% table()
+fr_tum_2 <- as.data.frame(nr_tum_2) %>% pivot_wider(names_from = astir_type, values_from = Freq) %>% column_to_rownames("cluster_broad")
+fr_tum_2 <- fr_tum_2 %>% transmute(fr_tum = `Epithelial`/rowSums(fr_tum_2)) %>% as.data.frame()
+
+# GMM - Ecad
+nr_tum_3 <- colData(sce_ALL) %>% as.data.frame %>% select(cluster_broad, GMM_Ecad) %>% table()
+fr_tum_3 <- as.data.frame(nr_tum_3) %>% pivot_wider(names_from = GMM_Ecad, values_from = Freq) %>% column_to_rownames("cluster_broad")
+fr_tum_3 <- fr_tum_3 %>% transmute(fr_tum_3 = `Ecad+`/rowSums(fr_tum_3)) %>% as.data.frame()
+
+ha_meta <- HeatmapAnnotation(GMM_CK = anno_barplot(fr_tum, width = unit(15, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
+                            GMM_Ecad = anno_barplot(fr_tum_3, width = unit(15, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
+                            Astir_Epi = anno_barplot(fr_tum_2, width = unit(15, "mm"),gp = gpar(fill = "#377EB8", col = 1)),
+                            n_cells = anno_barplot(n_cells$ncells, width = unit(15, "mm"),gp = gpar(fill = "violet", col = 1)),
+                            border = TRUE, 
+                            annotation_name_rot = 90,
+                            gap = unit(1,"mm"),
+                            which = "row")
+
+### 3. Define cluster_broad category
+anno_cluscat <- fr_tum %>% 
+  rownames_to_column(var = "cluster_broad") %>% 
+  mutate(cluster_category = ifelse(fr_tum >= 0.7,"Epithelial",ifelse(fr_tum < 0.7 & fr_tum > 0.2,"Mixed","Non_Epithelial")))
+
+
+ha_cluscat <- HeatmapAnnotation(cluster_category = anno_cluscat$cluster_category,
+                                col = list(cluster_category = metadata(sce_ALL)$colors$cluster_category),
+                                border = TRUE,
+                                which = "row")
+
+
+
+### 4. Plot combined Heatmap - Figure S1C
+h <- Heatmap(t(assay(mean_sce, "min_max")),
+        col = col_main,
+        name= "min-max",
+        km = 1,
+        show_row_names = T, 
+        show_column_names =  T, row_split = anno_cluscat$cluster_category,
+        clustering_method_rows = "ward.D2",
+        clustering_method_columns = "ward.D2")+
+  ha_spatial+
+  ha_meta+
+  ha_cluscat
+
+draw(h)
+
+# Visualize GMM_panCK density plots - Figure S1D
+ggplot(anno_cluscat, aes(fr_tum))+
+  geom_density()+
+  geom_rug(aes(color = cluster_category))+
+  geom_vline(xintercept = 0.7, color = "red3")+
+  geom_vline(xintercept = 0.2, color = "red3")+
+  theme_classic()+
+  theme(axis.title.x = element_blank())+
+  scale_color_manual(values = metadata(sce_ALL)$colors$cluster_category)
+```
+
+## S1E
+
+```{r}
+plotReducedDim(sce_ALL_sub, dimred = "TSNE", colour_by = "analysis_cat", point_size = 1)+
+  scale_color_manual(values = metadata(sce_ALL_sub)$colors$analysis_cat)
+
+plotReducedDim(sce_ALL_sub, dimred = "TSNE", colour_by = "panCK", by_exprs_values = "exprs", point_size = 1)
+plotReducedDim(sce_ALL_sub, dimred = "TSNE", colour_by = "Ecad", by_exprs_values = "exprs", point_size = 1)
+```
+## S1F 
+
+Pixel and single-cell level IMC images were generated using [cytoviewer](https://github.com/BodenmillerGroup/cytoviewer).
+
+# Session Info 
+
+```{r}
+sessionInfo()
+```

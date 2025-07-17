@@ -1,0 +1,1656 @@
+---
+title: "00_validation_prediction"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# A stratification system for breast cancer based on basoluminal tumor cells and spatial tumor architecture, Meyer et al., 2025 
+
+**DISCLAIMER**: Pipeline scripts contain all code used for data presented in the publication but also small exploratory data analysis parts. For reproducing the figures, please refer to the figure-related scripts and cleaned data objects provided on **Zenodo** (<https://zenodo.org/records/>). File paths have to be adjusted by the user. 
+
+Code related to following cleaned **Zenodo** objects: sce_fischer_ALL.rds, sce_ALL.rds
+
+# Validation
+
+Data analysis scripts for IMC data analysis in the validation cohorts. 
+
+# Script: Basoluminal traits in large breast cancer IMC cohorts
+
+Here, we will compare basoluminal traits in the full Fischer et al. cohort with Jackson et al. and our discovery cohort. 
+
+# Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+library(SpatialExperiment)
+library(SingleCellExperiment)
+library(scuttle)
+library(scater)
+library(scran)
+library(imcRtools)
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(circlize)
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(parallel)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(Rphenograph)
+library(igraph)
+library(RColorBrewer)
+library(foreach)
+library(clValid)
+library(bluster)
+library(psych)
+library(corrplot)
+library(caret)
+library(caretEnsemble)
+library(doParallel)
+library(tidyverse)
+library(ggridges)
+library(ggsci)
+library(ggVennDiagram)
+library(circlize)
+library(imcdatasets)
+library(survival)
+library(survminer)
+library(edgeR)
+library(wesanderson)
+library(gridExtra)
+library(dendextend)
+library(Rphenoannoy)
+library(easyalluvial)
+```
+
+# 1. Fischer et al. - FULL 
+
+## Read in data
+
+```{r}
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_zenodo_prediction.rds")
+sce
+```
+
+```{r}
+sce$TNBC <- ifelse(sce$Mol_Signature == "Triple negative", "TNBC", ifelse(sce$Mol_Signature == "Undefined", "Undefined", "Not_TNBC"))
+
+sce$Mol_Signature <- ifelse(sce$Mol_Signature == "#NULL!", "Undefined",sce$Mol_Signature)
+```
+
+
+```{r}
+# Read in discovery dataset
+sce_ref <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+
+cur_dat <- t(assay(sce_ref,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("CK5","CK7")
+cur_dat$CK5_7_score <- sce_ref$CK5_7_score[match(rownames(cur_dat), sce_ref$cell_id)]
+cur_dat$GMM_tumor_CK5 <- sce_ref$GMM_tumor_CK5[match(rownames(cur_dat), sce_ref$cell_id)]
+cur_dat$GMM_tumor_CK7 <- sce_ref$GMM_tumor_CK7[match(rownames(cur_dat), sce_ref$cell_id)]
+
+
+# Find cut-offs from TNBC discovery cohort
+max_CK5 <- max(cur_dat$CK5[cur_dat$GMM_tumor_CK5 == "CK5-"])
+min_CK5 <- min(cur_dat$CK5[cur_dat$GMM_tumor_CK5 == "CK5+"])
+cutoff_CK5 <- mean(c(max_CK5, min_CK5))
+cutoff_CK5 
+
+max_CK7 <- max(cur_dat$CK7[cur_dat$GMM_tumor_CK7 == "CK7-"])
+min_CK7 <- min(cur_dat$CK7[cur_dat$GMM_tumor_CK7 == "CK7+"])
+cutoff_CK7 <- mean(c(max_CK7, min_CK7))
+cutoff_CK7
+```
+
+## CK5/7 Signature 
+
+### Define signature / PID groups 
+
+```{r}
+## 5. CK5-7 signature
+# 1. CK5
+GMM_CK5 <- Mclust(assay(sce, "exprs")["CK5",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(assay(sce, "exprs")["CK5",] > cutoff_CK5, "CK5+","CK5-"),
+                     KRT5_exprs = assay(sce, "exprs")["CK5",],
+                     uncertainty = GMM_CK5$uncertainty)
+
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT5_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_tumor_CK5 <- GMM_df$class_epi
+
+# 2. CK7
+GMM_CK7 <- Mclust(assay(sce, "exprs")["CK7",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(assay(sce, "exprs")["CK7",] > cutoff_CK7, "CK7+","CK7-"),
+                     KRT7_exprs = assay(sce, "exprs")["CK7",],
+                     uncertainty = GMM_CK7$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT7_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_tumor_CK7 <- GMM_df$class_epi
+
+## Combine CK5/7 GMM scores 
+sce$CK5_7_score <- ifelse(sce$GMM_tumor_CK5 == "CK5+" & sce$GMM_tumor_CK7 == "CK7+", "CK5/7+", 
+       ifelse(sce$GMM_tumor_CK5 == "CK5+" & sce$GMM_tumor_CK7 == "CK7-", "CK5+",
+              ifelse(sce$GMM_tumor_CK5 == "CK5-" & sce$GMM_tumor_CK7 == "CK7+", "CK7+","CK5/7-")))
+
+## Visualize 
+cur_dat <- t(assay(sce,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("CK5","CK7")
+cur_dat$CK5_7_score <- sce$CK5_7_score[match(rownames(cur_dat), sce$cell_id)]
+cur_dat$GMM_tumor_CK5 <- sce$GMM_tumor_CK5[match(rownames(cur_dat), sce$cell_id)]
+cur_dat$GMM_tumor_CK7 <- sce$GMM_tumor_CK7[match(rownames(cur_dat), sce$cell_id)]
+
+
+metadata(sce)$colors$CK5_7_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("CK5/7-", "CK5/7+", "CK5+", "CK7+"))
+
+main <- ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
+  geom_point(alpha = 0.5)+
+  theme_classic()+
+  xlab("CK7 exprs")+
+  ylab("CK5 exprs")+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce)$colors$CK5_7_score)
+
+y_side <- ggplot(cur_dat, aes(x = CK5, fill=GMM_tumor_CK5)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#F4B5BD')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())+
+  coord_flip()
+
+x_side <- ggplot(cur_dat, aes(x = CK7, fill=GMM_tumor_CK7)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#9C964A')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())
+
+blankPlot <- ggplot()+geom_blank(aes(1,1)) + 
+  cowplot::theme_nothing()
+
+
+scatter_final <- grid.arrange(x_side, blankPlot, main, y_side, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
+
+plot(scatter_final)
+
+colData(sce) %>% as.data.frame %>% group_by(CK5_7_score) %>% count() %>% ungroup %>% mutate(fra = n/sum(n))
+```
+
+
+```{r}
+dittoBarPlot(sce, var = "CK5_7_score", group.by = "Mol_Signature", scale = "count")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_score)
+
+dittoBarPlot(sce, var = "CK5_7_score", group.by = "Mol_Signature", scale = "percent")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_score)
+```
+
+```{r}
+## Define patient groups 
+plot_score_PID <- colData(sce) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
+
+ggplot(plot_score_PID, aes(x=PID, y=fra, fill = CK5_7_score))+
+  geom_tile(position = "fill")
+
+plot_heat_PID <- plot_score_PID %>% pivot_wider(id_cols = PID, values_from = fra, names_from = CK5_7_score) %>% column_to_rownames("PID")
+plot_heat_PID[is.na(plot_heat_PID)] <- 0
+
+h <- Heatmap(plot_heat_PID,
+             name = "Proportion",
+             col = viridis(100), 
+             row_split=4,
+             show_row_names = FALSE)
+
+h <- draw(h)
+
+row_order_h <- row_order(h)
+
+anno <- colData(sce) %>% as.data.frame %>% dplyr::select(PID) %>% unique()
+anno$CK5_7_group <- NA
+
+for(i in seq_along(row_order_h)){
+anno$CK5_7_group <- as.factor(ifelse(anno$PID %in% rownames(plot_heat_PID)[row_order_h[[i]]], i, anno$CK5_7_group))
+}
+
+sce$CK5_7_group <- anno$CK5_7_group[match(sce$PID, anno$PID)]
+```
+```{r}
+## Scaled mean fraction heatmap
+
+# Body
+score_PID <- colData(sce) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
+
+score_PID$CK5_7_group <- sce$CK5_7_group[match(score_PID$PID, sce$PID)]
+
+heat_mean <- score_PID %>% group_by(CK5_7_score, CK5_7_group) %>% summarize(mean = mean(fra)) %>% pivot_wider(names_from = "CK5_7_group", values_from = "mean") %>% column_to_rownames("CK5_7_score")
+
+heat_out <- t(scale(heat_mean))
+
+# Row Anno
+anno <- score_PID %>% select(PID, CK5_7_group) %>% unique() %>% group_by(CK5_7_group) %>% count()
+
+rownames(heat_out)
+anno$CK5_7_group
+
+# Final 
+h_1 <- Heatmap(heat_out, 
+        name = "Scaled score proportion",
+        #clustering_method_rows = "ward.D2",
+        #clustering_method_columns = "ward.D2"
+        )+
+  rowAnnotation(group = anno_text(anno$CK5_7_group))+
+  rowAnnotation(n_PID = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))
+
+h_1 <- draw(h_1)
+```
+
+
+```{r}
+## Dominant CK5/7 score per CK5/7 group 
+# Dominant == highest fraction 
+score_PID <- colData(sce) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
+score_PID <- score_PID %>% group_by(PID) %>% mutate(dom = max(fra)) %>% filter(dom == fra) 
+
+# Add to sce 
+sce$dom_CK57_score <- score_PID$CK5_7_score[match(sce$PID, score_PID$PID)]
+
+# Subset sce
+cell_id_out <- colData(sce) %>% as.data.frame %>% select(PID,dom_CK57_score, CK5_7_group) %>% unique() %>% rownames_to_column("cell_id") %>% pull("cell_id")
+sce_PID <- sce[,sce$cell_id %in% cell_id_out]
+
+# Plot 
+dittoBarPlot(sce_PID, var = "dom_CK57_score", group.by = "CK5_7_group")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_score)+
+  ylab("Percent of patients")+
+  ggtitle(NULL)
+
+colData(sce) %>% as.data.frame %>% select(PID, CK5_7_group) %>% unique() %>% group_by(CK5_7_group) %>% count()
+```
+
+
+```{r}
+## Plot fraction of each CK5/7 score per CK5/7 group 
+plot_score_PID$CK5_7_group <- as.character(sce$CK5_7_group[match(plot_score_PID$PID,sce$PID)])
+
+set.seed(10)
+ggplot(plot_score_PID, aes(x = CK5_7_group, y = fra))+
+  facet_wrap(~CK5_7_score)+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = CK5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$CK5_7_score)+
+  theme_classic()
+
+set.seed(10)
+ggplot(plot_score_PID, aes(x = CK5_7_score, y = fra))+
+  facet_wrap(~CK5_7_group)+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = CK5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$CK5_7_score)+
+  stat_compare_means()+
+  theme_classic()
+```
+
+### Kaplan Meier
+
+```{r}
+#sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_zenodo_CK57.rds")
+```
+
+```{r}
+#Assess survival impact 
+cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, CK5_7_group, TNBC, OS_months, status_OS) %>% unique() #%>% filter(TNBC == "TNBC")
+
+#Plot survival curves
+fit <- survfit(Surv(OS_months, status_OS) ~ CK5_7_group, data = cur_surv)
+print(fit)
+
+pdf("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_figures/FischerBL/Fischer_CK5CK7group_Kaplan.pdf",height = 5, width = 5, onefile = FALSE)
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(),
+          palette = c("#F4B5BD","#9C964A","grey","#85D4E3")
+)
+dev.off()
+```
+
+### Cox for CK5/7 groups
+
+Multivariate 
+
+```{r}
+PID_CK57 <- colData(sce) %>% as.data.frame() %>% #filter(TNBC == "TNBC") %>%
+  select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("CK57_",colnames(PID_metagroups))
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_OS <- sce$status_OS[match(rownames(Cox_df),sce$PID)]
+Cox_df$OS_months <- sce$OS_months[match(rownames(Cox_df),sce$PID)]
+
+Cox_df$age <- sce$age[match(rownames(Cox_df),sce$PID)]
+Cox_df$grade <- factor(sce$grade[match(rownames(Cox_df),sce$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce$pT_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pN_simple <- as.factor(sce$pN_simple[match(rownames(Cox_df),sce$PID)])
+Cox_df$pM_simple <- as.factor(sce$pM_simple[match(rownames(Cox_df),sce$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -CK57_3) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+CK57_3"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],3),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],3),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],3),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],3),
+                      wald_test = signif(multi_res$waldtest["pvalue"],3))
+
+#Plot hazard ratiOS
+hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0.1,100))+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+Univariate 
+
+```{r}
+
+PID_CK57 <- colData(sce) %>% as.data.frame() %>% 
+  select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("CK57_",colnames(PID_metagroups))
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_OS <- sce$status_OS[match(rownames(Cox_df),sce$PID)]
+Cox_df$OS_months <- sce$OS_months[match(rownames(Cox_df),sce$PID)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_OS,-OS_months, -CK57_3) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~", paste(covariates, collapse = " + "),"+CK57_3"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+#Plot hazard ratiOS
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+#coord_cartesian(ylim=c(0,10))+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+## MC8 prediction 
+
+```{r}
+rffit <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/ranger_metacluster_pred_folds_allmarkers_withweights.rds")
+```
+
+```{r}
+rowData(sce)$tumor_cluster_channel <- rowData(sce)$clean_target %in% rowData(sce_ref)$clean_target[rowData(sce_ref)$cluster_channel]
+```
+
+
+```{r}
+# Select validation expression matrix
+mat_valid <- t(assay(sce, "exprs")[rowData(sce)$tumor_cluster_channel,])
+
+# Predict metacluster
+set.seed(22)
+cell_class <- as.character(predict.train(rffit, 
+                                         newdata = mat_valid, 
+                                         type = "raw"))
+
+names(cell_class) <- rownames(mat_valid)
+
+table(cell_class)
+```
+
+Add predicted metacluster to sce and save 
+
+```{r}
+# Store labels in SCE object
+sce$metacluster_predict <- factor(cell_class[match(sce$cell_id, names(cell_class))])
+
+cur_table <- table(sce$metacluster_predict, sce$PID)
+cur_table
+```
+
+
+## Save object 
+
+```{r}
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_zenodo_CK57.rds")
+#sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_zenodo_CK57.rds")
+```
+
+
+## PID groups 
+
+```{r}
+# Contains all cells
+sce_full <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_Jana/zenodo/analysis/SCEs/SCE.rds")
+sce_full$cell_id <- colnames(sce_full)
+
+# Contains tumor cells and CK5/7 group information
+fischer_sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_zenodo_CK57.rds")
+
+tumor_info <- colData(fischer_sce) %>% as.data.frame %>% mutate(celltype_broad = "tumor") %>% select(cell_id, celltype_broad)
+tumor_info_PID <- colData(fischer_sce) %>% as.data.frame %>% select(PID,CK5_7_group) %>% unique()
+
+# Contains stromal cells (CD8+ T cells are relevant)
+sce_stroma <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_Jana/zenodo/analysis/SCEs/SCE_S.rds")
+sce_stroma$cell_id <- colnames(sce_stroma)
+
+## Pick CD8+ T cells
+sce_CD8 <- sce_stroma[,sce_stroma$stroma_cluster %in% c("14", "22")] 
+
+CD8_info <- colData(sce_CD8) %>% as.data.frame %>% mutate(celltype_broad = "CD8_T_cell") %>% select(cell_id,celltype_broad)
+
+
+## MERGE 
+all_info <- rbind(tumor_info, CD8_info)
+
+sce_full$celltype_broad <- all_info$celltype_broad[match(sce_full$cell_id, all_info$cell_id)]
+sce_full$CK5_7_group <- tumor_info_PID$CK5_7_group[match(sce_full$PID, tumor_info_PID$PID)]
+
+sce_full <- sce_full[,!is.na(sce_full$celltype_broad) & !is.na(sce_full$CK5_7_group)]
+sce_full
+```
+
+
+### Create spatial CD8 phenotypes
+
+```{r}
+# Build expansion graphs 
+sce_full$sample_id <- sce_full$core
+sce_full$Pos_X <- sce_full$AreaShape_Center_X
+sce_full$Pos_Y <- sce_full$AreaShape_Center_Y
+
+sce_full <- buildSpatialGraph(sce_full, img_id = "sample_id", type = "expansion", threshold = 22, 
+                         coords = c("Pos_X",  "Pos_Y"), name = "expansion_22",
+                         BPPARAM = MulticoreParam(workers = 10))
+gc()
+
+saveRDS(sce_full, "/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_full_CK57_CD8.rds")
+#sce_full <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_full_CK57_CD8.rds")
+```
+
+
+```{r}
+sce_full <- aggregateNeighbors(sce_full, colPairName = "expansion_22", aggregate_by = "metadata", count_by = "celltype_broad", proportions = FALSE, name = "count_neighbors")
+```
+
+```{r}
+## Step 1: CD8 T cell type scoring - SPATIAL PATTERN
+cur_dat <- sce_full$count_neighbors %>% as.data.frame
+rownames(cur_dat) <- sce_full$cell_id
+cur_dat$PID <- sce_full$PID
+
+cur_dat$celltype_broad <- sce_full$celltype_broad
+
+# Define CD8+ T cells as infiltrating, bystanding, ignored
+cur_dat <- cur_dat %>% filter(celltype_broad == "CD8_T_cell") %>% 
+  mutate(CD8Tcell_type = ifelse(tumor >= 3, "infiltrating", 
+                                ifelse(tumor < 3 & tumor > 0, "bystanding", "ignored")))
+
+sce_full$CD8Tcell_type <- cur_dat$CD8Tcell_type[match(sce_full$cell_id, rownames(cur_dat))]
+```
+
+```{r}
+test <- unique(sce_full$sample_id)[23]
+
+plotSpatial(
+  object = sce_full[, sce_full$sample_id %in% test], 
+  img_id = "sample_id", 
+  node_color_by = "CD8Tcell_type", 
+  node_shape_by = "celltype_broad", 
+  colPairName = "expansion_22", 
+  coords = c("Pos_X", "Pos_Y"),
+  draw_edges = TRUE, 
+  nodes_first = FALSE, 
+  directed = FALSE)+
+  scale_color_manual(values = c("navy", "steelblue1", "firebrick"))
+```
+
+Use the same cut-offs as for discovery cohort
+
+```{r}
+## Step 2: Classify Patients based on spatial CD8 T cell scores - SPATIAL GROUPS
+
+out <- cur_dat %>% group_by(PID, CD8Tcell_type) %>% dplyr::count() %>% 
+  pivot_wider(id_cols = PID, values_from = n, names_from = CD8Tcell_type) %>% 
+  mutate(ratio_inf_ex = bystanding / infiltrating, number_inf_ex = bystanding + infiltrating) %>% 
+  mutate(spatial_CD8_phenotype = ifelse(ratio_inf_ex >= 10 | infiltrating <= 20, "excluded", "inflamed")) %>% 
+  mutate(spatial_CD8_phenotype = ifelse(number_inf_ex <= 10 | is.na(number_inf_ex), "cold", spatial_CD8_phenotype))
+
+out %>% group_by(spatial_CD8_phenotype) %>% count()
+
+# Inflamed: ratio_inf_ex < 8 or > 20 inf CD8
+# Excluded: ratio_inf_ex >= 8 
+# Cold: number_inf_ex <= 10? 
+
+# Add to sce_full
+sce_full$spatial_CD8_pheno <- out$spatial_CD8_phenotype[match(sce_full$PID, out$PID)]
+
+sce_full[,is.na(sce_full$spatial_CD8_pheno)]$spatial_CD8_pheno <- "cold"
+
+spatial_CD8_pheno_col <- setNames(c("steelblue1","navy","firebrick"), unique(sce_full$spatial_CD8_pheno)) 
+metadata(sce_full)$colors$spatial_CD8_pheno <- spatial_CD8_pheno_col
+
+sce_full$spatial_CD8_pheno_merg <- ifelse(sce_full$spatial_CD8_pheno == "inflamed", "inflamed", "cold_excluded")
+  
+spatial_CD8_pheno_merg_col <- setNames(c("steelblue1", "firebrick"), unique(sce_full$spatial_CD8_pheno_merg)) 
+metadata(sce_full)$colors$spatial_CD8_pheno_merg <- spatial_CD8_pheno_merg_col
+```
+
+
+### PID and risk groups
+
+```{r}
+# Give CK5_7 groups interpretable names 
+sce_full$CK5_7_group_name <- unfactor(sce_full$CK5_7_group)
+
+sce_full$CK5_7_group_name <- str_replace(sce_full$CK5_7_group_name, "1", "CK5+") 
+sce_full$CK5_7_group_name <- str_replace(sce_full$CK5_7_group_name, "2", "CK7+") 
+sce_full$CK5_7_group_name <- str_replace(sce_full$CK5_7_group_name, "3", "CK5/7-") 
+sce_full$CK5_7_group_name <- str_replace(sce_full$CK5_7_group_name, "4", "CK5/7+") 
+
+metadata(sce_full)$colors$CK5_7_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("CK5/7-", "CK5/7+", "CK5+", "CK7+"))
+```
+
+
+```{r}
+# Combine information from spatial CD8 phenotype and CK5/7 scores
+sce_full$BL_CD8_group <- paste0(sce_full$CK5_7_group, "_",sce_full$spatial_CD8_pheno_merg)
+
+# Merge
+sce_full$BL_CD8_group_merg <- sce_full$BL_CD8_group
+
+sce_full$BL_CD8_group_merg <- str_replace(sce_full$BL_CD8_group_merg, "1", "B") 
+sce_full$BL_CD8_group_merg <- str_replace(sce_full$BL_CD8_group_merg, "2", "L") 
+sce_full$BL_CD8_group_merg <- str_replace(sce_full$BL_CD8_group_merg, "3", "N") 
+sce_full$BL_CD8_group_merg <- str_replace(sce_full$BL_CD8_group_merg, "4", "BL") 
+sce_full$BL_CD8_group_merg <- str_replace(sce_full$BL_CD8_group_merg, "/","_")
+
+# Groups: Inflamed (Good prognostic)
+sce_full$BL_CD8_group_merg[str_detect(sce_full$BL_CD8_group_merg,"inflamed")] <- "inflamed"
+
+sce_full$BL_CD8_group_merg[sce_full$BL_CD8_group_merg == "B_cold_excluded"] <- "B"
+sce_full$BL_CD8_group_merg[sce_full$BL_CD8_group_merg == "L_cold_excluded"] <- "L"
+sce_full$BL_CD8_group_merg[sce_full$BL_CD8_group_merg == "BL_cold_excluded"] <- "BL"
+sce_full$BL_CD8_group_merg[sce_full$BL_CD8_group_merg == "N_cold_excluded"] <- "N"
+```
+
+```{r}
+# Risk group definition
+sce_full$PID_group_risk <- ifelse(sce_full$BL_CD8_group_merg == "inflamed", "low", ifelse(sce_full$BL_CD8_group_merg == "BL", "high", "medium"))
+
+risk_color <- setNames(c(wes_palette("Zissou1")[5], wes_palette("Zissou1")[1],"gold"), 
+                       c("high", "low", "medium"))
+metadata(sce_full)$colors$risk_color <- risk_color
+
+# Define factors 
+sce_full$BL_CD8_group_merg <- factor(sce_full$BL_CD8_group_merg, levels = c("inflamed","N","B","L","BL"))
+sce_full$PID_group_risk <- factor(sce_full$PID_group_risk, levels = c("low","medium","high"))
+```
+
+```{r}
+sce_fischer_ALL$spatial_CD8_pheno_merg <- sce_full$spatial_CD8_pheno_merg[match(sce_fischer_ALL$PID, sce_full$PID)]
+sce_fischer_ALL$BL_CD8_group_merg <- sce_full$BL_CD8_group_merg[match(sce_fischer_ALL$PID, sce_full$PID)]
+sce_fischer_ALL$PID_group_risk <- sce_full$PID_group_risk[match(sce_fischer_ALL$PID, sce_full$PID)]
+```
+
+
+```{r save_objects, message = FALSE, warning=FALSE}
+#Save sce_full
+saveRDS(sce_full, "/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_full_CK57_CD8.rds")
+#sce_full <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_full_CK57_CD8.rds")
+```
+
+
+#### Alluvial 
+
+```{r}
+df_alluvial <- colData(sce_full) %>% as.data.frame %>% dplyr::select(PID, CK5_7_group_name, spatial_CD8_pheno_merg,BL_CD8_group_merg, PID_group_risk) %>% unique %>% dplyr::select(CK5_7_group_name, spatial_CD8_pheno_merg,BL_CD8_group_merg, PID_group_risk)
+
+alluvial_wide(df_alluvial, 
+              colorful_fill_variable_stratum = FALSE,
+              col_vector_flow = c("#85D4E3","grey","#9C964A", "#F4B5BD"), 
+              order_levels = c("CK5/7+","CK5/7-","CK7+","CK5+","cold/excluded","BL","N","L","B","high","medium","low"))+
+  theme_classic()
+```
+
+```{r}
+## Update survival info
+sce_full$grade <- str_extract(sce_full$Grade, "[:digit:]")
+
+sce_full$pT_simple <- str_extract(sce_full$pT_4gr, "[:digit:]")
+sce_full$pN_simple <- str_extract(sce_full$pN_4gr, "[:digit:]")
+sce_full$pN_simple[sce_full$pN_simple == "7"] <- NA
+sce_full$pM_simple <- sce_full$M1_BRASI_new
+
+sce_full$status_OS <- sce_full$Livestatus1dead
+sce_full$OS_months <- sce_full$OS
+
+sce_full$status_OS <- ifelse(!is.na(sce_full$OS_months) & is.na(sce_full$status_OS), 0, sce_full$status_OS)
+
+sce_full$TNBC <- ifelse(sce_full$Mol_Signature == "Triple negative", "TNBC", ifelse(sce_full$Mol_Signature == "Undefined", "Undefined", "Not_TNBC"))
+```
+
+
+#### Kaplan-Meier 
+
+```{r}
+#Assess survival impact 
+cur_surv <- colData(sce_full) %>% as.data.frame() %>% #filter(TNBC == "TNBC") %>%
+  dplyr::select(PID, BL_CD8_group_merg, PID_group_risk, OS_months, status_OS) %>% 
+  unique()
+
+# Define colors 
+group_color <- setNames(c("#3B9AB2", "gold", "pink", "orange","#F21A00"), c("inflamed","N","B","L","BL"))
+
+metadata(sce_full)$colors$group_color <- group_color
+
+#Plot survival curves
+fit <- survfit(Surv(OS_months, status_OS) ~ BL_CD8_group_merg, data = cur_surv)
+print(fit)
+
+PID_DFS_1 <- ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(), 
+          palette = unname(group_color))
+
+PID_DFS_1
+
+#Plot survival curves
+fit <- survfit(Surv(OS_months, status_OS) ~ PID_group_risk, data = cur_surv)
+print(fit)
+
+PID_DFS_2 <- ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(), 
+          palette = c(wes_palette("Zissou1")[1] ,"gold", wes_palette("Zissou1")[5]))
+
+PID_DFS_2
+```
+
+#### Cox for PID groups
+
+Multivariate 
+
+```{r}
+PID_CK57 <- colData(sce_full) %>% as.data.frame() %>% #filter(TNBC == "TNBC") %>%
+  select(BL_CD8_group_merg,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "BL_CD8_group_merg",values_from = "fra") %>% column_to_rownames("PID")
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_OS <- sce_full$status_OS[match(rownames(Cox_df),sce_full$PID)]
+Cox_df$OS_months <- sce_full$OS_months[match(rownames(Cox_df),sce_full$PID)]
+
+Cox_df$age <- sce_full$age[match(rownames(Cox_df),sce_full$PID)]
+Cox_df$grade <- factor(sce_full$grade[match(rownames(Cox_df),sce_full$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce_full$pT_simple[match(rownames(Cox_df),sce_full$PID)])
+Cox_df$pN_simple <- as.factor(sce_full$pN_simple[match(rownames(Cox_df),sce_full$PID)])
+Cox_df$pM_simple <- as.factor(sce_full$pM_simple[match(rownames(Cox_df),sce_full$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -inflamed) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+inflamed"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],3),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],3),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],3),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],3),
+                      wald_test = signif(multi_res$waldtest["pvalue"],3))
+
+#Plot hazard ratiOS
+hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0.1,100))+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+Univariate 
+
+```{r}
+PID_CK57 <- colData(sce_full) %>% as.data.frame() %>% #filter(TNBC == "TNBC") %>%
+  select(BL_CD8_group_merg,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "BL_CD8_group_merg",values_from = "fra") %>% column_to_rownames("PID")
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_OS <- sce_full$status_OS[match(rownames(Cox_df),sce_full$PID)]
+Cox_df$OS_months <- sce_full$OS_months[match(rownames(Cox_df),sce_full$PID)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_OS,-OS_months, -inflamed) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~", paste(covariates, collapse = " + "),"+inflamed"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+#Plot hazard ratiOS
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+#coord_cartesian(ylim=c(0,10))+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+#### Cox for PID risk
+
+Multivariate 
+
+```{r}
+PID_CK57 <- colData(sce_full) %>% as.data.frame() %>% #filter(TNBC == "TNBC") %>%
+  select(PID_group_risk,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "PID_group_risk",values_from = "fra") %>% column_to_rownames("PID")
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_OS <- sce_full$status_OS[match(rownames(Cox_df),sce_full$PID)]
+Cox_df$OS_months <- sce_full$OS_months[match(rownames(Cox_df),sce_full$PID)]
+
+Cox_df$age <- sce_full$age[match(rownames(Cox_df),sce_full$PID)]
+Cox_df$grade <- factor(sce_full$grade[match(rownames(Cox_df),sce_full$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce_full$pT_simple[match(rownames(Cox_df),sce_full$PID)])
+Cox_df$pN_simple <- as.factor(sce_full$pN_simple[match(rownames(Cox_df),sce_full$PID)])
+Cox_df$pM_simple <- as.factor(sce_full$pM_simple[match(rownames(Cox_df),sce_full$PID)])
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -low) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+low"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],3),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],3),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],3),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],3),
+                      wald_test = signif(multi_res$waldtest["pvalue"],3))
+
+#Plot hazard ratiOS
+hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0.1,100))+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+Univariate 
+
+```{r}
+PID_CK57 <- colData(sce_full) %>% as.data.frame() %>% #filter(TNBC == "TNBC") %>%
+  select(PID_group_risk,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+
+### Multivariate cox proportional hazard model on multiple covariates (here proportion of phenotypes)
+PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "PID_group_risk",values_from = "fra") %>% column_to_rownames("PID")
+
+## 1. Based on continuous cluster proportions
+Cox_df <- PID_metagroups
+
+#add covariates for correction
+Cox_df$status_OS <- sce_full$status_OS[match(rownames(Cox_df),sce_full$PID)]
+Cox_df$OS_months <- sce_full$OS_months[match(rownames(Cox_df),sce_full$PID)]
+
+#Based on proportions
+covariates <- Cox_df %>% select(-status_OS,-OS_months, -low) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~", paste(covariates, collapse = " + "),"+low"))
+
+multi_model <- coxph(multi_formula, data = Cox_df)
+
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+#Plot hazard ratiOS
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+#coord_cartesian(ylim=c(0,50))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+#coord_cartesian(ylim=c(0,10))+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+# 2. Jackson et al. - FULL
+
+## Read in data
+
+```{r}
+sce_jackson <- imcdatasets::JacksonFischer_2020_BreastCancer(data_type = c("sce"), full_dataset = TRUE)
+```
+
+```{r}
+# Subset for tumor metacluster
+sce_jackson <- sce_jackson[,sce_jackson$cell_metacluster %in% c(14:27)]
+```
+
+```{r}
+# Adjust rowData
+rowData(sce_jackson)$target_match <- c("Ru96", "Ru98", "Ru99", "Ru100", "Ru101", "Ru102", "Ru104", 
+"H3", "H3K27me3", "CK5", "FN1", "KRT19", "CK8_18", "TWIST1", 
+"CD68", "KRT14", "SMA", "Vimentin", "cMYC", "HER2", "CD3e", "pH3", 
+"SNAI2", "ER", "PR", "p53", "CD44", "EpCAM", "CD45", "GATA3", 
+"CD20", "CTNNB", "CAIX", "CDH1", "Ki67", "EGFR", "S6", "SOX9", 
+"vWF", "p_mTOR", "CK7", "panCK", "c_Cas3_PARP", "DNA1", "DNA2"
+)
+
+# Identify shared tumor markers between our dataset and Jackson et al.
+rownames(sce_jackson) <- rowData(sce_jackson)$target_match
+```
+
+```{r}
+## TNM staging 
+sce_jackson$pT_simple <- str_extract(sce_jackson$tumor_PTNM_T, "[:digit:]")
+sce_jackson$pN_simple <- str_extract(sce_jackson$tumor_PTNM_N, "[:digit:]")
+sce_jackson$pM_simple <- str_extract(sce_jackson$tumor_PTNM_M, "[:digit:]")
+
+## DFS status 
+sce_jackson$status_DFS <- ifelse(sce_jackson$patient_status %in% c("death","death by primary disease", "alive w metastases"), 1, 0)
+sce_jackson$status_OS <- ifelse(sce_jackson$patient_status %in% c("death","death by primary disease"), 1, 0)
+sce_jackson$DFS_months <- sce_jackson$patient_DFS_months
+sce_jackson$OS_months <- sce_jackson$patient_OS_months
+
+## Filter for tumor cases
+sce_jackson <- sce_jackson[, sce_jackson$patient_disease_status %in% c("tumor")]
+
+# Adjust naming
+sce_jackson$tumor_clinical_type <- ifelse(sce_jackson$tumor_clinical_type == "", "Undefined",sce_jackson$tumor_clinical_type)
+sce_jackson$TNBC <- ifelse(sce_jackson$tumor_clinical_type == "TripleNeg", "TNBC", ifelse(sce_jackson$tumor_clinical_type == "Undefined", "Undefined", "Not_TNBC"))
+
+sce_jackson$PAM50_clean <- sce_jackson$tumor_clinical_type
+sce_jackson$PAM50_clean[sce_jackson$PAM50_clean == "HR-HER2+"] <- "Her2" #Approximation
+sce_jackson$PAM50_clean[sce_jackson$PAM50_clean == "TripleNeg"] <- "Basal" #Approximation
+sce_jackson$PAM50_clean[sce_jackson$PAM50_clean == "HR+HER2+"] <- "LumA_B" #Approximation
+sce_jackson$PAM50_clean[sce_jackson$PAM50_clean == "HR+HER2-"] <- "LumA_B" #Approximation
+sce_jackson$PAM50_clean[sce_jackson$PAM50_clean == "Undefined"] <- "Undefined" 
+
+sce_jackson$PID <- sce_jackson$patient_id
+```
+
+```{r}
+sce <- sce_jackson
+```
+
+
+```{r}
+# Read in discovery dataset
+sce_ref <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+
+cur_dat <- t(assay(sce_ref,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("CK5","CK7")
+cur_dat$CK5_7_score <- sce_ref$CK5_7_score[match(rownames(cur_dat), sce_ref$cell_id)]
+cur_dat$GMM_tumor_CK5 <- sce_ref$GMM_tumor_CK5[match(rownames(cur_dat), sce_ref$cell_id)]
+cur_dat$GMM_tumor_CK7 <- sce_ref$GMM_tumor_CK7[match(rownames(cur_dat), sce_ref$cell_id)]
+
+
+# Find cut-offs from TNBC discovery cohort
+max_CK5 <- max(cur_dat$CK5[cur_dat$GMM_tumor_CK5 == "CK5-"])
+min_CK5 <- min(cur_dat$CK5[cur_dat$GMM_tumor_CK5 == "CK5+"])
+cutoff_CK5 <- mean(c(max_CK5, min_CK5))
+cutoff_CK5 
+
+max_CK7 <- max(cur_dat$CK7[cur_dat$GMM_tumor_CK7 == "CK7-"])
+min_CK7 <- min(cur_dat$CK7[cur_dat$GMM_tumor_CK7 == "CK7+"])
+cutoff_CK7 <- mean(c(max_CK7, min_CK7))
+cutoff_CK7
+```
+
+## CK5/7 Signature 
+
+### Define signature / PID groups 
+
+```{r}
+## 5. CK5-7 signature
+# 1. CK5
+GMM_CK5 <- Mclust(assay(sce, "exprs")["CK5",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(assay(sce, "exprs")["CK5",] > cutoff_CK5, "CK5+","CK5-"),
+                     KRT5_exprs = assay(sce, "exprs")["CK5",],
+                     uncertainty = GMM_CK5$uncertainty)
+
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT5_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_tumor_CK5 <- GMM_df$class_epi
+
+# 2. CK7
+GMM_CK7 <- Mclust(assay(sce, "exprs")["CK7",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(assay(sce, "exprs")["CK7",] > cutoff_CK7, "CK7+","CK7-"),
+                     KRT7_exprs = assay(sce, "exprs")["CK7",],
+                     uncertainty = GMM_CK7$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT7_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_tumor_CK7 <- GMM_df$class_epi
+
+## Combine CK5/7 GMM scores 
+sce$CK5_7_score <- ifelse(sce$GMM_tumor_CK5 == "CK5+" & sce$GMM_tumor_CK7 == "CK7+", "CK5/7+", 
+       ifelse(sce$GMM_tumor_CK5 == "CK5+" & sce$GMM_tumor_CK7 == "CK7-", "CK5+",
+              ifelse(sce$GMM_tumor_CK5 == "CK5-" & sce$GMM_tumor_CK7 == "CK7+", "CK7+","CK5/7-")))
+
+## Visualize 
+cur_dat <- t(assay(sce,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("CK5","CK7")
+cur_dat$CK5_7_score <- sce$CK5_7_score[match(rownames(cur_dat), sce$cell_id)]
+cur_dat$GMM_tumor_CK5 <- sce$GMM_tumor_CK5[match(rownames(cur_dat), sce$cell_id)]
+cur_dat$GMM_tumor_CK7 <- sce$GMM_tumor_CK7[match(rownames(cur_dat), sce$cell_id)]
+
+metadata(sce)$colors$CK5_7_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("CK5/7-", "CK5/7+", "CK5+", "CK7+"))
+
+main <- ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
+  geom_point(alpha = 0.5)+
+  theme_classic()+
+  xlab("CK7 exprs")+
+  ylab("CK5 exprs")+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce)$colors$CK5_7_score)
+
+y_side <- ggplot(cur_dat, aes(x = CK5, fill=GMM_tumor_CK5)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#F4B5BD')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())+
+  coord_flip()
+
+x_side <- ggplot(cur_dat, aes(x = CK7, fill=GMM_tumor_CK7)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#9C964A')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())
+
+blankPlot <- ggplot()+geom_blank(aes(1,1)) + 
+  cowplot::theme_nothing()
+
+
+scatter_final <- grid.arrange(x_side, blankPlot, main, y_side, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
+
+plot(scatter_final)
+```
+
+```{r}
+dittoBarPlot(sce, var = "CK5_7_score", group.by = "TNBC",scale = "percent")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_score)
+```
+
+```{r}
+dittoBarPlot(sce, var = "CK5_7_score", group.by = "PAM50_clean", scale = "count")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_score)
+
+dittoBarPlot(sce, var = "CK5_7_score", group.by = "PAM50_clean", scale = "percent")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_score)
+```
+
+```{r}
+## Define patient groups 
+plot_score_PID <- colData(sce) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
+
+ggplot(plot_score_PID, aes(x=PID, y=fra, fill = CK5_7_score))+
+  geom_tile(position = "fill")
+
+plot_heat_PID <- plot_score_PID %>% pivot_wider(id_cols = PID, values_from = fra, names_from = CK5_7_score) %>% column_to_rownames("PID")
+plot_heat_PID[is.na(plot_heat_PID)] <- 0
+
+h <- Heatmap(plot_heat_PID,
+             name = "Proportion",
+             col = viridis(100), 
+             row_split=4,
+             show_row_names = FALSE)
+
+h <- draw(h)
+
+row_order_h <- row_order(h)
+
+anno <- colData(sce) %>% as.data.frame %>% dplyr::select(PID) %>% unique()
+anno$CK5_7_group <- NA
+
+for(i in seq_along(row_order_h)){
+anno$CK5_7_group <- as.factor(ifelse(anno$PID %in% rownames(plot_heat_PID)[row_order_h[[i]]], i, anno$CK5_7_group))
+}
+
+sce$CK5_7_group <- anno$CK5_7_group[match(sce$PID, anno$PID)]
+```
+
+
+```{r}
+## Dominant CK5/7 score per CK5/7 group 
+# Dominant == highest fraction 
+score_PID <- colData(sce) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
+score_PID <- score_PID %>% group_by(PID) %>% mutate(dom = max(fra)) %>% filter(dom == fra) 
+
+# Add to sce 
+sce$dom_CK57_score <- score_PID$CK5_7_score[match(sce$PID, score_PID$PID)]
+
+# Subset sce
+cell_id_out <- colData(sce) %>% as.data.frame %>% select(PID,dom_CK57_score, CK5_7_group) %>% unique() %>% rownames_to_column("cell_id") %>% pull("cell_id")
+sce_PID <- sce[,sce$cell_id %in% cell_id_out]
+
+# Plot 
+dittoBarPlot(sce_PID, var = "dom_CK57_score", group.by = "CK5_7_group")+
+  scale_fill_manual(values = metadata(sce)$colors$CK5_7_score)+
+  ylab("Percent of patients")+
+  ggtitle(NULL)
+```
+
+
+```{r}
+## Plot fraction of each CK5/7 score per CK5/7 group 
+plot_score_PID$CK5_7_group <- as.character(sce$CK5_7_group[match(plot_score_PID$PID,sce$PID)])
+
+set.seed(10)
+ggplot(plot_score_PID, aes(x = CK5_7_group, y = fra))+
+  facet_wrap(~CK5_7_score)+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = CK5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$CK5_7_score)+
+  theme_classic()
+
+set.seed(10)
+ggplot(plot_score_PID, aes(x = CK5_7_score, y = fra))+
+  facet_wrap(~CK5_7_group)+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = CK5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce)$colors$CK5_7_score)+
+  stat_compare_means()+
+  theme_classic()
+```
+
+### Kaplan Meier
+
+```{r}
+#Assess survival impact 
+cur_surv <- colData(sce) %>% as.data.frame() %>% select(PID, CK5_7_group, TNBC, OS_months, status_OS) %>% unique() #%>% filter(TNBC == "TNBC")
+
+#Plot survival curves
+fit <- survfit(Surv(OS_months, status_OS) ~ CK5_7_group, data = cur_surv)
+print(fit)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(),
+          palette = c("#F4B5BD","#9C964A","grey","#85D4E3")
+)
+```
+
+## MC8 prediction 
+
+```{r}
+rffit_jana <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/ranger_metacluster_pred_folds_jana_withweights.rds")
+```
+
+```{r}
+# Select validation expression matrix
+rowData(sce)$tumor_cluster_jana <- rowData(sce)$target_match %in% rownames(sce_ref)
+
+mat_valid <- t(assay(sce, "exprs")[rowData(sce)$tumor_cluster_jana,])
+
+# Predict metacluster
+set.seed(2201)
+cell_class <- as.character(predict.train(rffit_jana, 
+                                         newdata = mat_valid, 
+                                         type = "raw"))
+
+names(cell_class) <- rownames(mat_valid)
+
+table(cell_class)
+```
+
+
+Add predicted metacluster to sce and save 
+
+```{r}
+# Store labels in SCE object
+sce$metacluster_predict <- factor(cell_class[match(sce$cell_id, names(cell_class))])
+
+cur_table <- table(sce$metacluster_predict, sce$PID)
+cur_table
+```
+
+## Save object 
+
+```{r}
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_jackson_zenodo_CK57.rds")
+```
+
+
+# 3. Cross-cohort comparison
+
+
+```{r}
+jackson_sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_jackson_zenodo_CK57.rds")
+
+fischer_sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_zenodo_CK57.rds")
+
+discovery_sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/05_sce_TNBC_tumor_new.rds")
+```
+
+## CK5/7 score and MC8
+
+```{r}
+discovery_df <- as.data.frame(table(discovery_sce$CK5_7_score))
+discovery_df$cohort <- "discovery"
+colnames(discovery_df)[1] <- "CK5_7_score"
+
+jackson_df <- as.data.frame(table(jackson_sce$CK5_7_score))
+jackson_df$cohort <- "jackson"
+colnames(jackson_df)[1] <- "CK5_7_score"
+
+fischer_df <- as.data.frame(table(fischer_sce$CK5_7_score))
+fischer_df$cohort <- "fischer"
+colnames(fischer_df)[1] <- "CK5_7_score"
+
+CK_df <- rbind(discovery_df, jackson_df, fischer_df)
+
+CK_df <- CK_df %>% group_by(cohort) %>% mutate(fra = Freq/sum(Freq))
+```
+
+
+```{r}
+ggplot(CK_df, aes(x = cohort, y = Freq, fill = CK5_7_score))+
+  facet_wrap(~CK5_7_score, scales = "free", nrow = 1)+
+  geom_bar(stat = "identity", position = "stack", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = metadata(fischer_sce)$colors$CK5_7_score)
+
+ggplot(CK_df, aes(x = cohort, y = fra, fill = CK5_7_score))+
+  facet_wrap(~CK5_7_score, scales = "free", nrow = 1)+
+  geom_bar(stat = "identity", position = "stack", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = metadata(fischer_sce)$colors$CK5_7_score)
+```
+
+```{r}
+discovery_df <- as.data.frame(table(discovery_sce$metacluster))
+discovery_df$cohort <- "discovery"
+colnames(discovery_df)[1] <- "metacluster"
+
+jackson_df <- as.data.frame(table(jackson_sce$metacluster_predict))
+jackson_df$cohort <- "jackson"
+colnames(jackson_df)[1] <- "metacluster"
+
+fischer_df <- as.data.frame(table(fischer_sce$metacluster_predict))
+fischer_df$cohort <- "fischer"
+colnames(fischer_df)[1] <- "metacluster"
+
+MC_df <- rbind(discovery_df, jackson_df, fischer_df)
+MC_df$metacluster <- str_remove(MC_df$metacluster, "tumor_")
+MC_df <- MC_df %>% group_by(cohort) %>% mutate(fra = Freq/sum(Freq))
+```
+
+
+```{r}
+ggplot(MC_df, aes(x = cohort, y = Freq, fill = metacluster))+
+  facet_wrap(~metacluster, scales = "free")+
+  geom_bar(stat = "identity", position = "stack", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = metadata(discovery_sce)$colors$metacluster)
+
+ggplot(MC_df, aes(x = cohort, y = fra, fill = metacluster))+
+  facet_wrap(~metacluster, scales = "free")+
+  geom_bar(stat = "identity", position = "stack", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = metadata(discovery_sce)$colors$metacluster)
+```
+
+```{r}
+ggplot(CK_df, aes(x = cohort, y = fra, fill = CK5_7_score))+
+  facet_wrap(~CK5_7_score, scales = "free", nrow = 1)+
+  geom_bar(stat = "identity", position = "stack", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = metadata(fischer_sce)$colors$CK5_7_score)+
+ggplot(MC_df %>% filter(metacluster %in% c("8", "9", "3")), aes(x = cohort, y = fra, fill = metacluster))+
+  facet_wrap(~metacluster, scales = "free")+
+  geom_bar(stat = "identity", position = "stack", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = metadata(discovery_sce)$colors$metacluster)
+```
+
+```{r}
+BL_df <- rbind(CK_df %>% filter(CK5_7_score == "CK5/7+") %>% mutate(category = CK5_7_score) %>% select(-CK5_7_score),
+MC_df %>% filter(metacluster %in% c("8")) %>% mutate(category = metacluster) %>% select(-metacluster))
+```
+
+```{r}
+ggplot(BL_df, aes(x = cohort, y = Freq, fill = category))+
+  facet_wrap(~category, scales = "free", nrow = 2)+
+  geom_bar(stat = "identity", position = "stack", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("#F4892A","#85D4E3"))
+
+ggplot(BL_df, aes(x = cohort, y = fra, fill = category))+
+  facet_wrap(~category, scales = "free")+
+  geom_bar(stat = "identity", position = "stack", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("#F4892A","#85D4E3"))
+```
+
+```{r}
+# SCE FISCHER
+fischer_sce$PAM50_clean <- fischer_sce$Mol_Signature
+fischer_sce$PAM50_clean[fischer_sce$PAM50_clean == "Luminal B (HER2-)"] <- "LumB" #Or LumA_B
+fischer_sce$PAM50_clean[fischer_sce$PAM50_clean == "Luminal B (HER2+)"] <- "LumB" #Or LumA_B
+fischer_sce$PAM50_clean[fischer_sce$PAM50_clean == "Luminal A"] <- "LumA"
+fischer_sce$PAM50_clean[fischer_sce$PAM50_clean == "HER2"] <- "Her2"
+fischer_sce$PAM50_clean[fischer_sce$PAM50_clean == "Undefined"] <- "Undefined"
+fischer_sce$PAM50_clean[fischer_sce$PAM50_clean == "Triple negative"] <- "Basal" #Approximation
+
+# SCE JACKSON
+jackson_sce$PAM50_clean <- jackson_sce$tumor_clinical_type
+jackson_sce$PAM50_clean[jackson_sce$PAM50_clean == "HR-HER2+"] <- "Her2" #Approximation
+jackson_sce$PAM50_clean[jackson_sce$PAM50_clean == "TripleNeg"] <- "Basal" #Approximation
+jackson_sce$PAM50_clean[jackson_sce$PAM50_clean == "HR+HER2+"] <- "LumA_B" #Approximation
+jackson_sce$PAM50_clean[jackson_sce$PAM50_clean == "HR+HER2-"] <- "LumA_B" #Approximation
+jackson_sce$PAM50_clean[jackson_sce$PAM50_clean == "Undefined"] <- "Undefined" 
+```
+
+```{r}
+dittoBarPlot(fischer_sce, var = "CK5_7_score", group.by = "PAM50_clean", scale = "percent")+
+  scale_fill_manual(values = metadata(fischer_sce)$colors$CK5_7_score)
+dittoBarPlot(jackson_sce, var = "CK5_7_score", group.by = "PAM50_clean", scale = "percent")+
+  scale_fill_manual(values = metadata(fischer_sce)$colors$CK5_7_score)
+```
+
+```{r}
+bar_out <- dittoBarPlot(fischer_sce, var = "CK5_7_score", group.by = "PAM50_clean", scale = "percent", data.out = TRUE)$data
+fischer_out <- bar_out %>% select(label, grouping, count, percent) %>% mutate(dataset = "fischer") %>% filter(grouping != "Undefined")
+
+bar_out <- dittoBarPlot(jackson_sce, var = "CK5_7_score", group.by = "PAM50_clean", scale = "percent", data.out = TRUE)$data
+jackson_out <- bar_out %>% select(label, grouping, count, percent) %>% mutate(dataset = "jackson") %>% filter(grouping != "Undefined")
+
+PAM50_df <- rbind(fischer_out, jackson_out)
+
+ggplot(PAM50_df, aes(x = dataset, y = percent, fill = label))+
+  facet_wrap(~grouping)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = metadata(fischer_sce)$colors$CK5_7_score)+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+dittoBarPlot(fischer_sce, var = "CK5_7_score", group.by = "TNBC", scale = "percent")+
+  scale_fill_manual(values = metadata(fischer_sce)$colors$CK5_7_score)
+dittoBarPlot(jackson_sce, var = "CK5_7_score", group.by = "TNBC", scale = "percent")+
+  scale_fill_manual(values = metadata(fischer_sce)$colors$CK5_7_score)
+```
+
+```{r}
+bar_out <- dittoBarPlot(fischer_sce, var = "CK5_7_score", group.by = "TNBC", scale = "percent", data.out = TRUE)$data
+fischer_out <- bar_out %>% select(label, grouping, count, percent) %>% mutate(dataset = "fischer") %>% filter(grouping != "Undefined")
+
+bar_out <- dittoBarPlot(jackson_sce, var = "CK5_7_score", group.by = "TNBC", scale = "percent", data.out = TRUE)$data
+jackson_out <- bar_out %>% select(label, grouping, count, percent) %>% mutate(dataset = "jackson") %>% filter(grouping != "Undefined")
+
+discovery_sce$TNBC <- "TNBC"
+bar_out <- dittoBarPlot(discovery_sce, var = "CK5_7_score", group.by = "TNBC", scale = "percent", data.out = TRUE)$data
+discovery_out <- bar_out %>% select(label, grouping, count, percent) %>% mutate(dataset = "discovery") %>% filter(grouping != "Undefined")
+
+PAM50_df <- rbind(fischer_out, jackson_out, discovery_out)
+
+PAM50_df$grouping <- factor(
+unfactor(PAM50_df$grouping), levels = c("TNBC", "Not_TNBC"))
+
+ggplot(PAM50_df, aes(x = dataset, y = percent, fill = label))+
+  facet_wrap(~grouping)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = metadata(fischer_sce)$colors$CK5_7_score)+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+foreach(i = unique(unfactor(PAM50_df$grouping)), .combine = "rbind")%do%{
+  bar_test <- PAM50_df %>% filter(grouping == i) %>% pivot_wider(names_from = dataset, id_cols = label, values_from = count) %>% column_to_rownames("label")
+  return(data.frame(p_chi = chisq.test(bar_test)$p.value, cat = i))
+}
+```
+
+## CK5/7 group 
+
+```{r}
+fischer_sce$CK5_7_group_name <- unfactor(fischer_sce$CK5_7_group)
+
+fischer_sce$CK5_7_group_name[fischer_sce$CK5_7_group_name == "1"] <- "CK5_dom"
+fischer_sce$CK5_7_group_name[fischer_sce$CK5_7_group_name == "2"] <- "CK7_dom"
+fischer_sce$CK5_7_group_name[fischer_sce$CK5_7_group_name == "3"] <- "NotCK57_dom"
+fischer_sce$CK5_7_group_name[fischer_sce$CK5_7_group_name == "4"] <- "CK57_dom"
+
+fischer_sce$CK5_7_group_name <- factor(fischer_sce$CK5_7_group_name, levels = c("NotCK57_dom", "CK57_dom", "CK5_dom", "CK7_dom"))
+
+fischer_over <- colData(fischer_sce) %>% as.data.frame %>% select(PID, PAM50_clean, TNBC, CK5_7_group_name) %>% unique() %>% remove_rownames()
+
+fischer_PAM50_group <- fischer_over %>% group_by(CK5_7_group_name, PAM50_clean) %>% count() %>% ungroup() %>% group_by(PAM50_clean) %>% mutate(fra = n/sum(n)) %>% mutate(dataset = "fischer")
+
+ggplot(fischer_PAM50_group, aes(x = PAM50_clean, y = fra, fill = CK5_7_group_name))+
+  facet_wrap(~dataset)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("grey","#85D4E3","#F4B5BD","#9C964A"))+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+fischer_TNBC_group <- fischer_over %>% group_by(CK5_7_group_name, TNBC) %>% count() %>% ungroup() %>% group_by(TNBC) %>% mutate(fra = n/sum(n)) %>% mutate(dataset = "fischer")
+
+ggplot(fischer_TNBC_group, aes(x = TNBC, y = fra, fill = CK5_7_group_name))+
+  facet_wrap(~dataset)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("grey","#85D4E3","#F4B5BD","#9C964A"))+
+  theme(axis.text.x = element_text(angle = 90))
+
+# Add discovery dataset
+discovery_sce$CK5_7_group_name <- unfactor(discovery_sce$CK5_7_group)
+
+discovery_sce$CK5_7_group_name[discovery_sce$CK5_7_group_name == "1"] <- "CK57_dom"
+discovery_sce$CK5_7_group_name[discovery_sce$CK5_7_group_name == "2"] <- "CK5_dom"
+discovery_sce$CK5_7_group_name[discovery_sce$CK5_7_group_name == "3"] <- "CK7_dom"
+discovery_sce$CK5_7_group_name[discovery_sce$CK5_7_group_name == "4"] <- "NotCK57_dom"
+
+discovery_sce$CK5_7_group_name <- factor(discovery_sce$CK5_7_group_name, levels = c("NotCK57_dom", "CK57_dom", "CK5_dom", "CK7_dom"))
+
+discovery_over <- colData(discovery_sce) %>% as.data.frame %>% select(PID, TNBC, CK5_7_group_name) %>% unique() %>% remove_rownames()
+
+discovery_TNBC_group <- discovery_over %>% group_by(CK5_7_group_name, TNBC) %>% count() %>% ungroup() %>% group_by(TNBC) %>% mutate(fra = n/sum(n)) %>% mutate(dataset = "discovery")
+
+ggplot(discovery_TNBC_group, aes(x = TNBC, y = fra, fill = CK5_7_group_name))+
+  facet_wrap(~dataset)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("grey","#85D4E3","#F4B5BD","#9C964A"))+
+  theme(axis.text.x = element_text(angle = 90))
+
+combined_TNBC_group <- rbind(fischer_TNBC_group, discovery_TNBC_group)
+
+ggplot(combined_TNBC_group, aes(x = dataset, y = fra, fill = CK5_7_group_name))+
+  facet_wrap(~TNBC)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("grey","#85D4E3","#F4B5BD","#9C964A"))+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+# TNBC only
+bar_test <- fischer_TNBC_group %>% pivot_wider(names_from = TNBC, id_cols = CK5_7_group_name, values_from = n) %>% column_to_rownames("CK5_7_group_name") %>% select(-Undefined)
+
+bar_test_out <- chisq.test(bar_test)
+
+print(bar_test_out$p.value)
+
+# Combined comp
+bar_test <- combined_TNBC_group %>% filter(TNBC == "TNBC") %>% pivot_wider(names_from = dataset, id_cols = CK5_7_group_name, values_from = n) %>% column_to_rownames("CK5_7_group_name")
+  
+fisher.test(bar_test)
+```
+
+## PID groups 
+
+```{r}
+fischer_sce_full <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_full_CK57_CD8.rds")
+#fischer_sce_full <- sce_full
+
+fischer_sce$BL_CD8_group_merg <- fischer_sce_full$BL_CD8_group_merg[match(fischer_sce$PID, fischer_sce_full$PID)]
+
+group_color <- setNames(c("#3B9AB2", "gold", "pink", "orange","#F21A00"), 
+                        c("inflamed","N","B","L","BL"))
+```
+
+```{r}
+discovery_sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/08_sce_PIDgroup.rds")
+discovery_sce$TNBC <- "TNBC"
+```
+
+```{r}
+fischer_over <- colData(fischer_sce) %>% as.data.frame %>% select(PID, PAM50_clean, TNBC, BL_CD8_group_merg) %>% unique() %>% remove_rownames()
+
+fischer_PAM50_group <- fischer_over %>% group_by(BL_CD8_group_merg, PAM50_clean) %>% count() %>% ungroup() %>% group_by(PAM50_clean) %>% mutate(fra = n/sum(n)) %>% mutate(dataset = "fischer")
+
+ggplot(fischer_PAM50_group, aes(x = PAM50_clean, y = fra, fill = BL_CD8_group_merg))+
+  facet_wrap(~dataset)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = group_color)+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+fischer_TNBC_group <- fischer_over %>% group_by(BL_CD8_group_merg, TNBC) %>% count() %>% ungroup() %>% group_by(TNBC) %>% mutate(fra = n/sum(n)) %>% mutate(dataset = "fischer")
+
+ggplot(fischer_TNBC_group, aes(x = TNBC, y = fra, fill = BL_CD8_group_merg))+
+  facet_wrap(~dataset)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = group_color)+
+  theme(axis.text.x = element_text(angle = 90))
+
+# Add discovery dataset
+discovery_over <- colData(discovery_sce) %>% as.data.frame %>% select(PID, TNBC, BL_CD8_group_merg) %>% unique() %>% remove_rownames()
+
+discovery_TNBC_group <- discovery_over %>% group_by(BL_CD8_group_merg, TNBC) %>% count() %>% ungroup() %>% group_by(TNBC) %>% mutate(fra = n/sum(n)) %>% mutate(dataset = "discovery")
+
+ggplot(discovery_TNBC_group, aes(x = TNBC, y = fra, fill = BL_CD8_group_merg))+
+  facet_wrap(~dataset)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = group_color)+
+  theme(axis.text.x = element_text(angle = 90))
+
+combined_TNBC_group <- rbind(fischer_TNBC_group, discovery_TNBC_group)
+
+ggplot(combined_TNBC_group, aes(x = dataset, y = fra, fill = BL_CD8_group_merg))+
+  facet_wrap(~TNBC)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = group_color)+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+# TNBC only
+bar_test <- fischer_TNBC_group %>% pivot_wider(names_from = TNBC, id_cols = BL_CD8_group_merg, values_from = n) %>% column_to_rownames("BL_CD8_group_merg") %>% select(-Undefined)
+
+bar_test_out <- chisq.test(bar_test)
+
+print(bar_test_out$p.value)
+
+bar_test <- combined_TNBC_group %>% filter(TNBC == "TNBC") %>% pivot_wider(names_from = dataset, id_cols = BL_CD8_group_merg, values_from = n) %>% column_to_rownames("BL_CD8_group_merg")
+  
+fisher.test(bar_test)
+```
+
+# Session Info 
+
+```{r}
+sessionInfo()
+```

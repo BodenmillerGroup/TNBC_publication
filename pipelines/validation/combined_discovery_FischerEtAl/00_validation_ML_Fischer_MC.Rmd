@@ -1,0 +1,437 @@
+---
+title: "00_validation_prediction"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# A stratification system for breast cancer based on basoluminal tumor cells and spatial tumor architecture, Meyer et al., 2025 
+
+**DISCLAIMER**: Pipeline scripts contain all code used for data presented in the publication but also small exploratory data analysis parts. For reproducing the figures, please refer to the figure-related scripts and cleaned data objects provided on **Zenodo** (<https://zenodo.org/records/>). File paths have to be adjusted by the user. 
+
+Code related to following cleaned **Zenodo** objects: /
+
+# Validation
+
+Data analysis scripts for data analysis in the validation cohorts. 
+
+# Support Script: Machine learning framework
+
+Here, we will train a classifier to predict tumor metacluster from Fischer et al. (Zenodo) to assign metacluster in Fischer et al. (processed with discovery to avoid batch effects).
+
+# Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+library(SpatialExperiment)
+library(SingleCellExperiment)
+library(scuttle)
+library(scater)
+library(scran)
+library(imcRtools)
+library(cytomapper)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(circlize)
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(parallel)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(Rphenograph)
+library(igraph)
+library(RColorBrewer)
+library(foreach)
+library(clValid)
+library(bluster)
+library(psych)
+library(corrplot)
+library(caret)
+library(caretEnsemble)
+library(doParallel)
+library(tidyverse)
+library(ggridges)
+library(ggsci)
+library(ggVennDiagram)
+library(circlize)
+library(imcdatasets)
+library(survival)
+library(survminer)
+library(edgeR)
+library(wesanderson)
+library(gridExtra)
+library(dendextend)
+library(Rphenoannoy)
+```
+
+## 1. Read in data (train)
+
+```{r}
+sce_ref <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/07_sce_combined.rds")
+```
+
+```{r}
+sce_T <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_Jana/zenodo/analysis/SCEs/SCE_T.rds")
+sce_T
+
+# Add cell_id
+sce_T$cell_id <- colnames(sce_T)
+```
+
+```{r}
+sce_fischer_zenodo <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_Jana/zenodo/analysis/SCEs/SCE.rds")
+sce_fischer_zenodo
+
+# Add cell_id
+sce_fischer_zenodo$cell_id <- colnames(sce_fischer_zenodo)
+```
+
+```{r}
+sce_fischer_zenodo$tumor_cluster_100 <- sce_T$tumor_cluster_100[match(sce_fischer_zenodo$cell_id, sce_T$cell_id)]
+unique(sce_fischer_zenodo$tumor_cluster_100)
+```
+
+```{r}
+# Give metacluster names
+sce_fischer_zenodo$tumor_metacluster_fischer <- unfactor(sce_fischer_zenodo$tumor_cluster_100)
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(16, 12, 17)] <- "HER2hi_ARpos_CKpos_ERneg_PRneg"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(20, 3, 49, 8, 13)] <- "HRpos_CKhi"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(14, 24, 28, 21)] <- "ERhi_HRpos_CKpos"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(53, 9, 35, 47)] <- "GATA3hi_HRpos_CKpos"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(10, 43, 6, 42, 33)] <- "Basal_CKs"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(18, 31, 50, 36)] <- "CD15pos"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(4, 2, 1)] <- "Ecadpos_CKpos_ARpos_pmTORpos"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(27, 46, 32)] <- "CK7pos_CKneg"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(30, 51, 26)] <- "HER2pos"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(23, 34)] <- "ER_PRlow"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(11, 22, 38, 7)] <- "Luminal_low"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(29, 19)] <- "TNBC_p53hi"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(5, 55)] <- "TNBC_EGFRhi"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(41, 37)] <- "TNBC_Ki67hi_Vimentinpos"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(44, 45)] <- "Hypoxic"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(15)] <- "TNBC_cMYChi"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(48, 40, 56)] <- "Apoptotic"
+sce_fischer_zenodo$tumor_metacluster_fischer[sce_fischer_zenodo$tumor_metacluster_fischer %in% c(25, 58, 39, 52, 54, 57, 59)] <- "Epithelial_low"
+
+length(unique(sce_fischer_zenodo$tumor_metacluster_fischer)) #18 Metacluster
+```
+
+```{r}
+sce_fischer_zenodo$PID <- unfactor(sce_fischer_zenodo$PID)
+
+sce_fischer_zenodo$grade <- str_extract(sce_fischer_zenodo$Grade, "[:digit:]")
+
+sce_fischer_zenodo$pT_simple <- str_extract(sce_fischer_zenodo$pT_4gr, "[:digit:]")
+sce_fischer_zenodo$pN_simple <- str_extract(sce_fischer_zenodo$pN_4gr, "[:digit:]")
+sce_fischer_zenodo$pN_simple[sce_fischer_zenodo$pN_simple == "7"] <- NA
+sce_fischer_zenodo$pM_simple <- sce_fischer_zenodo$M1_BRASI_new
+
+sce_fischer_zenodo$status_OS <- sce_fischer_zenodo$Livestatus1dead
+sce_fischer_zenodo$OS_months <- sce_fischer_zenodo$OS
+
+sce_fischer_zenodo$status_OS <- ifelse(!is.na(sce_fischer_zenodo$OS_months) & is.na(sce_fischer_zenodo$status_OS), 0, sce_fischer_zenodo$status_OS)
+```
+
+```{r}
+# Perform arcsinh-transformation 
+assay(sce_fischer_zenodo, "exprs") <- asinh(assay(sce_fischer_zenodo, "raw")/1)
+
+# Update rowData
+rowData(sce_fischer_zenodo)$full_target <- rownames(sce_fischer_zenodo)
+rowData(sce_fischer_zenodo)$clean_target <- c("AR", "CD45", "GATA3", 
+"CD20", "CAIX", "Ecad", 
+"Ki67", "S6", "HER2", "pH3", 
+"Bcl2", "ER", "PR", 
+"CD44", "CD8a", "H3", "DNA1", 
+"DNA2", "H3K27me3", "panCK", 
+"Fibronectin", "HLADR", "CK8_18", 
+"CD15", "CD68", "SMA", "cMYC", "CK5", 
+"KRT14", "Vimentin", "CD3", "CD11c", 
+"p53", "EGFR", "CD4", "CD13_vWF", "p_mTOR", 
+"CK7", "c_Cas3_PARP")
+rownames(sce_fischer_zenodo) <- rowData(sce_fischer_zenodo)$clean_target
+
+rowData(sce_fischer_zenodo)$tumor_cluster_fischer <- rowData(sce_fischer_zenodo)$clean_target %in% c("GATA3", "ER", "c_Cas3_PARP", "PR", "panCK", "CK8_18", "p_mTOR", "CK7", "p53", "cMYC", "CAIX", "Ecad", "AR", "HER2", "EGFR", "Ki67", "CK5", "KRT14", "CD15")
+```
+
+```{r}
+# Filter for primary tumor samples
+sce_fischer_zenodo <- sce_fischer_zenodo[,sce_fischer_zenodo$ArrayNr != "ZTMA27" & sce_fischer_zenodo$TissueType %in% c("primary tumor","tumor recurrence") & (!is.na(sce_fischer_zenodo$tumor_metacluster_fischer))]
+
+# Option: Filter for primary tumor samples
+#sce_fischer_zenodo <- sce_fischer_zenodo[,sce_fischer_zenodo$ArrayNr != "ZTMA27" & sce_fischer_zenodo$TissueType %in% c("primary tumor") & (!is.na(sce_fischer_zenodo$tumor_metacluster_fischer))]
+```
+
+```{r}
+## Correct double-assigned MolSig patients == Undefined
+check <- colData(sce_fischer_zenodo) %>% as.data.frame %>% select(PID, Mol_Signature) %>% unique()
+PID2 <- check %>% count(PID) %>% filter(n != 1) %>% pull(PID)
+check_PID2 <- check %>% filter(PID %in% PID2)
+check_PID2$Mol_Signature_cor <- "Undefined"
+sce_fischer_zenodo$Mol_Signature <- ifelse(!is.na(check_PID2$Mol_Signature_cor[match(sce_fischer_zenodo$PID, check_PID2$PID)]), check_PID2$Mol_Signature_cor[match(sce_fischer_zenodo$PID, check_PID2$PID)], sce_fischer_zenodo$Mol_Signature)
+
+colData(sce_fischer_zenodo) %>% as.data.frame %>% select(PID, Mol_Signature) %>% unique() %>% group_by(Mol_Signature) %>% count() %>% ungroup() %>% mutate(sum = sum(n))
+```
+
+```{r}
+saveRDS(sce_fischer_zenodo,"/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_zenodo_prediction.rds")
+#sce_fischer_zenodo <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_zenodo_prediction.rds")
+```
+
+### Filter for tumor cells
+
+```{r}
+sce <- sce_fischer_zenodo
+sce$metacluster_combined <- factor(sce$tumor_metacluster_fischer)
+sce
+```
+
+## 2. Train the model
+
+### Random forest 
+
+#### All markers 
+
+```{r}
+set.seed(2201)
+
+# Register parallel backend 
+cl <- makePSOCKcluster(5, setup_strategy = "sequential")
+registerDoParallel(cl)
+
+#Set seeds for each iteration for parallel processing
+num_folds <- 5
+num_combinations <- 10  # Default is 10 for ranger
+seeds <- vector(mode = "list", length = num_folds + 1)
+for (i in 1:num_folds) {
+    seeds[[i]] <- sample.int(5000, num_combinations)
+}
+seeds[[num_folds + 1]] <- sample.int(5000, 1)  # Final model seed
+
+
+# Randomly split into train and test data
+trainIndex <- createDataPartition(sce$metacluster_combined, p = 0.75)
+train_sce <- sce[,trainIndex$Resample1]
+test_sce <- sce[,-trainIndex$Resample1]
+
+colData(train_sce) %>% as.data.frame %>% group_by(metacluster_combined) %>% count() %>% ungroup %>% mutate(fra = n/sum(n))
+colData(test_sce) %>% as.data.frame %>% group_by(metacluster_combined) %>% count() %>% ungroup %>% mutate(fra = n/sum(n))
+
+# Train data
+train_data <- t(assay(train_sce, "exprs")[rowData(train_sce)$tumor_cluster_fischer,])
+
+# Set folds for CV steps based on PID
+folds <- groupKFold(train_sce$PID, k=5) 
+
+# Specify train parameters for 5-fold cross validation
+fitControl <- trainControl(method = "cv",
+                           number = 5,
+                           seeds = seeds, 
+                           index = folds)
+
+# Calculate class weights
+class_freq <- table(train_sce$metacluster_combined)
+class_weights <- 1 / class_freq
+class_weights <- class_weights / sum(class_weights) 
+sample_weights <- class_weights[as.character(train_sce$metacluster_combined)]
+
+# Train a random forest model for predicting cell labels
+# This call also performs parameter tuning
+rffit <- train(x = train_data, 
+               method = "ranger", 
+               importance = "impurity",
+               y = train_sce$metacluster_combined,
+               metric = 'Accuracy',
+               tuneLength = 5,
+               trControl = fitControl,
+               weights = sample_weights)
+
+rffit
+stopCluster(cl)
+
+saveRDS(rffit, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/ranger_fischerzenondo_metacluster_pred_folds_allmarkers_withweights.rds")
+```
+
+```{r}
+rffit <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/ranger_fischerzenondo_metacluster_pred_folds_allmarkers_withweights.rds")
+```
+
+### Assess feature importance
+
+```{r}
+# Classification accuracy during parameter tuning
+ggplot(rffit) + 
+  geom_errorbar(data = rffit$results,
+                aes(ymin = Accuracy - AccuracySD,
+                    ymax = Accuracy + AccuracySD),
+                width = 0.4) +
+    theme_classic(base_size = 15)
+
+# Scaled feature importance (Decrease in Gini index)
+plot(varImp(rffit))
+```
+
+
+```{r}
+out_var <- varImp(rffit, scale = TRUE)
+
+out_comb <- rbind(
+  out_var$importance %>% rownames_to_column("marker") %>% mutate(category = "all_markers")
+)
+
+
+ggplot(out_comb, aes(x = reorder(marker, desc(Overall)), y = Overall, fill = category))+
+  facet_wrap(~category, scales = "free_x")+
+  geom_col()+
+  theme_classic()+
+  scale_fill_brewer(palette = "Paired")+
+  coord_flip()+
+  ylab("Scaled feature importance")+
+  xlab("Markers")
+```
+
+
+## 3. Predict on test data
+
+```{r}
+# Select test data
+mat_test <- t(assay(test_sce, "exprs")[rowData(test_sce)$tumor_cluster_fischer,])
+
+# Predict cell phenotypes in test data
+cur_pred <- predict(rffit, 
+                    newdata = mat_test)
+```
+
+### Assess classifier performance
+
+```{r}
+cm <- confusionMatrix(data = cur_pred, 
+                      reference = test_sce$metacluster_combined, 
+                      mode = "everything")
+
+cm
+
+cm_stats <- as.data.frame(cm$byClass)
+mean(cm_stats$`Balanced Accuracy`) # OR report this
+mean(cm_stats$F1) # Report this
+```
+
+
+```{r}
+df_out <- 
+  rbind(
+    data.frame(cm$byClass) %>%
+      mutate(class = sub("Class: ", "", rownames(cm$byClass))) %>% mutate(category = "all_markers")
+    )
+
+ggplot(df_out) + 
+  facet_wrap(~category) +
+  geom_point(aes(1-Specificity, Sensitivity, 
+                 size = Detection.Rate,
+                 fill = class),
+             shape = 21) + 
+  #scale_fill_manual(values = metadata(sce_ref)$colors$metacluster_combined, limits = force) +
+  theme_classic(base_size = 15) + 
+  ylab("Sensitivity (TPR)") +
+  xlab("1 - Specificity (FPR)")
+```
+
+```{r}
+data.frame(cm$byClass) %>%
+  mutate(class = sub("Class: ", "", rownames(cm$byClass))) %>%
+  ggplot() + 
+  geom_point(aes(1-Specificity, Sensitivity, 
+                 size = Detection.Rate,
+                 fill = class),
+             shape = 21) + 
+  #scale_fill_manual(values = metadata(sce)$colors$metacluster_combined, limits = force) +
+  theme_classic(base_size = 15) + 
+  ylab("Sensitivity (TPR)") +
+  xlab("1 - Specificity (FPR)")+
+  ggtitle(paste0("Accuracy: ",round(cm$overall[1],3)," [",round(cm$overall[3],3)," - ",round(cm$overall[4],3),"]"))
+```
+
+
+## 4. Read and predict on independent dataset 
+
+### Fischer et al. - Processed with discovery
+
+First, we will read in the `SingleCellExperiment` object containing the cleaned, spillover-corrected single-cell data. 
+**Note:** We pre-processed the main cohort together with the validation cohort (including segmentation) to avoid strong batch effects. 
+
+```{r read-data-batch-correction, message=FALSE}
+sce_fischer <- readRDS("/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/04_sce_TNBC_Clus_com.rds")
+```
+
+Filter sce for validation cohort and tumor cells
+
+```{r filter sce, message=FALSE}
+sce_fischer <- sce_fischer[,sce_fischer$analysis_cat == "tumor" & sce_fischer$TMANr %in% c("TMA21", "TMA26")]
+sce_fischer
+
+# Add rowData 
+rowData(sce_fischer)$tumor_cluster_fischer <- 
+  rownames(sce_fischer) %in% rownames(sce_fischer_zenodo)[rowData(sce_fischer_zenodo)$tumor_cluster_fischer]
+```
+
+Correct survival information 
+
+```{r}
+sce_fischer$status_OS <- ifelse(is.na(sce_fischer$status_OS) & !is.na(sce_fischer$OS_months), 0,sce_fischer$status_OS)
+```
+
+#### Full marker set
+
+```{r}
+set.seed(22)
+
+# Select validation expression matrix
+mat_valid <- t(assay(sce_fischer, "exprs")[rowData(sce_fischer)$tumor_cluster_fischer,])
+
+# Predict metacluster
+cell_class <- as.character(predict.train(rffit, 
+                                         newdata = mat_valid, 
+                                         type = "raw"))
+
+names(cell_class) <- rownames(mat_valid)
+
+table(cell_class)
+```
+
+Add predicted metacluster to sce and save 
+
+```{r}
+# Store labels in SCE object
+sce_fischer$tumor_metacluster_fischer <- factor(cell_class[match(sce_fischer$cell_id, names(cell_class))])
+
+cur_table <- table(sce_fischer$tumor_metacluster_fischer, sce_fischer$PID)
+cur_table
+```
+
+# Save objects 
+
+```{r}
+# Save sce objects after prediction
+saveRDS(sce_fischer,"/mnt/central_nas/tnbc_volume/TNBC_validation/TNBC_all/data_analysis/ML_sce_fischer_prediction.rds")
+```
+
+# Session Info 
+
+```{r}
+sessionInfo()
+```

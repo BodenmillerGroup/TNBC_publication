@@ -1,0 +1,1286 @@
+---
+title: "GEO_Microarray_analysis"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# A stratification system for breast cancer based on basoluminal tumor cells and spatial tumor architecture, Meyer et al., 2025 
+
+**DISCLAIMER**: Pipeline scripts contain all code used for data presented in the publication but also small exploratory data analysis parts. For reproducing the figures, please refer to the figure-related scripts and cleaned data objects provided on **Zenodo** (<https://zenodo.org/records/>). File paths have to be adjusted by the user. 
+
+Code related to following cleaned **Zenodo** objects: ISPY2_ES.rds, ISPY2_BM.rds, GeneSignatures.rds	
+
+# Validation
+
+Data analysis scripts for data analysis in the validation cohorts. 
+
+# Script : GSE194040 - Microarray data analysis for ISPY2 Neoadjuvant Trial
+
+# Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+library(SingleCellExperiment)
+library(scuttle)
+library(scater)
+library(scran)
+library(dittoSeq)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(circlize)
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(patchwork)
+library(parallel)
+library(BiocParallel)
+library(BiocNeighbors)
+library(BiocSingular)
+library(tiff)
+library(ggrepel)
+library(EBImage)
+library(viridis)
+library(mclust)
+library(Rphenograph)
+library(igraph)
+library(RColorBrewer)
+library(foreach)
+library(clValid)
+library(bluster)
+library(psych)
+library(corrplot)
+library(GEOquery)
+library(gridExtra)
+library(readxl)
+library(survival)
+library(survminer)
+library(epitools)
+library(tidyverse)
+library(easyalluvial)
+library(ggalluvial)
+library(wesanderson)
+library(ggnewscale)
+```
+
+# 1. Download data
+
+```{r}
+assay <- read.delim("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/GSE194040_ISPY2ResID_AgilentGeneExp_990_FrshFrzn_meanCol_geneLevel_n988.txt")
+
+colnames(assay) <- str_split(colnames(assay), "X", simplify = TRUE)[,2]
+
+assay <- as.matrix(assay[,!str_detect(colnames(assay), "GPL")])
+```
+
+```{r}
+features <- data.frame(gene = rownames(assay))
+rownames(features) <- features$gene
+```
+
+```{r}
+phenos <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/metadata_IPSY2.xlsx")
+
+phenos$PID <- phenos$`Patient Identifier`
+
+phenos <- as.data.frame(phenos[match(colnames(assay), phenos$PID),])
+
+rownames(phenos) <- phenos$PID
+```
+
+```{r}
+# Create a new ExpressionSet object
+new_expset <- ExpressionSet(
+  assayData = assay,
+  phenoData = AnnotatedDataFrame(phenos),
+  featureData = AnnotatedDataFrame(features)
+)
+
+# Verify the new ExpressionSet
+print(new_expset)
+```
+
+## Add metadata 
+
+```{r}
+new_expset$TNBC <- ifelse(new_expset$`Receptor Subtype` == "TN", "TNBC", "Non_TNBC")
+new_expset$PAM50 <- new_expset$BP_subtype
+new_expset$response <- as.character(new_expset$pCR)
+new_expset$arm_short <- new_expset$`Arm (short name)`
+```
+
+```{r}
+pData(new_expset) %>% as.data.frame %>% group_by(TNBC) %>% count()
+```
+
+## Save objects 
+
+```{r}
+#saveRDS(new_expset, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/ISPY2_RNA_analysis_expressionset.rds")
+
+#new_expset <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/ISPY2_RNA_analysis_expressionset.rds")
+
+#new_expset <- new_expset[,new_expset$TNBC == "TNBC"]
+```
+
+# 2. CK57 signature 
+
+```{r}
+set.seed(22)
+
+# 1. CK5
+GMM_CK5 <- Mclust(exprs(new_expset)["KRT5",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(exprs(new_expset)["KRT5",] > 10.2, "KRT5+", "KRT5-"),
+                     KRT5_exprs = exprs(new_expset)["KRT5",],
+                     uncertainty = GMM_CK5$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT5_exprs, fill = class_epi))+
+  geom_density()+
+  geom_rug(aes(color = class_epi))+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")
+
+#Add GMM epi class to object
+new_expset$GMM_KRT5 <- GMM_df$class_epi
+
+# 2. CK7
+GMM_CK7 <- Mclust(exprs(new_expset)["KRT7",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(exprs(new_expset)["KRT7",] > 13.9, "KRT7+", "KRT7-"),
+                     KRT7_exprs = exprs(new_expset)["KRT7",],
+                     uncertainty = GMM_CK7$uncertainty)
+
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT7_exprs, fill = class_epi))+
+  geom_density()+
+  geom_rug(aes(color = class_epi))+
+  theme_classic(base_size = 17)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")
+
+#Add GMM epi class to object
+new_expset$GMM_KRT7 <- GMM_df$class_epi
+
+## Combine KRT5/7 GMM scores 
+new_expset$KRT5_7_score <- ifelse(new_expset$GMM_KRT5 == "KRT5+" & new_expset$GMM_KRT7 == "KRT7+", "KRT5/7+", 
+       ifelse(new_expset$GMM_KRT5 == "KRT5+" & new_expset$GMM_KRT7 == "KRT7-", "KRT5+",
+              ifelse(new_expset$GMM_KRT5 == "KRT5-" & new_expset$GMM_KRT7 == "KRT7+", "KRT7+","KRT5/7-")))
+
+
+## Add colors 
+col_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("KRT5/7-", "KRT5/7+","KRT5+", "KRT7+"))
+```
+
+## Visualization 
+
+```{r}
+### 1. Normalized counts
+plot <- as.data.frame(t(exprs(new_expset)[rownames(exprs(new_expset)) %in% c("KRT5", "KRT7", "KRT18","KRT14","HLA-DRA"),]))
+plot$KRT5_7_score <- new_expset$KRT5_7_score[match(rownames(plot),colnames(new_expset))]
+plot$GMM_KRT5 <- new_expset$GMM_KRT5[match(rownames(plot),colnames(new_expset))]
+plot$GMM_KRT7 <- new_expset$GMM_KRT7[match(rownames(plot),colnames(new_expset))]
+
+plot$PAM50 <- new_expset$PAM50.Subtype[match(rownames(plot),colnames(new_expset))]
+plot$response <- new_expset$response[match(rownames(plot),colnames(new_expset))]
+plot$TNBC <- new_expset$TNBC[match(rownames(plot),colnames(new_expset))]
+
+
+ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
+  geom_point(size = 2, alpha = 0.5)+
+  theme_classic()+
+  xlab("CK7 normalized counts")+
+  ylab("CK5 normalized counts")
+
+ggplot(plot, aes(x=KRT7, y=KRT5, color = TNBC)) +
+  geom_point(size = 2, alpha = 0.5)+
+  theme_classic()+
+  xlab("CK7 normalized counts")+
+  ylab("CK5 normalized counts")
+
+ggplot(plot, aes(x=KRT7, y=KRT5, color = PAM50)) +
+  geom_point(size = 2, alpha = 0.5)+
+  theme_classic()+
+  xlab("CK7 normalized counts")+
+  ylab("CK5 normalized counts")
+
+ggplot(plot, aes(x=KRT7, y=KRT5, color = response)) +
+  geom_point(size = 2, alpha = 0.5)+
+  theme_classic()+
+  xlab("CK7 normalized counts")+
+  ylab("CK5 normalized counts")
+
+main <- ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
+  geom_point(size = 2, alpha = 0.5)+
+  theme_classic()+
+  xlab("CK7 log counts")+
+  ylab("CK5 log counts")+
+  scale_color_manual(values = col_score)+
+  guides(color = "none")
+
+y_side <- ggplot(plot, aes(x = KRT5, fill=GMM_KRT5)) +
+  geom_density(alpha=0.8) +
+  scale_fill_manual(values = c('#999999','#F4B5BD')) +
+  theme_classic()+
+  theme(legend.position = "none", axis.title.y = element_blank())+
+  coord_flip()
+
+x_side <- ggplot(plot, aes(x = KRT7, fill=GMM_KRT7)) +
+  geom_density(alpha=0.8) +
+  scale_fill_manual(values = c('#999999','#9C964A')) +
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())
+
+blankPlot <- ggplot()+geom_blank(aes(1,1)) +
+  cowplot::theme_nothing()
+
+grid.arrange(x_side, blankPlot, main, y_side,
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
+
+plot %>% as.data.frame() %>% rownames_to_column("PID") %>% group_by(KRT5_7_score) %>% dplyr::count() %>% ungroup %>% mutate(fra = n/sum(n))
+```
+
+#### Barplots 
+
+```{r}
+## PAM50 subtype 
+bar_out <- plot %>% as.data.frame() %>% group_by(KRT5_7_score, PAM50) %>% dplyr::count() %>% ungroup %>% group_by(PAM50) %>% mutate(fra = n/sum(n)) %>% arrange(PAM50)
+
+ggplot(bar_out, aes(x = PAM50, y = fra, fill = KRT5_7_score))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = col_score)+
+  theme_classic()
+
+plot %>% as.data.frame() %>% rownames_to_column("PID") %>% group_by(PAM50) %>% dplyr::count() %>% ungroup %>% mutate(fra = n/sum(n))
+
+## TNBC 
+bar_out <- plot %>% as.data.frame() %>% group_by(KRT5_7_score, TNBC) %>% dplyr::count() %>% ungroup %>% group_by(TNBC) %>% mutate(fra = n/sum(n)) %>% arrange(TNBC)
+
+ggplot(bar_out, aes(x = TNBC, y = fra, fill = KRT5_7_score))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = col_score)+
+  theme_classic()
+
+bar_test <- bar_out %>% filter(TNBC != "NA") %>% pivot_wider(names_from = TNBC, id_cols = KRT5_7_score, values_from = n) %>% column_to_rownames("KRT5_7_score")
+bar_test_out <- chisq.test(bar_test)
+print(bar_test_out$p.value)
+
+plot %>% as.data.frame() %>% rownames_to_column("PID") %>% group_by(TNBC) %>% dplyr::count() %>% ungroup %>% mutate(fra = n/sum(n))
+
+## Chemotherapy response 
+bar_out <- plot %>% as.data.frame() %>% group_by(KRT5_7_score, response) %>% dplyr::count() %>% filter(response != "NA") %>% ungroup %>% group_by(response) %>% mutate(fra = n/sum(n))
+
+ggplot(bar_out, aes(x = response, y = fra, fill = KRT5_7_score))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = col_score)+
+  theme_classic()
+
+bar_out <- plot %>% as.data.frame() %>% group_by(KRT5_7_score, response) %>% dplyr::count() %>% filter(response != "NA") %>% ungroup %>% group_by(KRT5_7_score) %>% mutate(fra = n/sum(n))
+
+ggplot(bar_out, aes(x = KRT5_7_score, y = fra, fill = response))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = c("#ECD2FC", "#8019C0"))+
+  theme_classic()
+```
+
+```{r}
+## Chemotherapy response - TNBC
+plot$arm_short <- new_expset$arm_short[match(rownames(plot),colnames(new_expset))]
+
+bar_out <- plot %>% as.data.frame() %>% group_by(TNBC, response, arm_short) %>% filter(!arm_short %in% c("Pertuzumab", "TDM1/P")) %>% dplyr::count() %>% filter(response != "NA") %>% ungroup %>% group_by(TNBC, arm_short) %>% mutate(fra = n/sum(n))
+
+p_out <- foreach(i = unique(bar_out$arm_short), .combine = "rbind")%do%{
+  bar_test <- bar_out %>% filter(arm_short == i) %>% pivot_wider(names_from = TNBC, id_cols = response, values_from = n) %>% column_to_rownames("response")
+  bar_test[is.na(bar_test)] <- 0
+  bar_test <- bar_test[rowSums(bar_test) > 0,]
+  return(data.frame(p_chi = fisher.test(bar_test)$p.value, cat = i))
+}
+
+p_out$FDR_chi <- p.adjust(p_out$p_chi)
+p_out$p_chi
+bar_out$FDR <- p_out$FDR_chi[match(bar_out$arm_short, p_out$cat)]
+  
+ggplot(bar_out, aes(x = TNBC, y = fra, fill = response))+
+  facet_wrap(~arm_short)+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = c("#ECD2FC", "#8019C0"))+
+  geom_text(aes(label = FDR))+
+  theme_classic()
+
+ggplot(bar_out, aes(x = TNBC, y = n, fill = response))+
+  facet_wrap(~arm_short)+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = c("#ECD2FC", "#8019C0"))+
+  geom_text(aes(label = FDR))+
+  theme_classic()
+```
+
+### Keratin markers 
+
+```{r}
+# Define keratins of interest
+keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM")
+
+keratins_rel <- keratins[keratins %in% rownames(exprs(new_expset))]
+
+
+# Define heatmap based on normalized counts 
+df <- t(exprs(new_expset)[keratins_rel,]) %>% as.data.frame 
+df <- df %>% rownames_to_column("PID")
+
+## Create heatmap body 
+df$KRT5_7_score <- new_expset$KRT5_7_score[match(df$PID, colnames(new_expset))]
+mat <- df %>% pivot_longer(cols = 2:(ncol(df)-1), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% dplyr::summarize(mean = mean(exprs))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+## Create row annotation 
+anno <- df %>% select(KRT5_7_score) %>% group_by(KRT5_7_score) %>% dplyr::count()
+anno <- anno[match(anno$KRT5_7_score, rownames(ht)),]
+
+## Print heatmap 
+Heatmap(ht, name = "Mean Z-scores")
+
+Heatmap(scale(ht), name = "Scaled mean Z-scores")+
+  rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$KRT5_7_score))
+```
+
+### Stem markers 
+
+```{r}
+# Define stem markers of interest
+stem <- c("SOX9","KIT","PROM1","HDAC2","NOTCH1","CD44","ALDH1A3","BRCA1","MUC1","EZH2", "YAP1","ANXA8", "TGFB2", "CD24", "TNFAIP3", "ERBB3", "TNFRSF11A")
+stem_rel <- stem[stem %in% rownames(exprs(new_expset))]
+
+# Define heatmap based on normalized counts 
+df <- t(exprs(new_expset)[stem_rel,]) %>% as.data.frame 
+df <- df %>% rownames_to_column("PID")
+
+## Create heatmap body 
+df$KRT5_7_score <- new_expset$KRT5_7_score[match(df$PID, colnames(new_expset))]
+mat <- df %>% pivot_longer(cols = 2:(ncol(df)-1), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% dplyr::summarize(mean = mean(exprs, na.rm = TRUE))
+
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+## Create row annotation 
+anno <- df %>% select(KRT5_7_score) %>% group_by(KRT5_7_score) %>% dplyr::count()
+anno <- anno[match(anno$KRT5_7_score, rownames(ht)),]
+
+## Print heatmap 
+Heatmap(ht, name = "Mean Z-scores")
+
+Heatmap(scale(ht), name = "Scaled mean Z-scores")+
+  rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$KRT5_7_score))
+```
+
+## Gene signatures 
+
+```{r}
+lum_progenitor_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/LuminalProgenitor_Signature_Limetal_NatureMedicine_2009.xls")
+mature_lum_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/MatureLuminalSignature_Limetal_NatureMedicine_2009.xls")
+basal_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Basal_Signature_Limetal_NatureMedicine_2009.xls")
+
+# Extract unique genes that were up- or down-regulated in each signature 
+lum_progenitor_sig_up <- lum_progenitor_sig %>% filter(`Average log fold-change` > 1) %>% pull(Symbol) %>% unique()
+lum_progenitor_sig_up <- lum_progenitor_sig_up[!is.na(lum_progenitor_sig_up)]
+lum_progenitor_sig_down <- lum_progenitor_sig %>% filter(`Average log fold-change` < -1) %>% pull(Symbol) %>% unique()
+lum_progenitor_sig_down <- lum_progenitor_sig_down[!is.na(lum_progenitor_sig_down)]
+
+mature_lum_sig_up <- mature_lum_sig %>% filter(`Average log fold-change` > 1) %>% pull(Symbol) %>% unique()
+mature_lum_sig_up <- mature_lum_sig_up[!is.na(mature_lum_sig_up)]
+mature_lum_sig_down <- mature_lum_sig %>% filter(`Average log fold-change` < -1) %>% pull(Symbol) %>% unique()
+mature_lum_sig_down <- mature_lum_sig_down[!is.na(mature_lum_sig_down)]
+
+basal_sig_up <- basal_sig %>% filter(`Average log fold-change` > 1) %>% pull(Symbol) %>% unique()
+basal_sig_up <- basal_sig_up[!is.na(basal_sig_up)]
+basal_sig_down <- basal_sig %>% filter(`Average log fold-change` < -1) %>% pull(Symbol) %>% unique()
+basal_sig_down <- basal_sig_down[!is.na(basal_sig_down)]
+```
+
+Upregulated genes per signature 
+
+```{r}
+## 1. Luminal progenitor signature per PID group 
+lum_progenitor_sig_up_rel <- lum_progenitor_sig_up[lum_progenitor_sig_up %in% rownames(exprs(new_expset))]
+# Filter for available genes
+df <- t(exprs(new_expset)[lum_progenitor_sig_up_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$KRT5_7_score <- new_expset$KRT5_7_score[match(rownames(df), colnames(new_expset))]
+df$KRT5_7_score <- factor(df$KRT5_7_score, levels = c("KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+
+compare_means(signature_sum ~ KRT5_7_score,df) #pairwise comparisons
+compare_means(signature_sum ~ KRT5_7_score,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = col_score)+
+  theme_classic()+
+  ylab("Luminal progenitor signature")+
+  stat_compare_means()
+
+mat <- df %>% pivot_longer(cols = 1:(ncol(df)-2), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% dplyr::summarize(mean = mean(exprs))
+mat <- mat %>% filter(!is.na(mean))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+Heatmap(ht, name = "Mean signature Z-scores")
+```
+
+```{r}
+AV_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 1)
+
+colnames(AV_sig) <- c("pan_AV", "BL_enriched","AP_enriched")
+
+# Extract unique genes that were up- or down-regulated in each signature 
+panAV_sig_up <- AV_sig$pan_AV
+panAV_sig_up <- panAV_sig_up[!is.na(panAV_sig_up)]
+
+BL_sig_up <- AV_sig$BL_enriched
+BL_sig_up <- BL_sig_up[!is.na(BL_sig_up)]
+
+AP_sig_up <- AV_sig$AP_enriched
+AP_sig_up <- AP_sig_up[!is.na(AP_sig_up)]
+```
+
+```{r}
+## 1. pan AV signature per PID group 
+panAV_sig_up_rel <- panAV_sig_up[panAV_sig_up %in% rownames(exprs(new_expset))]
+# Filter for available genes
+df <- t(exprs(new_expset)[panAV_sig_up_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$KRT5_7_score <- new_expset$KRT5_7_score[match(rownames(df), colnames(new_expset))]
+df$KRT5_7_score <- factor(df$KRT5_7_score, levels = c("KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+
+compare_means(signature_sum ~ KRT5_7_score,df) #pairwise comparisons
+compare_means(signature_sum ~ KRT5_7_score,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = col_score)+
+  theme_classic()+
+  ylab("Pan-Alveolar signature (Li et al.)")+
+  stat_compare_means()
+```
+
+
+```{r}
+## 2. BL signature per PID group 
+BL_sig_up_rel <- BL_sig_up[BL_sig_up %in% rownames(exprs(new_expset))]
+# Filter for available genes
+df <- t(exprs(new_expset)[BL_sig_up_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$KRT5_7_score <- new_expset$KRT5_7_score[match(rownames(df), colnames(new_expset))]
+df$KRT5_7_score <- factor(df$KRT5_7_score, levels = c("KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+
+compare_means(signature_sum ~ KRT5_7_score,df) #pairwise comparisons
+compare_means(signature_sum ~ KRT5_7_score,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = col_score)+
+  theme_classic()+
+  ylab("Basal-luminal signature (Li et al.)")+
+  stat_compare_means()
+
+mat <- df %>% pivot_longer(cols = 1:(ncol(df)-2), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% dplyr::summarize(mean = mean(exprs))
+mat <- mat %>% filter(!is.na(mean))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+Heatmap(ht, name = "Mean signature Z-scores")
+```
+
+```{r}
+# TNBC subset 
+
+## 2. BL signature per PID group 
+BL_sig_up_rel <- BL_sig_up[BL_sig_up %in% rownames(exprs(new_expset))]
+# Filter for available genes
+df <- t(exprs(new_expset[,new_expset$TNBC == "TNBC"])[BL_sig_up_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$KRT5_7_score <- new_expset$KRT5_7_score[match(rownames(df), colnames(new_expset))]
+df$KRT5_7_score <- factor(df$KRT5_7_score, levels = c("KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+
+compare_means(signature_sum ~ KRT5_7_score,df) #pairwise comparisons
+compare_means(signature_sum ~ KRT5_7_score,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = KRT5_7_score, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = KRT5_7_score), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = col_score)+
+  theme_classic()+
+  ylab("Basal-luminal signature (Li et al.)")+
+  stat_compare_means()
+
+mat <- df %>% pivot_longer(cols = 1:(ncol(df)-2), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% dplyr::summarize(mean = mean(exprs))
+mat <- mat %>% filter(!is.na(mean))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+Heatmap(ht, name = "Mean signature Z-scores")
+```
+
+# 3. Patient groups 
+
+## HLADR signature 
+
+```{r}
+# 1. CK5
+GMM_HLA <- Mclust(exprs(new_expset)["HLA-DRA",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(exprs(new_expset)["HLA-DRA",] > 13.9, "HLA-DRA+", "HLA-DRA-"),
+                     HLADRA_exprs = exprs(new_expset)["HLA-DRA",],
+                     uncertainty = GMM_HLA$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = HLADRA_exprs, fill = class_epi))+
+  geom_density()+
+  geom_rug(aes(color = class_epi))+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")
+
+#Add GMM epi class to object
+new_expset$GMM_HLADRA <- GMM_df$class_epi
+```
+
+```{r}
+new_expset$PID_groups <- ifelse(new_expset$GMM_HLADRA == "HLA-DRA+", "inflamed", new_expset$KRT5_7_score)
+
+new_expset$PID_group_risk <- ifelse(new_expset$PID_groups == "inflamed", "low", ifelse(new_expset$PID_groups %in% c("KRT5/7+"), "high", "medium"))
+new_expset$PID_group_risk <- factor(new_expset$PID_group_risk, levels = c("high", "medium", "low"))
+
+# Define color 
+group_color <- setNames(c("#3B9AB2", "gold", "pink", "orange","#F21A00"), 
+                        c("inflamed","KRT5/7-","KRT5+","KRT7+","KRT5/7+"))
+new_expset$PID_groups <- factor(new_expset$PID_groups, levels = c("inflamed","KRT5/7-","KRT5+","KRT7+","KRT5/7+"))
+```
+
+# 4. Biomarker association
+
+```{r}
+biomarker_df <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/biomarker_ISPY2_def.xlsx")
+
+biomarker_df <- biomarker_df %>% filter(!is.na(biomarker)) %>% select(biomarker, pathway, type) %>% as.data.frame
+
+rownames(biomarker_df) <- biomarker_df$biomarker
+```
+
+```{r}
+new_expset$MP_index <- new_expset$`MP_index_adj*(-1`
+pData(new_expset)["MP_index_adj*(-1)"] <- NULL
+```
+
+```{r}
+# Heatmap body 
+mat <- t(pData(new_expset) %>% select(25:50, MP_index) %>% mutate_all(as.numeric))
+
+test <- as.data.frame(t(mat))
+
+anno <- pData(new_expset) 
+test$PID_groups <- anno$PID_groups[match(rownames(test), rownames(anno))]
+
+test_result <- as.data.frame(compare_means(c(ICS5_score, Chemokine12_score, Module5_TcellBcell_score, 
+STAT1_sig, Module3_IFN_score, Dendritic_cells, B_cells, 
+Mast_cells, Module11_Prolif_score, MP_index, Basal_Index, 
+PARPi7_score, PARPi7_plus_MP2, VCpred_TN, STMN1_dat, 
+HER2_Index, Mod7_ERBB2, ERBB2.Y1248, EGFR.Y1173, mTOR.S2448, 
+IGF1R_dat, TIE2.Y992, Mod10_ECM, RPL24_dat, LYMPHS_PCA_16704732, 
+Luminal_Index, ER_PGR_avg)~PID_groups, method = "kruskal.test",data = test))
+
+test_result$p.adj <- p.adjust(test_result$p, method = "BH") 
+
+test_result$psignif.adj <- as.matrix(symnum(test_result$p.adj,
+       cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 1), 
+       symbols = c("****", "***", "**", "*", "ns")))[,1]
+
+rownames(test_result) <- test_result$.y.
+
+mat_mean <- test %>% pivot_longer(cols = 1:27, names_to = "cat", values_to = "score") %>% group_by(PID_groups, cat) %>% summarize(mean_score = mean(score, na.rm = TRUE)) %>% pivot_wider(names_from = "cat", values_from = "mean_score") %>% column_to_rownames("PID_groups")
+
+# Row annotation 
+highest_cat <- test %>% pivot_longer(cols = 1:27, names_to = "cat", values_to = "score") %>% group_by(PID_groups, cat) %>% summarize(mean_score = mean(score, na.rm = TRUE)) %>% ungroup() %>% group_by(cat) %>% mutate(max = max(mean_score)) %>% filter(mean_score == max) %>% select(cat, PID_groups) %>% as.data.frame %>% column_to_rownames("cat")
+
+biomarker_df$PID_groups <- highest_cat$PID_groups[match(rownames(biomarker_df), rownames(highest_cat))]
+
+# Column annotation 
+col_anno <- anno %>% group_by(PID_groups) %>% count() %>% as.data.frame()
+rownames(col_anno) <- col_anno$PID_groups 
+
+# Align order
+biomarker_df <- biomarker_df[match(colnames(mat_mean), rownames(biomarker_df)),]
+test_result <- test_result[match(colnames(mat_mean), rownames(test_result)),]
+col_anno <- col_anno[match(rownames(mat_mean), rownames(col_anno)),]
+
+ca <- columnAnnotation(n_PID = anno_barplot(col_anno$n, gp = gpar(fill = "#440154FF")))
+
+## Visualize 
+
+# Heatmap 
+h <- 
+  rowAnnotation(bio = anno_text(biomarker_df$biomarker))+
+  rowAnnotation(path = anno_simple(biomarker_df$pathway, col = setNames(brewer.pal(8, "Paired"), unique(biomarker_df$pathway)), width = unit(5, "mm")))+
+  rowAnnotation(type = anno_simple(biomarker_df$type, col = setNames(brewer.pal(3, "Set1")[1:2], unique(biomarker_df$type)), width = unit(5, "mm")))+
+  Heatmap(t(mat_mean), name = "mean_score", cluster_columns = TRUE, row_names_side = "left", show_row_dend = FALSE, top_annotation = ca)+
+  rowAnnotation(cat = anno_simple(unfactor(biomarker_df$PID_groups), col = group_color, width = unit(5, "mm")))+
+  rowAnnotation(test = anno_text(test_result$psignif.adj))
+
+
+# Legends
+lgd_cat <- Legend(title = "Highest_exprs", at = names(group_color), 
+                  legend_gp = gpar(fill = group_color))
+lgd_path <- Legend(title = "Pathway", at = names(setNames(brewer.pal(8, "Paired"), unique(biomarker_df$pathway))), 
+                  legend_gp = gpar(fill = setNames(brewer.pal(8, "Paired"), unique(biomarker_df$pathway))))
+
+lgd_type <- Legend(title = "Highest_exprs", at = names(setNames(brewer.pal(3, "Set1")[1:2], unique(biomarker_df$type))), 
+                  legend_gp = gpar(fill = setNames(brewer.pal(3, "Set1")[1:2], unique(biomarker_df$type))))
+
+# FINAL
+draw(h,annotation_legend_list = list(lgd_cat, lgd_path, lgd_type))
+```
+
+# 5. Treatment association 
+
+```{r}
+new_expset$arm_short <- new_expset$`Arm (short name)`
+
+treatment <- pData(new_expset) %>% select(PID, arm_short, response, PID_groups, TNBC)
+
+out_check <- treatment
+
+out_C <- out_check %>% group_by(PID_groups, arm_short, response) %>% dplyr::count() %>% group_by(PID_groups, arm_short) %>% mutate(fra = n/sum(n))
+
+out_C$response <- factor(out_C$response, levels = c("1", "0"))
+out_C$PID_groups <- factor(out_C$PID_groups, levels = c("inflamed", "KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+
+ggplot(out_C, aes(x = PID_groups, y = n, fill = response))+
+  facet_wrap(~arm_short, scales = "free")+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("#8019C0", "#ECD2FC"))+
+  coord_flip()
+
+ggplot(out_C, aes(x = PID_groups, y = fra, fill = response))+
+  facet_wrap(~arm_short)+
+  geom_bar(stat = "identity", color = "black")+
+  geom_hline(yintercept = 0.5, linetype = "dashed")+
+  theme_classic()+
+  scale_fill_manual(values = c("#8019C0", "#ECD2FC"))+
+  coord_flip()
+
+## Using epitab package
+res_final <- list()
+
+for(i in unique(out_C$PID_groups)){
+  data <- out_C %>% mutate(PID_binary = ifelse(PID_groups == i, i, "Other"))
+  for(y in unique(out_C$arm_short)){
+    data_test <- data %>% filter(arm_short == y)
+    if(length(unique(data_test$PID_binary)) > 1){
+      res <- fisher.test(xtabs(n ~ PID_binary + response, data = data_test))
+      out <- data.frame(odds_ratio = res$estimate, p = res$p.value, arm_short = y, group = i)
+      res_final[[paste0(y, i)]] <- out
+    }else{
+      res_final[[paste0(y, i)]] <- data.frame(odds_ratio = NA, p = NA, arm_short = y, group = i)
+    }
+  }
+}
+
+res_final <- do.call("rbind", res_final)
+
+isGreater <- res_final$odds_ratio > 1 & !is.na(res_final$odds_ratio)
+pVal <- log10(res_final$p)
+pVal[isGreater] <- abs(pVal[isGreater])
+res_final$p_out <- pVal
+colnames(res_final) <- c("odds_ratio", "p_value", "arm","category", "p_out")
+```
+
+```{r}
+res_final$result <- ifelse(res_final$odds_ratio > 1 & res_final$p_value < 0.05, "UP",
+                         ifelse(res_final$odds_ratio > 1 & res_final$p_value < 0.1, "UP_trend",
+                                ifelse(res_final$odds_ratio < 1 & res_final$p_value < 0.05, "DOWN",
+                                       ifelse(res_final$odds_ratio < 1 & res_final$p_value < 0.1, "DOWN_trend", "NOTSIG"))))
+
+res_final$odds_ratio[res_final$odds_ratio == Inf] <- 1
+
+## hierarchical clustering on odds_ratio
+cur_df <- res_final %>% select(arm, category, odds_ratio) %>% pivot_wider(values_from = odds_ratio, names_from = arm)
+
+# rows 
+dd <- dist(cur_df[2:ncol(cur_df)], method = "euclidean")
+
+hc <- hclust(dd, method = "ward.D2")
+plot(hc)
+row_sorted <- hc$order
+res_final$category <- factor(res_final$category, levels = c("inflamed", "KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+
+# columns 
+dd <- dist(t(cur_df[2:ncol(cur_df)]), method = "euclidean")
+hc <- hclust(dd, method = "ward.D2")
+plot(hc)
+column_sorted <- hc$order
+res_final$arm <- factor(res_final$arm, levels = colnames(cur_df[2:ncol(cur_df)][,column_sorted]))
+res_final_full <- res_final
+
+ggplot(res_final, aes(y=category, x = arm,col = p_out, size = abs(p_out)))+
+  geom_point()+
+  theme_classic()+
+  scale_color_gradient2(high = "#E41A1C", mid = "white", low = "#377EB8", midpoint = 0)+
+  scale_size(range = c(2,10))+
+  new_scale_colour() +
+  geom_point(data = res_final,shape = 1,aes(size = abs(p_out), col = result), stroke =1.5)+
+  scale_color_manual(values = c("UP" = "#9f1214", "UP_trend" = "#E41A1C", "NOTSIG" = "snow2","DOWN_trend" = "#377EB8", "DOWN" = "#25567d"), name = "Direction")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+```{r}
+new_expset$arm_short <- new_expset$`Arm (short name)`
+
+treatment <- pData(new_expset) %>% select(PID, arm_short, response, PID_group_risk, TNBC)
+
+out_check <- treatment
+
+out_C <- out_check %>% group_by(PID_group_risk, arm_short, response) %>% dplyr::count() %>% group_by(PID_group_risk, arm_short) %>% mutate(fra = n/sum(n))
+
+out_C$response <- factor(out_C$response, levels = c("1", "0"))
+
+ggplot(out_C, aes(x = PID_group_risk, y = n, fill = response))+
+  facet_wrap(~arm_short, scales = "free")+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("#8019C0", "#ECD2FC"))+
+  coord_flip()
+
+ggplot(out_C, aes(x = PID_group_risk, y = fra, fill = response))+
+  facet_wrap(~arm_short)+
+  geom_bar(stat = "identity", color = "black")+
+  geom_hline(yintercept = 0.5, linetype = "dashed")+
+  theme_classic()+
+  scale_fill_manual(values = c("#8019C0", "#ECD2FC"))+
+  coord_flip()
+
+## Using epitab package
+res_final <- list()
+
+for(i in unique(out_C$PID_group_risk)){
+  data <- out_C %>% mutate(PID_binary = ifelse(PID_group_risk == i, i, "Other"))
+  for(y in unique(out_C$arm_short)){
+    data_test <- data %>% filter(arm_short == y)
+    if(length(unique(data_test$PID_binary)) > 1){
+      res <- fisher.test(xtabs(n ~ PID_binary + response, data = data_test))
+      out <- data.frame(odds_ratio = res$estimate, p = res$p.value, arm_short = y, group = i)
+      res_final[[paste0(y, i)]] <- out
+    }else{
+      res_final[[paste0(y, i)]] <- data.frame(odds_ratio = NA, p = NA, arm_short = y, group = i)
+    }
+  }
+}
+
+res_final <- do.call("rbind", res_final)
+
+isGreater <- res_final$odds_ratio > 1 & !is.na(res_final$odds_ratio)
+pVal <- log10(res_final$p)
+pVal[isGreater] <- abs(pVal[isGreater])
+res_final$p_out <- pVal
+colnames(res_final) <- c("odds_ratio", "p_value", "arm","category", "p_out")
+```
+
+
+```{r}
+res_final$result <- ifelse(res_final$odds_ratio > 1 & res_final$p_value < 0.05, "UP",
+                         ifelse(res_final$odds_ratio > 1 & res_final$p_value < 0.1, "UP_trend",
+                                ifelse(res_final$odds_ratio < 1 & res_final$p_value < 0.05, "DOWN",
+                                       ifelse(res_final$odds_ratio < 1 & res_final$p_value < 0.1, "DOWN_trend", "NOTSIG"))))
+
+res_final$odds_ratio[res_final$odds_ratio == Inf] <- 1
+
+## hierarchical clustering on odds_ratio
+cur_df <- res_final %>% select(arm, category, odds_ratio) %>% pivot_wider(values_from = odds_ratio, names_from = arm)
+
+# rows 
+dd <- dist(cur_df[2:ncol(cur_df)], method = "euclidean")
+
+hc <- hclust(dd, method = "ward.D2")
+plot(hc)
+row_sorted <- hc$order
+res_final$category <- factor(res_final$category, levels = c("low", "medium", "high"))
+
+# columns 
+dd <- dist(t(cur_df[2:ncol(cur_df)]), method = "euclidean")
+hc <- hclust(dd, method = "ward.D2")
+plot(hc)
+column_sorted <- hc$order
+res_final$arm <- factor(res_final$arm, levels = colnames(cur_df[2:ncol(cur_df)][,column_sorted]))
+
+library(ggnewscale)
+ggplot(res_final, aes(x=category, y = arm,col = p_out, size = p_out))+
+  geom_point()+
+  theme_classic()+
+  scale_color_gradient2(high = "#E41A1C", mid = "white", low = "#377EB8", midpoint = 0)+
+  scale_size(range = c(2,10))+
+  new_scale_colour() +
+  geom_point(data = res_final,shape = 1,aes(size = p_out, col = result), stroke =1.5)+
+  scale_color_manual(values = c("UP" = "#9f1214", "UP_trend" = "#E41A1C", "NOTSIG" = "snow2","DOWN_trend" = "#377EB8", "DOWN" = "#25567d"), name = "Direction")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+## TNBC subset
+
+```{r}
+new_expset$arm_short <- new_expset$`Arm (short name)`
+
+treatment <- pData(new_expset) %>% select(PID, arm_short, response, PID_groups, TNBC)
+
+treatment <- treatment %>% filter(TNBC == "TNBC")
+
+out_check <- treatment
+
+out_C <- out_check %>% group_by(PID_groups, arm_short, response) %>% dplyr::count() %>% group_by(PID_groups, arm_short) %>% mutate(fra = n/sum(n))
+
+out_C$response <- factor(out_C$response, levels = c("1", "0"))
+out_C$PID_groups <- factor(out_C$PID_groups, levels = c("inflamed", "KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+out_C_TNBC<- out_C
+
+ggplot(out_C, aes(x = PID_groups, y = n, fill = response))+
+  facet_wrap(~arm_short, scales = "free")+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("#8019C0", "#ECD2FC"))+
+  coord_flip()
+
+ggplot(out_C, aes(x = PID_groups, y = fra, fill = response))+
+  facet_wrap(~arm_short)+
+  geom_bar(stat = "identity", color = "black")+
+  geom_hline(yintercept = 0.5, linetype = "dashed")+
+  theme_classic()+
+  scale_fill_manual(values = c("#8019C0", "#ECD2FC"))+
+  coord_flip()
+
+## Using epitab package
+res_final <- list()
+
+for(i in unique(out_C$PID_groups)){
+  data <- out_C %>% mutate(PID_binary = ifelse(PID_groups == i, i, "Other"))
+  for(y in unique(out_C$arm_short)){
+    data_test <- data %>% filter(arm_short == y)
+    if(length(unique(data_test$PID_binary)) > 1){
+      res <- fisher.test(xtabs(n ~ PID_binary + response, data = data_test))
+      out <- data.frame(odds_ratio = res$estimate, p = res$p.value, arm_short = y, group = i)
+      res_final[[paste0(y, i)]] <- out
+    }else{
+      res_final[[paste0(y, i)]] <- data.frame(odds_ratio = NA, p = NA, arm_short = y, group = i)
+    }
+  }
+}
+
+res_final <- do.call("rbind", res_final)
+
+isGreater <- res_final$odds_ratio > 1 & !is.na(res_final$odds_ratio)
+pVal <- log10(res_final$p)
+pVal[isGreater] <- abs(pVal[isGreater])
+res_final$p_out <- pVal
+colnames(res_final) <- c("odds_ratio", "p_value", "arm","category", "p_out")
+```
+
+```{r}
+res_final$result <- ifelse(res_final$odds_ratio > 1 & res_final$p_value < 0.05, "UP",
+                         ifelse(res_final$odds_ratio > 1 & res_final$p_value < 0.1, "UP_trend",
+                                ifelse(res_final$odds_ratio < 1 & res_final$p_value < 0.05, "DOWN",
+                                       ifelse(res_final$odds_ratio < 1 & res_final$p_value < 0.1, "DOWN_trend", "NOTSIG"))))
+
+res_final$odds_ratio[res_final$odds_ratio == Inf] <- 1
+
+## hierarchical clustering on odds_ratio
+cur_df <- res_final %>% select(arm, category, odds_ratio) %>% pivot_wider(values_from = odds_ratio, names_from = arm)
+
+# rows 
+dd <- dist(cur_df[2:ncol(cur_df)], method = "euclidean")
+
+hc <- hclust(dd, method = "ward.D2")
+plot(hc)
+row_sorted <- hc$order
+res_final$category <- factor(res_final$category, levels = c("inflamed", "KRT5/7-", "KRT7+", "KRT5+", "KRT5/7+"))
+
+# columns 
+dd <- dist(t(cur_df[2:ncol(cur_df)]), method = "euclidean")
+hc <- hclust(dd, method = "ward.D2")
+plot(hc)
+column_sorted <- hc$order
+res_final$arm <- factor(res_final$arm, levels = colnames(cur_df[2:ncol(cur_df)][,column_sorted]))
+res_final_TNBC <- res_final 
+
+ggplot(res_final, aes(y=category, x = arm,col = p_out, size = abs(p_out)))+
+  geom_point()+
+  theme_classic()+
+  scale_color_gradient2(high = "#E41A1C", mid = "white", low = "#377EB8", midpoint = 0)+
+  scale_size(range = c(2,10))+
+  new_scale_colour() +
+  geom_point(data = res_final,shape = 1,aes(size = abs(p_out), col = result), stroke =1.5)+
+  scale_color_manual(values = c("UP" = "#9f1214", "UP_trend" = "#E41A1C", "NOTSIG" = "snow2","DOWN_trend" = "#377EB8", "DOWN" = "#25567d"), name = "Direction")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+```{r}
+res_final_TNBC$subset <- "TNBC"
+res_final_full$subset <- "Full"
+```
+
+```{r}
+res_final_full <- rbind(res_final_TNBC, res_final_full)
+
+ggplot(res_final_full, aes(y=category, x = arm,col = p_out, size = abs(p_out)))+
+  facet_wrap(~subset)+
+  geom_point()+
+  theme_classic()+
+  scale_color_gradient2(high = "#E41A1C", mid = "white", low = "#377EB8", midpoint = 0)+
+  scale_size(range = c(2,10))+
+  new_scale_colour() +
+  geom_point(data = res_final_full,shape = 1,aes(size = abs(p_out), col = result), stroke =1.5)+
+  scale_color_manual(values = c("UP" = "#9f1214", "UP_trend" = "#E41A1C", "NOTSIG" = "snow2","DOWN_trend" = "#377EB8", "DOWN" = "#25567d"), name = "Direction")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+# 6. Visualization 
+
+## Barplot visualization 
+
+```{r}
+plot <- as.data.frame(t(exprs(new_expset)[rownames(exprs(new_expset)) %in% c("KRT5", "KRT7", "KRT18","KRT14","HLA-DRA"),]))
+plot$KRT5_7_score <- new_expset$KRT5_7_score[match(rownames(plot),colnames(new_expset))]
+plot$PAM50 <- new_expset$PAM50.Subtype[match(rownames(plot),colnames(new_expset))]
+plot$response <- new_expset$response[match(rownames(plot),colnames(new_expset))]
+plot$TNBC <- new_expset$TNBC[match(rownames(plot),colnames(new_expset))]
+plot$PID_groups <- new_expset$PID_groups[match(rownames(plot),colnames(new_expset))]
+plot$PID_group_risk <- new_expset$PID_group_risk[match(rownames(plot),colnames(new_expset))]
+
+# PID groups 
+
+## PAM50 subtype 
+bar_out <- plot %>% as.data.frame() %>% group_by(PID_groups, PAM50) %>% dplyr::count() %>% filter(PAM50 != "NA") %>% ungroup %>% group_by(PAM50) %>% mutate(fra = n/sum(n)) %>% arrange(PAM50)
+
+ggplot(bar_out, aes(x = PAM50, y = fra, fill = PID_groups))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = group_color)+
+  theme_classic()
+
+plot %>% as.data.frame() %>% rownames_to_column("PID") %>% group_by(PAM50) %>% dplyr::count() %>% ungroup %>% mutate(fra = n/sum(n))
+
+## TNBC 
+bar_out <- plot %>% as.data.frame() %>% group_by(PID_groups, TNBC) %>% dplyr::count() %>% ungroup %>% group_by(TNBC) %>% mutate(fra = n/sum(n)) %>% arrange(TNBC)
+
+ggplot(bar_out, aes(x = TNBC, y = fra, fill = PID_groups))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = group_color)+
+  theme_classic()
+
+bar_test <- bar_out %>% filter(TNBC != "NA") %>% pivot_wider(names_from = TNBC, id_cols = PID_groups, values_from = n) %>% column_to_rownames("PID_groups")
+bar_test_out <- chisq.test(bar_test)
+print(bar_test_out$p.value)
+
+plot %>% as.data.frame() %>% rownames_to_column("PID") %>% group_by(TNBC) %>% dplyr::count() %>% ungroup %>% mutate(fra = n/sum(n))
+```
+```{r}
+## General chemotherapy response 
+bar_out <- plot %>% as.data.frame() %>% group_by(PID_groups, response) %>% dplyr::count() %>% filter(response != "NA") %>% ungroup %>% group_by(PID_groups) %>% mutate(fra = n/sum(n))
+
+test <- chisq.test(xtabs(n ~ response + PID_groups, data = bar_out))
+test$p.value
+
+# Optional: Individual comparisons
+fisher.test(xtabs(n ~ response + PID_groups, data = bar_out %>% 
+                    filter(PID_groups %in% c("inflamed", "KRT5/7+")) %>% 
+                    mutate(PID_groups = unfactor(PID_groups))))
+
+bar_out$PID_groups <- factor(bar_out$PID_groups, levels = bar_out %>% filter(response == "1") %>% arrange(fra) %>% pull(PID_groups) %>% unfactor())
+
+ggplot(bar_out, aes(x = PID_groups, y = fra, fill = response))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = c("#ECD2FC", "#8019C0"))+
+  theme_classic()+
+  ggtitle(paste0("p = ", test$p.value))
+```
+
+```{r}
+## General chemotherapy response 
+bar_out <- plot %>% as.data.frame() %>% group_by(PID_group_risk, response) %>% dplyr::count() %>% filter(response != "NA") %>% ungroup %>% group_by(PID_group_risk) %>% mutate(fra = n/sum(n))
+
+test <- chisq.test(xtabs(n ~ response + PID_group_risk, data = bar_out))
+test$p.value
+
+bar_out$PID_group_risk <- factor(bar_out$PID_group_risk, levels = bar_out %>% filter(response == "1") %>% arrange(fra) %>% pull(PID_group_risk) %>% unfactor())
+
+ggplot(bar_out, aes(x = PID_group_risk, y = fra, fill = response))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = c("#ECD2FC", "#8019C0"))+
+  theme_classic()+
+  ggtitle(paste0("p = ", test$p.value))
+```
+
+## Alluvial 
+
+```{r}
+df_alluvial <- pData(new_expset) %>% as.data.frame %>% dplyr::select(KRT5_7_score,GMM_HLADRA,PID_groups, PID_group_risk) #PID_groups_risk
+
+alluvial_wide(df_alluvial, 
+              colorful_fill_variable_stratum = FALSE,
+              col_vector_flow = c("#85D4E3","grey", "#9C964A", "#F4B5BD"), 
+              order_levels = c("KRT5/7+","KRT5/7-","KRT7+","KRT5+", "high", "medium", "low"))+
+  theme_classic()
+```
+
+## Key markers and gene signatures
+
+### Key 
+
+```{r}
+# Define key markers of interest
+key_marker <- c("KRT5","KRT7","HLA-DRA")
+
+# Define heatmap based on normalized counts 
+df <- t(exprs(new_expset)[key_marker,]) %>% as.data.frame 
+df <- df %>% rownames_to_column("PID")
+
+## Create heatmap body 
+df$PID_groups <- new_expset$PID_groups[match(df$PID, colnames(new_expset))]
+
+mat <- df %>% pivot_longer(cols = 2:(ncol(df)-1), names_to = "gene", values_to = "exprs") %>% group_by(PID_groups, gene) %>% dplyr::summarize(mean = mean(exprs))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("PID_groups")
+
+## Create row annotation 
+anno <- df %>% select(PID_groups) %>% group_by(PID_groups) %>% dplyr::count()
+anno <- anno[match(anno$PID_groups, rownames(ht)),]
+
+## Print heatmap 
+Heatmap(ht, name = "Mean Z-scores")
+
+Heatmap(scale(ht), name = "Scaled mean Z-scores")+
+  #rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$PID_groups))
+```
+
+### Immune 
+
+```{r}
+# Define key immune markers of interest
+#key_marker <- c("CD8A","CD274","PDCD1","GZMB","PDCD1LG2","IDO1")
+
+key_marker <- c("HLA-DRA","PDCD1","GZMB", "ICOS", "TOX") # additional immune markers
+
+key_marker <- key_marker[key_marker %in% rownames(exprs(new_expset))]
+
+# Define heatmap based on normalized counts 
+df <- t(exprs(new_expset)[key_marker,]) %>% as.data.frame 
+df <- df %>% rownames_to_column("PID")
+
+## Create heatmap body 
+df$PID_groups <- new_expset$PID_groups[match(df$PID, colnames(new_expset))]
+
+mat <- df %>% pivot_longer(cols = 2:(ncol(df)-1), names_to = "gene", values_to = "exprs") %>% group_by(PID_groups, gene) %>% dplyr::summarize(mean = mean(exprs))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("PID_groups")
+
+## Create row annotation 
+anno <- df %>% select(PID_groups) %>% group_by(PID_groups) %>% dplyr::count()
+anno <- anno[match(anno$PID_groups, rownames(ht)),]
+
+## Print heatmap 
+Heatmap(ht, col = viridis(100), name = "Mean Z-scores")+
+
+Heatmap(scale(ht), name = "Scaled mean Z-scores")+
+  #rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$PID_groups))
+
+Heatmap(scale(ht), name = "Scaled mean Z-scores")
+```
+
+### Immunosuppression
+
+```{r}
+# Define key immune markers of interest
+key_marker <- c("TGFB2", "TGFB1", "PROM1", "PVR", "PVRL1","CD276") #"TGFB1"
+key_marker <- key_marker[key_marker %in% rownames(exprs(new_expset))]
+
+# Define heatmap based on normalized counts 
+df <- t(exprs(new_expset)[key_marker,]) %>% as.data.frame 
+df <- df %>% rownames_to_column("PID")
+
+## Create heatmap body 
+df$PID_groups <- new_expset$PID_groups[match(df$PID, colnames(new_expset))]
+
+mat <- df %>% pivot_longer(cols = 2:(ncol(df)-1), names_to = "gene", values_to = "exprs") %>% group_by(PID_groups, gene) %>% dplyr::summarize(mean = mean(exprs))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("PID_groups")
+
+## Create row annotation 
+anno <- df %>% select(PID_groups) %>% group_by(PID_groups) %>% dplyr::count()
+anno <- anno[match(anno$PID_groups, rownames(ht)),]
+
+## Print heatmap 
+Heatmap(ht, name = "Mean Z-scores")
+
+Heatmap(scale(ht), name = "Scaled mean Z-scores")+
+  #rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$PID_groups))
+```
+
+### IFNg
+
+```{r}
+INFg_sig_up <- c("IFNG", "STAT1", "CCR5", "CXCL9", "CXCL10", "CXCL11", "IDO1", "PRF1", "GZMA") #excluded HLA-DRA from signature 
+```
+
+```{r}
+## 2. BL signature per PID group 
+INFg_sig_up_rel <- INFg_sig_up[INFg_sig_up %in% rownames(exprs(new_expset))]
+# Filter for available genes
+df <- t(exprs(new_expset)[INFg_sig_up_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$PID_groups <- new_expset$PID_groups[match(rownames(df), colnames(new_expset))]
+
+compare_means(signature_sum ~ PID_groups,df) #pairwise comparisons
+compare_means(signature_sum ~ PID_groups,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = PID_groups, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = PID_groups), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = group_color)+
+  theme_classic()+
+  ylab("Basal-luminal signature (Li et al.)")+
+  stat_compare_means()
+
+mat <- df %>% pivot_longer(cols = 1:(ncol(df)-2), names_to = "gene", values_to = "exprs") %>% group_by(PID_groups, gene) %>% dplyr::summarize(mean = mean(exprs))
+mat <- mat %>% filter(!is.na(mean))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("PID_groups")
+
+Heatmap(ht, name = "Mean signature Z-scores")
+
+INFg <- mat %>% group_by(PID_groups) %>% summarize(INFg = mean(mean)) %>% column_to_rownames("PID_groups")
+
+Heatmap(INFg)
+```
+
+### CTA
+
+```{r}
+CTA_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/CTAlist_PNAS_2019.xlsx")
+
+CTA_sig_up <- CTA_sig$`Cancer Testis Antigens` %>% unique()
+CTA_sig_up <- toupper(CTA_sig_up)
+```
+
+```{r}
+## 2. BL signature per PID group 
+CTA_sig_up_rel <- CTA_sig_up[CTA_sig_up %in% rownames(exprs(new_expset))]
+# Filter for available genes
+df <- t(exprs(new_expset)[CTA_sig_up_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$PID_groups <- new_expset$PID_groups[match(rownames(df), colnames(new_expset))]
+
+compare_means(signature_sum ~ PID_groups,df) #pairwise comparisons
+compare_means(signature_sum ~ PID_groups,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = PID_groups, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = PID_groups), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = group_color)+
+  theme_classic()+
+  ylab("Basal-luminal signature (Li et al.)")+
+  stat_compare_means()
+
+mat <- df %>% pivot_longer(cols = 1:(ncol(df)-2), names_to = "gene", values_to = "exprs") %>% group_by(PID_groups, gene) %>% dplyr::summarize(mean = mean(exprs))
+mat <- mat %>% filter(!is.na(mean))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("PID_groups")
+
+Heatmap(ht, name = "Mean signature Z-scores")
+
+CTA <- mat %>% group_by(PID_groups) %>% summarize(CTA = mean(mean)) %>% column_to_rownames("PID_groups")
+
+Heatmap(CTA)
+```
+
+### INFab
+
+```{r}
+INFab_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/INFALPHABETA_Signaling_Reactome.xlsx")
+
+INFab_sig_up <- INFab_sig$INF_SIG %>% unique()
+INFab_sig_up <- toupper(INFab_sig_up)
+```
+
+```{r}
+## 2. BL signature per PID group 
+INFab_sig_up_rel <- INFab_sig_up[INFab_sig_up %in% rownames(exprs(new_expset))]
+# Filter for available genes
+df <- t(exprs(new_expset)[INFab_sig_up_rel ,]) %>% as.data.frame
+# Z-score gene expression 
+df <- as.data.frame(scale(df))
+
+df$signature_sum <- rowSums(df,na.rm = TRUE)
+df$PID_groups <- new_expset$PID_groups[match(rownames(df), colnames(new_expset))]
+
+compare_means(signature_sum ~ PID_groups,df) #pairwise comparisons
+compare_means(signature_sum ~ PID_groups,df, method = "kruskal.test") #global comparison
+
+ggplot(df, aes(x = PID_groups, y = signature_sum))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = PID_groups), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = group_color)+
+  theme_classic()+
+  ylab("Basal-luminal signature (Li et al.)")+
+  stat_compare_means()
+
+mat <- df %>% pivot_longer(cols = 1:(ncol(df)-2), names_to = "gene", values_to = "exprs") %>% group_by(PID_groups, gene) %>% dplyr::summarize(mean = mean(exprs))
+mat <- mat %>% filter(!is.na(mean))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("PID_groups")
+
+Heatmap(ht, name = "Mean signature Z-scores")
+
+INFab <- mat %>% group_by(PID_groups) %>% summarize(INFab = mean(mean)) %>% column_to_rownames("PID_groups")
+
+Heatmap(INFab)
+```
+```{r}
+Heatmap(CTA, name = "CTA", cluster_rows = TRUE)+
+  Heatmap(INFab, name = "INFab", cluster_rows = FALSE)+
+  Heatmap(INFg, name = "INFg", cluster_rows = FALSE)
+```
+
+# Save objects 
+
+```{r}
+saveRDS(new_expset, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/ISPY2_RNA_analysis_expressionset.rds")
+```
+
+# Session Info 
+
+```{r}
+sessionInfo()
+```

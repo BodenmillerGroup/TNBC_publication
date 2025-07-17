@@ -1,0 +1,800 @@
+---
+title: "SCRNAseq_tumor_analysis"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# A stratification system for breast cancer based on basoluminal tumor cells and spatial tumor architecture, Meyer et al., 2025 
+
+**DISCLAIMER**: Pipeline scripts contain all code used for data presented in the publication but also small exploratory data analysis parts. For reproducing the figures, please refer to the figure-related scripts and cleaned data objects provided on **Zenodo** (<https://zenodo.org/records/>). File paths have to be adjusted by the user. 
+
+Code related to following cleaned **Zenodo** objects: sce_PalWu_ALL.rds, sce_PalWu.rds, GeneSignatures.rds
+
+# Validation
+
+Data analysis scripts for data analysis in the validation cohorts. 
+
+# Script: Breast cancer patient scRNAseq analysis
+
+Here, we analyse scRNA-seq data from two breast cancer scRNAseq datasets:
+  GSE161529 - Pal et al. (2021, EMBO Journal)
+  GSE176078 - Wu et al. (2021, Nature Genetics)
+
+# Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+library(SingleCellExperiment)
+library(Seurat)
+library(glmGamPoi)
+library(future)
+library(tidyverse)
+library(scater)
+library(scran)
+library(BiocParallel)
+library(Matrix)
+library(gridExtra)
+library(ggpubr)
+library(ComplexHeatmap)
+library(viridis)
+library(readxl)
+library(ggrepel)
+library(clusterProfiler)
+library(enrichplot)
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+library(mclust)
+library(RColorBrewer)
+library(wesanderson)
+library(dittoSeq)
+```
+
+# 1. Load data and preprocessing
+
+## Full dataset
+
+### Wu et al.
+
+```{r}
+## Wu et al. dataset
+
+# Load count matrix
+counts <- readMM("/mnt/central_nas/tnbc_volume/TNBC_validation/GSE176078/count_matrix_sparse.mtx")
+
+# Load genes and barcodes
+genes <- read.table("/mnt/central_nas/tnbc_volume/TNBC_validation/GSE176078/count_matrix_genes.tsv", header = FALSE)
+barcodes <- read.table("/mnt/central_nas/tnbc_volume/TNBC_validation/GSE176078/count_matrix_barcodes.tsv", header = FALSE)
+
+# Assign row and column names
+rownames(counts) <- genes$V1
+colnames(counts) <- barcodes$V1
+
+# Load metadata
+metadata <- read.csv("/mnt/central_nas/tnbc_volume/TNBC_validation/GSE176078/metadata.csv", row.names = 1)
+
+# Create Seurat
+seurat_wu <- CreateSeuratObject(counts = counts, meta.data = metadata)
+seurat_wu
+
+# Preprocessing
+seurat_wu <- subset(seurat_wu, subset = nFeature_RNA > 500 & percent.mito < 20 & celltype_major == "Cancer Epithelial" )
+seurat_wu
+
+# Identify and remove mitochondrial genes
+mt_genes <- grep("^MT-", rownames(seurat_wu), value = TRUE)
+seurat_wu <- seurat_wu[!rownames(seurat_wu) %in% mt_genes, ]
+
+# Add PID identifier
+seurat_wu$PID <- seurat_wu$orig.ident
+seurat_wu$dataset <- "wu"
+
+saveRDS(seurat_wu, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/SeuratObject_wu_full.rds")
+
+# Normalization 
+seurat_wu_sct <- SCTransform(seurat_wu, assay = "RNA", verbose = TRUE, return.only.var.genes = FALSE)
+```
+
+### Pal et al. 
+
+```{r}
+seurat_pal <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/SeuratObject_pal.rds")
+
+seurat_pal
+
+# Add identifiers
+seurat_pal$PID <- seurat_pal$group
+seurat_pal$dataset <- "pal"
+```
+
+```{r}
+saveRDS(seurat_pal, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/SeuratObject_pal_full.rds")
+```
+
+```{r}
+# Normalization
+seurat_pal_sct <- SCTransform(seurat_pal, assay = "RNA", verbose = TRUE, return.only.var.genes = FALSE)
+```
+
+# 2. Seurat integration
+
+```{r}
+seurat_pal <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/SeuratObject_pal_full.rds")
+seurat_wu <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/SeuratObject_wu_full.rds")
+
+# Normalization
+seurat_pal_sct <- SCTransform(seurat_pal, assay = "RNA", verbose = TRUE, return.only.var.genes = FALSE)
+seurat_wu_sct <- SCTransform(seurat_wu, assay = "RNA", verbose = TRUE, return.only.var.genes = FALSE)
+
+# Subsample for full dataset (100.000 cells total)
+seurat_wu_sct <- subset(seurat_wu_sct, cells = sample(Cells(seurat_wu_sct), size = 24489))
+seurat_pal_sct <- subset(seurat_pal_sct, cells = sample(Cells(seurat_pal_sct), size = 75511))
+
+# Integration 
+seurat_list <- list(seurat_pal_sct, seurat_wu_sct)
+seurat_list <- lapply(X = seurat_list, FUN = function(x) {
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000)
+})
+
+features <- SelectIntegrationFeatures(object.list = seurat_list)
+
+seurat_list <- PrepSCTIntegration(object.list = seurat_list,
+                                  assay = "SCT",
+                                  anchor.features = features)
+
+integ_anchors <- FindIntegrationAnchors(object.list = seurat_list,
+                                        normalization.method = "SCT",
+                                        anchor.features = features,
+                                        verbose = TRUE)
+
+seurat_integrated <- IntegrateData(anchorset = integ_anchors,
+                                   normalization.method = "SCT")
+
+DefaultAssay(seurat_integrated) <- "integrated"
+
+# Save integrated seurat object
+saveRDS(seurat_integrated, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/SeuratObject_palwu_sct_full.rds")
+```
+
+```{r Save}
+# Save integrated seurat object
+saveRDS(seurat_integrated, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/SeuratObject_palwu_sct_full.rds")
+#seurat_integrated <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/SeuratObject_palwu_sct_full.rds")
+```
+
+## SCE conversion
+
+```{r}
+seurat_integrated
+
+DefaultAssay(seurat_integrated) <- "integrated"
+variable_features <- VariableFeatures(seurat_integrated)
+integrated_matrix <- GetAssayData(seurat_integrated, assay = "integrated", slot = "data")
+
+# Change to SCT assay and filter variable features
+DefaultAssay(seurat_integrated) <- "SCT"
+seurat_integrated@assays <- seurat_integrated@assays["SCT"]
+
+sce <- as.SingleCellExperiment(seurat_integrated)
+sce <- sce[variable_features,]
+assay(sce, "integrated") <- integrated_matrix
+sce$cell_id <- colnames(sce)
+sce
+```
+
+```{r}
+sce$TNBC <- ifelse(sce$orig.ident %in% c("TN") | sce$subtype %in% c("TNBC"), "TNBC", "Not_TNBC")
+
+sce$TNBC <- ifelse(sce$orig.ident %in% c("TN") | sce$subtype %in% c("TNBC"), "TNBC", "Not_TNBC")
+
+sce$subtype <- ifelse(sce$orig.ident %in% c("TN") | sce$subtype %in% c("TNBC"), "TNBC", 
+                      ifelse(sce$orig.ident %in% c("ER") | sce$subtype %in% c("ER+"), "ER",
+                             ifelse(sce$orig.ident %in% c("HER2") | sce$subtype %in% c("HER2+"), "HER2","Unknown")))
+```
+
+# 3. Dimensionality reduction
+
+```{r}
+set.seed(22)
+
+#Use 30 PCs for denoising 
+sce <- runPCA(sce, exprs_values = "integrated", ncomponents=30)
+
+#Run TSNE on selected PCs
+sce <- runTSNE(sce, dimred = "PCA", exprs_values = "integrated", external_neighbors=TRUE, BPPARAM = MulticoreParam())
+
+# Visualize 
+plotReducedDim(sce, dimred="TSNE", colour_by="PID")
+
+plotReducedDim(sce, dimred="TSNE", colour_by="dataset", point_size = 1)+
+  scale_color_manual(values = c("#1F78B4", "#B2DF8A"))+
+
+plotReducedDim(sce, dimred="TSNE", colour_by="subtype", point_size = 1)+
+  scale_color_manual(values = c("#4DAF4A", "#377EB8", "#E41A1C"))
+
+
+plotReducedDim(sce, dimred = "TSNE", 
+               colour_by = "KRT5", 
+               by_exprs_values = "logcounts")+
+plotReducedDim(sce, dimred = "TSNE", 
+               colour_by = "KRT7", 
+               by_exprs_values = "logcounts")
+
+plotReducedDim(sce, dimred = "TSNE", 
+               colour_by = "KRT8", 
+               by_exprs_values = "logcounts")+
+plotReducedDim(sce, dimred = "TSNE", 
+               colour_by = "KRT19", 
+               by_exprs_values = "logcounts")+
+plotReducedDim(sce, dimred = "TSNE", 
+               colour_by = "KRT18", 
+               by_exprs_values = "logcounts")+
+plotReducedDim(sce, dimred = "TSNE", 
+               colour_by = "KRT14", 
+               by_exprs_values = "logcounts")
+```
+
+# 4. CK5-7 signature
+
+```{r}
+set.seed(22)
+
+## add CK5 and CK7 GMM
+# 1. CK5
+GMM_CK5 <- Mclust(assay(sce, "logcounts")["KRT5",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK5$classification == 2, "KRT5+", "KRT5-"), 
+                     KRT5_exprs = assay(sce, "logcounts")["KRT5",],
+                     uncertainty = GMM_CK5$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT5_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_tumor_KRT5 <- GMM_df$class_epi
+
+# 2. CK7
+GMM_CK7 <- Mclust(assay(sce, "logcounts")["KRT7",], G = 2)
+
+GMM_df <- data.frame(class_epi = ifelse(GMM_CK7$classification == 2, "KRT7+", "KRT7-"), 
+                     KRT7_exprs = assay(sce, "logcounts")["KRT7",],
+                     uncertainty = GMM_CK7$uncertainty)
+
+#Visualize GMM
+ggplot(GMM_df, aes(x = KRT7_exprs, fill = class_epi))+
+  geom_density()+
+  theme_classic(base_size = 15)+
+  theme(axis.title.x = element_blank())+
+  scale_fill_brewer(palette = "Set1")
+  
+#Add GMM epi class to SCE
+sce$GMM_tumor_KRT7 <- GMM_df$class_epi
+
+## Combine KRT5/7 GMM scores 
+sce$KRT5_7_score <- ifelse(sce$GMM_tumor_KRT5 == "KRT5+" & sce$GMM_tumor_KRT7 == "KRT7+", "KRT5/7+", 
+       ifelse(sce$GMM_tumor_KRT5 == "KRT5+" & sce$GMM_tumor_KRT7 == "KRT7-", "KRT5+",
+              ifelse(sce$GMM_tumor_KRT5 == "KRT5-" & sce$GMM_tumor_KRT7 == "KRT7+", "KRT7+","KRT5/7-")))
+
+metadata(sce)$colors$KRT57_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("KRT5/7-", "KRT5/7+","KRT5+", "KRT7+"))
+
+## Visualization 
+cur_dat <- t(assay(sce,"logcounts")) %>% as.matrix %>% as.data.frame %>% select("KRT5","KRT7")
+cur_dat$KRT5_7_score <- sce$KRT5_7_score[match(rownames(cur_dat), sce$cell_id)]
+
+## Scatterplot
+cur_dat <- t(assay(sce,"logcounts")) %>% as.matrix %>% as.data.frame %>% dplyr::select("KRT5","KRT7")
+cur_dat$KRT5_7_score <- sce$KRT5_7_score[match(rownames(cur_dat), rownames(colData(sce)))]
+cur_dat$GMM_tumor_KRT7 <- sce$GMM_tumor_KRT7[match(rownames(cur_dat), rownames(colData(sce)))]
+cur_dat$GMM_tumor_KRT5 <- sce$GMM_tumor_KRT5[match(rownames(cur_dat), rownames(colData(sce)))]
+
+
+main <- ggplot(cur_dat, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
+  geom_point(alpha = 0.5)+
+  theme_classic()+
+  xlab("KRT7 logcounts")+
+  ylab("KRT5 logcounts")+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce)$colors$KRT57_score)
+
+y_side <- ggplot(cur_dat, aes(x = KRT5, fill=GMM_tumor_KRT5)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#F4B5BD')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.y = element_blank())+
+  coord_flip()
+
+x_side <- ggplot(cur_dat, aes(x = KRT7, fill=GMM_tumor_KRT7)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#9C964A')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())
+
+blankPlot <- ggplot()+geom_blank(aes(1,1)) + 
+  cowplot::theme_nothing()
+
+scatter_final <- grid.arrange(x_side, blankPlot, main, y_side, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
+
+
+colData(sce) %>% as.data.frame %>% group_by(KRT5_7_score) %>% dplyr::count() %>% ungroup() %>% mutate(fra = n/sum(n))
+
+
+# 2. Reduced Dims Plots
+plotReducedDim(sce, dimred = "TSNE", 
+               colour_by = "KRT5", 
+               by_exprs_values = "logcounts", point_size = 1)+
+plotReducedDim(sce, dimred = "TSNE", 
+               colour_by = "KRT7", 
+               by_exprs_values = "logcounts", point_size = 1)
+
+plotReducedDim(sce, dimred="TSNE", colour_by="GMM_tumor_KRT5", point_size = 1)+
+  scale_color_manual(values = c('#999999','#F4B5BD'))+
+
+plotReducedDim(sce, dimred="TSNE", colour_by="GMM_tumor_KRT7", point_size = 1)+
+  scale_color_manual(values = c('#999999','#9C964A'))
+
+plotReducedDim(sce, dimred="TSNE", colour_by="KRT5_7_score", point_size = 1)+
+  scale_color_manual(values = metadata(sce)$colors$KRT57_score)
+```
+
+```{r Save}
+# Save sce object
+#saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/SCEObject_palwu_sct.rds")
+#sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/SCEObject_palwu_sct.rds")
+```
+
+## Barplot visualization
+
+```{r}
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "PID")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT57_score)+
+  guides(fill = "none")
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "PID", scale = "count")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT57_score)
+
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "TNBC")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT57_score)+
+  guides(fill = "none")
+dittoBarPlot(sce, var = "KRT5_7_score", group.by = "TNBC", scale = "count")+
+  scale_fill_manual(values = metadata(sce)$colors$KRT57_score)
+```
+
+
+```{r}
+## PID KRT5_7_score fraction dataframe
+PID_KRT5_7_score <- colData(sce) %>% as.data.frame() %>% dplyr::select(KRT5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_KRT5_7_score <- PID_KRT5_7_score %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+cur_df <- PID_KRT5_7_score %>% pivot_wider(id_cols = "PID", names_from = "KRT5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+
+# Perform hierarchical clustering on fractions
+dd <- dist(cur_df, method = "euclidean")
+hc <- hclust(dd, method = "ward.D2")
+plot(hc)
+row_sorted <- hc$order
+
+# Define annotation dataframe
+cur_df <- cur_df[row_sorted,]
+
+anno <- colData(sce) %>% as.data.frame %>% dplyr::select(PID, TNBC, subtype, dataset) %>% unique()
+anno <- anno[match(rownames(cur_df), anno$PID),]
+
+n_cells_PID <- PID_KRT5_7_score %>% group_by(PID) %>% summarize(n_cells = sum(Freq))  
+anno$ncells <- n_cells_PID$n_cells[match(anno$PID, n_cells_PID$PID)]
+
+# Define colors 
+
+sub_col <- setNames(rev(brewer.pal(3, "Set1")), unique(sce$subtype))
+dataset_col <- setNames(brewer.pal(3, "Paired")[2:3], unique(sce$dataset))
+
+# Plot annotation dataframe with ComplexHeatmap
+fraction_anno <- HeatmapAnnotation(
+  n_cells = anno_barplot(anno$ncells, gp=gpar(fill="#440154FF"),
+                                   bar_width = 1,
+                                   height = unit(3,"cm"), axis_param = list(direction = "reverse")),
+  score_fractions = anno_barplot(cur_df, gp=gpar(fill=metadata(sce)$colors$KRT57_score[colnames(cur_df)]),
+                                   bar_width = 1,
+                                   height = unit(25,"cm"),
+                                   width = unit(11,"cm"),
+                                   show_row_names = FALSE), 
+                          subtype = anno_simple(anno$subtype, col = sub_col, border = TRUE),
+                          dataset = anno_simple(anno$dataset, col = dataset_col, border = TRUE),
+                          border = TRUE, 
+                          #annotation_name_rot = 90,
+                          gap = unit(1,"mm"),
+                          which = "row")
+
+lgd <- Legend(title = "subtype", at = names(sub_col), 
+               legend_gp = gpar(fill = sub_col))               
+lgd_1 <- Legend(title = "dataset", at = names(dataset_col), 
+               legend_gp = gpar(fill = dataset_col))  
+
+draw(fraction_anno + NULL, annotation_legend_list = list(lgd, lgd_1))
+```
+
+## Keratin expression 
+
+```{r}
+# Use all marker expression based analysis, we use all features (not just the variable ones)
+sce_all <- as.SingleCellExperiment(seurat_integrated)
+sce_all$cell_id <- colnames(sce_all)
+sce_all
+
+sce_all$KRT5_7_score <- sce_PalWu$KRT5_7_score[match(sce_all$cell_id, sce_PalWu$cell_id)]
+metadata(sce_all)$colors$KRT57_score <- metadata(sce_PalWu)$colors$KRT57_score
+```
+
+```{r}
+keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM")
+
+cluster_mean_sce_all <- aggregateAcrossCells(sce_all, ids = sce_all$KRT5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rownames(sce_all) %in% keratins)
+
+scaled_mat <- t(scale(t(assay(cluster_mean_sce_all, "logcounts"))))
+
+anno <- colData(sce_all) %>% as.data.frame() %>% select(KRT5_7_score) %>% group_by(KRT5_7_score) %>% dplyr::count()
+anno <- anno[match(anno$KRT5_7_score, rownames(t(scaled_mat))),]
+
+## Print heatmap 
+Heatmap(assay(cluster_mean_sce_all, "logcounts"), col = viridis(100),name = "Mean Expression")
+Heatmap(t(scaled_mat), name = "Scaled mean expression")
+
+# Add row annotations 
+Heatmap(t(scaled_mat), name = "Scaled mean expression", clustering_method_columns = "ward.D2", clustering_method_rows = "ward.D2")+
+  rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$KRT5_7_score))
+```
+
+## Stem marker expression 
+
+```{r}
+# Define stem markers of interest
+stem <- c("SOX9","KIT","PROM1","YAP1","HDAC2","NOTCH1","CD44","ALDH1A3","BRCA1","BRCA2", "TGFB2", "MUC1","ANXA8", "CD24", "TNFAIP3", "ERBB3", "TNFRSF11A")
+
+stem_rel <- stem[stem %in% rownames(sce_all)]
+
+cluster_mean_sce_all <- aggregateAcrossCells(sce_all, ids = sce_all$KRT5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rownames(sce_all) %in% stem_rel)
+
+scaled_mat <- t(scale(t(assay(cluster_mean_sce_all, "logcounts"))))
+
+anno <- colData(sce_all) %>% as.data.frame() %>% select(KRT5_7_score) %>% group_by(KRT5_7_score) %>% dplyr::count()
+anno <- anno[match(anno$KRT5_7_score, rownames(t(scaled_mat))),]
+
+## Print heatmap 
+Heatmap(assay(cluster_mean_sce_all, "logcounts"), col = viridis(100),name = "Mean Expression")
+Heatmap(scaled_mat, name = "Scaled mean expression")
+
+# Add row annotations 
+Heatmap(t(scaled_mat), name = "Scaled mean expression")+
+  rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$KRT5_7_score))
+```
+
+## Gray et al signatures
+
+A: Alveolar subtypes 
+
+```{r}
+AV_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Lietal_AV_BL_Signatures_reduced.xlsx",sheet = 1)
+
+colnames(AV_sig) <- c("pan_AV", "BL_enriched","AP_enriched")
+
+# Extract unique genes that were up- or down-regulated in each signature 
+panAV_sig_up <- AV_sig$pan_AV
+panAV_sig_up <- panAV_sig_up[!is.na(panAV_sig_up)]
+
+BL_sig_up <- AV_sig$BL_enriched
+BL_sig_up <- BL_sig_up[!is.na(BL_sig_up)]
+
+AP_sig_up <- AV_sig$AP_enriched
+AP_sig_up <- AP_sig_up[!is.na(AP_sig_up)]
+```
+
+```{r}
+## 1. pan AV signature per PID group 
+panAV_sig_up_rel <- panAV_sig_up[panAV_sig_up %in% rownames(assay(sce_all))]
+
+stem_mean_sce_all <- aggregateAcrossCells(sce_all, ids = DataFrame(sce_all$KRT5_7_score,sce_all$PID), #Aggregate for score AND per line 
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rownames(sce_all) %in% panAV_sig_up_rel)
+
+test <- as.data.frame(scale(t(assay(stem_mean_sce_all, "logcounts")), center = TRUE))
+
+plot_df <- data.frame(signature_score = rowSums(test), cat = stem_mean_sce_all$sce_all.KRT5_7_score, PID = stem_mean_sce_all$sce_all.PID)
+
+plot_df$cat <- factor(plot_df$cat, levels = c("KRT5/7-", "KRT7+", "KRT5+","KRT5/7+"))
+
+#Boxplot 
+ggplot(plot_df, aes(x = cat, y = signature_score))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce_all)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Pan-Alveolar signature (Li et al.)")+
+  stat_compare_means()
+
+# Heatmap 
+test$cat <- stem_mean_sce_all$sce_all.KRT5_7_score
+
+test_out <- test %>% pivot_longer(cols = 1:41, names_to = "genes", values_to = "exprs") %>% group_by(cat,genes) %>% dplyr::summarize(sum = sum(exprs))
+
+test_plot <- test_out %>% pivot_wider(names_from = genes, values_from = sum) %>% column_to_rownames("cat")
+
+Heatmap(test_plot)
+
+## Option 2: Aggregated by score and per single cell
+stem_mean_sce_all <- assay(sce_all, "logcounts")[rownames(sce_all) %in% panAV_sig_up_rel,]
+
+stem_mean_sce_all <- as.data.frame(as.matrix(stem_mean_sce_all))
+
+test <- as.data.frame(scale(t(stem_mean_sce_all)), center = TRUE)
+
+test$KRT5_7_score <- sce_all$KRT5_7_score[match(rownames(test), colnames(sce_all))]
+
+plot_df <- data.frame(signature_score = rowSums(test[1:(ncol(test)-1)]), cat = test$KRT5_7_score) #PID = stem_mean_sce_all$sce_all.PID)
+
+plot_df$cat <- factor(plot_df$cat, levels = c("KRT5/7-", "KRT7+", "KRT5+","KRT5/7+"))
+
+#Boxplot 
+ggplot(plot_df, aes(x = cat, y = signature_score))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce_all)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Basal luminal signature (Li et al.)")+
+  stat_compare_means()
+
+#Heatmap
+heat <- plot_df %>% group_by(cat) %>% summarise(mean = mean(signature_score)) %>% pivot_wider(names_from = cat, values_from = mean)
+Heatmap(heat)
+```
+
+```{r}
+## 2. BL signature per PID group 
+## Option 1: Aggregated by score and PID 
+BL_sig_up_rel <- BL_sig_up[BL_sig_up %in% rownames(assay(sce_all))]
+
+stem_mean_sce_all <- aggregateAcrossCells(sce_all, ids = DataFrame(sce_all$KRT5_7_score, sce_all$PID), #Aggregate for score AND per PID
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rownames(sce_all) %in% BL_sig_up_rel)
+
+test <- as.data.frame(scale(t(assay(stem_mean_sce_all))), center = TRUE)
+
+plot_df <- data.frame(signature_score = rowSums(test), cat = stem_mean_sce_all$sce_all.KRT5_7_score, PID = stem_mean_sce_all$sce_all.PID)
+
+plot_df$cat <- factor(plot_df$cat, levels = c("KRT5/7-", "KRT7+", "KRT5+","KRT5/7+"))
+
+#Boxplot 
+ggplot(plot_df, aes(x = cat, y = signature_score))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce_all)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Basal luminal signature (Li et al.)")+
+  stat_compare_means()
+
+# Heatmap 
+test$cat <- stem_mean_sce_all$sce_all.KRT5_7_score
+
+test_out <- test %>% pivot_longer(cols = 1:ncol(test)-1, names_to = "genes", values_to = "exprs") %>% group_by(cat,genes) %>% dplyr::summarize(sum = sum(exprs))
+
+test_plot <- test_out %>% pivot_wider(names_from = genes, values_from = sum) %>% column_to_rownames("cat")
+
+Heatmap(test_plot)
+
+
+## Option 2: Aggregated by score and per single cell
+stem_mean_sce_all <- assay(sce_all, "logcounts")[rownames(sce_all) %in% BL_sig_up_rel,]
+
+stem_mean_sce_all <- as.data.frame(as.matrix(stem_mean_sce_all))
+
+test <- as.data.frame(scale(t(stem_mean_sce_all)), center = TRUE)
+
+test$KRT5_7_score <- sce_all$KRT5_7_score[match(rownames(test), colnames(sce_all))]
+
+plot_df <- data.frame(signature_score = rowSums(test[1:(ncol(test)-1)]), cat = test$KRT5_7_score) #PID = stem_mean_sce_all$sce_all.PID)
+
+plot_df$cat <- factor(plot_df$cat, levels = c("KRT5/7-", "KRT7+", "KRT5+","KRT5/7+"))
+
+#Boxplot 
+ggplot(plot_df, aes(x = cat, y = signature_score))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce_all)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Basal luminal signature (Li et al.)")+
+  stat_compare_means()
+
+#Heatmap
+heat <- plot_df %>% group_by(cat) %>% summarise(mean = mean(signature_score)) %>% pivot_wider(names_from = cat, values_from = mean)
+Heatmap(heat)
+```
+
+## Lim et al signatures
+
+```{r}
+lum_progenitor_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/LuminalProgenitor_Signature_Limetal_NatureMedicine_2009.xls")
+mature_lum_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/MatureLuminalSignature_Limetal_NatureMedicine_2009.xls")
+basal_sig <- read_excel("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Basal_Signature_Limetal_NatureMedicine_2009.xls")
+
+# Extract unique genes that were up- or down-regulated in each signature 
+lum_progenitor_sig_up <- lum_progenitor_sig %>% filter(`Average log fold-change` > 1) %>% pull(Symbol) %>% unique()
+lum_progenitor_sig_up <- lum_progenitor_sig_up[!is.na(lum_progenitor_sig_up)]
+lum_progenitor_sig_down <- lum_progenitor_sig %>% filter(`Average log fold-change` < -1) %>% pull(Symbol) %>% unique()
+lum_progenitor_sig_down <- lum_progenitor_sig_down[!is.na(lum_progenitor_sig_down)]
+
+mature_lum_sig_up <- mature_lum_sig %>% filter(`Average log fold-change` > 1) %>% pull(Symbol) %>% unique()
+mature_lum_sig_up <- mature_lum_sig_up[!is.na(mature_lum_sig_up)]
+mature_lum_sig_down <- mature_lum_sig %>% filter(`Average log fold-change` < -1) %>% pull(Symbol) %>% unique()
+mature_lum_sig_down <- mature_lum_sig_down[!is.na(mature_lum_sig_down)]
+
+basal_sig_up <- basal_sig %>% filter(`Average log fold-change` > 1) %>% pull(Symbol) %>% unique()
+basal_sig_up <- basal_sig_up[!is.na(basal_sig_up)]
+basal_sig_down <- basal_sig %>% filter(`Average log fold-change` < -1) %>% pull(Symbol) %>% unique()
+basal_sig_down <- basal_sig_down[!is.na(basal_sig_down)]
+```
+
+```{r}
+## 1. Luminal progenitor signature per PID group 
+lum_progenitor_sig_up_rel <- lum_progenitor_sig_up[lum_progenitor_sig_up %in% rownames(assay(sce_all))]
+
+stem_mean_sce_all <- aggregateAcrossCells(sce_all, ids = DataFrame(sce_all$KRT5_7_score,sce_all$PID), #Aggregate for score AND per PID
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rownames(sce_all) %in% lum_progenitor_sig_up_rel)
+
+test <- as.data.frame(scale(t(assay(stem_mean_sce_all, "logcounts")), center = TRUE))
+
+plot_df <- data.frame(signature_score = rowSums(test,na.rm = TRUE), cat = stem_mean_sce_all$sce_all.KRT5_7_score, PID = stem_mean_sce_all$sce_all.PID)
+
+plot_df$cat <- factor(plot_df$cat, levels = c("KRT5/7-", "KRT7+", "KRT5+","KRT5/7+"))
+
+#Boxplot 
+ggplot(plot_df, aes(x = cat, y = signature_score))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce_all)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Luminal progenitor signature (Lim et al.)")+
+  stat_compare_means()
+
+# Heatmap 
+test$cat <- stem_mean_sce_all$sce_all.KRT5_7_score
+
+test_out <- test %>% pivot_longer(cols = 1:ncol(test)-1, names_to = "genes", values_to = "exprs") %>% group_by(cat,genes) %>% dplyr::summarize(sum = sum(exprs))
+
+test_plot <- test_out %>% pivot_wider(names_from = genes, values_from = sum) %>% column_to_rownames("cat")
+
+Heatmap(test_plot)
+
+## Option 2: Aggregated by score and per single cell
+stem_mean_sce_all <- assay(sce_all, "logcounts")[rownames(sce_all) %in% lum_progenitor_sig_up_rel,]
+
+stem_mean_sce_all <- as.data.frame(as.matrix(stem_mean_sce_all))
+
+test <- as.data.frame(scale(t(stem_mean_sce_all)), center = TRUE)
+
+test$KRT5_7_score <- sce_all$KRT5_7_score[match(rownames(test), colnames(sce_all))]
+
+plot_df <- data.frame(signature_score = rowSums(test[1:(ncol(test)-1)], na.rm = TRUE), cat = test$KRT5_7_score) #PID = stem_mean_sce_all$sce_all.PID)
+
+plot_df$cat <- factor(plot_df$cat, levels = c("KRT5/7-", "KRT7+", "KRT5+","KRT5/7+"))
+
+
+#Boxplot 
+ggplot(plot_df, aes(x = cat, y = signature_score))+
+  geom_boxplot(outlier.color = NA)+
+  geom_jitter(aes(color = cat), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce_all)$colors$KRT57_score)+
+  theme_classic()+
+  ylab("Basal luminal signature (Li et al.)")+
+  stat_compare_means()
+
+#Heatmap
+heat <- plot_df %>% group_by(cat) %>% summarise(mean = mean(signature_score)) %>% pivot_wider(names_from = cat, values_from = mean)
+Heatmap(heat)
+```
+
+
+# 6. Differential gene expression analysis
+
+A) DEG between KRT5/7+ and all others 
+
+```{r}
+sce_all$KRT5_7_score_sum <- ifelse(sce_all$KRT5_7_score == "KRT5/7+", "KRT5/7+", "Not_KRT5/7+")
+sce_all$KRT5_7_score_sum <- factor(sce_all$KRT5_7_score_sum, levels = c("Not_KRT5/7+","KRT5/7+"))
+```
+
+Create pseudobulk-profiles (sample-label combination)
+
+```{r}
+summed <- aggregateAcrossCells(sce_all, id=colData(sce_all)[,c("KRT5_7_score_sum", "PID")])
+summed
+```
+
+```{r}
+between.res <- pseudoBulkDGE(summed,
+    label=rep("dummy", ncol(summed)),
+    design=~factor(PID) + KRT5_7_score_sum,
+    coef="KRT5_7_score_sumKRT5/7+")[[1]]
+
+plot_df <- between.res %>% as.data.frame %>% arrange(PValue) %>% rownames_to_column(var = "gene") %>% mutate(sig = ifelse((FDR<0.05 & logFC > 1) | (FDR<0.05 & logFC < -1), TRUE, FALSE))
+
+# Volcano plot
+ggplot(plot_df, aes(x = logFC, y = -log10(FDR)))+
+  geom_point(aes(col=sig, size = -log10(FDR)))+
+  geom_label_repel(data = plot_df %>% filter((FDR<0.05 & logFC > 1) | (FDR<0.05 & logFC < -1)), aes(label = gene))+
+  scale_color_brewer(palette = "Set1")+
+  xlab("logFC (KRT5_7_score)")+
+  ylab("-log10(FDR)")+
+  theme_classic()+
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed")+
+  geom_vline(xintercept = 1, linetype = "dashed")+
+  geom_vline(xintercept = -1, linetype = "dashed")+
+  labs(color = "cluster")
+```
+
+# 7. Gene set enrichment analysis 
+
+With `clusterProfiler`. 
+
+```{r}
+organism <- "org.Hs.eg.db"
+
+res <- between.res
+
+# Prepare input gene list based on log2foldchanges 
+original_gene_list <- res$logFC
+names(original_gene_list) <- rownames(res)
+gene_list <- na.omit(original_gene_list)
+gene_list <- sort(gene_list, decreasing = TRUE) # sort in decreasing order
+
+# Run GO analysis
+gse <- gseGO(geneList=gene_list, 
+             ont ="BP", 
+             keyType = "SYMBOL", 
+             minGSSize = 50, 
+             maxGSSize = 1000, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = organism, 
+             pAdjustMethod = "BH")
+
+# Visualization
+## Dot plot
+dotplot(gse, showCategory=5, split=".sign") + facet_grid(~.sign)
+
+## Emap plot
+emapplot(pairwise_termsim(gse), showCategory = 10, color = "enrichmentScore", layout = "circle")
+
+## GSEA plot
+gseaplot2(gse, title = gse$Description[9], geneSetID = 1)
+gseaplot2(gse, title = gse$Description[10], geneSetID = 1)
+gseaplot2(gse, title = gse$Description[14], geneSetID = 1)
+```
+
+# Save objects
+
+```{r}
+#saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/SCEObject_palwu_sct.rds")
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/SCEObject_palwu_sct_full.rds")
+```
+
+# Session Info 
+
+```{r}
+sessionInfo()
+```

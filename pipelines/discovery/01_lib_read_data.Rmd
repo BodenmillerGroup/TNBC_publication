@@ -1,0 +1,134 @@
+---
+title: "01_lib_read_data"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# A stratification system for breast cancer based on basoluminal tumor cells and spatial tumor architecture, Meyer et al., 2025 
+
+**DISCLAIMER**: Pipeline scripts contain all code used for data presented in the publication but also small exploratory data analysis parts. For reproducing the figures, please refer to the figure-related scripts and cleaned data objects provided on **Zenodo** (<https://zenodo.org/records/>). File paths have to be adjusted by the user. 
+
+Code related to following cleaned **Zenodo** objects: / 
+
+# Discovery 
+
+Data analysis scripts for IMC data analysis in the discovery cohort. 
+
+# Script 1: Read in data
+
+## Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+library(SingleCellExperiment)
+library(CATALYST)
+library(scuttle)
+library(scater)
+library(imcRtools)
+library(cytomapper)
+library(dittoSeq)
+library(viridis)
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(BiocParallel)
+```
+
+## Read in single-cell information
+
+based on [SingleCellExperiment](https://bioconductor.org/packages/release/bioc/html/SingleCellExperiment.html) and IMC data preprocessed with the [steinbock](https://bodenmillergroup.github.io/steinbock/latest/) framework. 
+
+```{r read and inspect steinbock}
+sce <- read_steinbock("/mnt/central_nas/tnbc_volume/TNBC/",intensities_folder = "intensities",regionprops_folder = "regionprops", graphs_folder = "neighbors",return_as = "sce")
+sce
+```
+
+## SCE processing
+
+```{r set-colnames}
+colnames(sce) <- sce$cell_id <- paste0(sce$sample_id, "_", sce$ObjectNumber)
+
+rownames(sce) <- rowData(sce)$clean_target
+```
+
+Read in metadata
+
+```{r add-meta}
+meta <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/Metadata_Combined_TNBC_LM.csv",row.names = 1)
+meta_249 <- read.csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/ZTMA249_TNBC_LM_processed_bysample.csv",row.names = 1) %>% select(ID_Number,PID)
+
+## Add PID
+PID_df <- data.frame(sample_id = unique(sce$sample_id),
+           ZTMA174_ID = str_split(unique(sce$sample_id),"_",simplify = TRUE)[,3],
+           ZTMA249_ID = str_split(unique(sce$sample_id),"_",simplify = TRUE)[,4])
+
+PID_df$ZTMA249_PID <- meta_249$PID[match(PID_df$ZTMA249_ID,meta_249$ID_Number)]
+
+PID_df <- PID_df %>% mutate(PID = ifelse(ZTMA174_ID == "ID",ZTMA249_PID,ZTMA174_ID))
+
+sce$PID <- PID_df$PID[match(sce$sample_id,PID_df$sample_id)]
+
+# Remove sample with no available PID (ZTMA249.1_ZTMA249_ID_247_CX7Y1_99)
+sce <- sce[,!is.na(sce$PID)]
+
+## Add other relevant metadata based on PID
+for (entry in colnames(meta)[!colnames(meta) %in% c("PID","ID_Number","OS_data","DFS_data")]) {
+  colData(sce)[,entry] <- meta[,entry][match(colData(sce)[,"PID"],meta[,"PID"])]
+}
+```
+
+Subset markers of interest for downstream analysis.
+
+```{r select-features}
+rowData(sce)$use_channel <- !grepl("DNA|Histone", rowData(sce)$clean_target)
+```
+
+Define color schemes
+
+```{r color-scheme}
+colors <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/color_meta.rds")
+colors
+
+metadata(sce)$colors <- colors
+```
+
+### Count transformation
+
+```{r transform-counts, message=FALSE, fig.width=7,fig.height=10}
+set.seed(22)
+cur_id <- sample(sce$sample_id,5)
+
+#Raw counts
+multi_dittoPlot(sce[,sce$sample_id %in% cur_id], vars = rownames(sce)[rowData(sce)$clean_target %in% c("panCK","Vimentin","CD45","CD3","CD68")],
+               group.by = "PID", plots = c("ridgeplot"), 
+               assay = "counts", 
+               color.panel = metadata(sce)$colors$PID)
+
+#Transform counts with acsinh and a cofactor of 1
+assay(sce, "exprs") <- asinh(counts(sce)/1)
+
+multi_dittoPlot(sce[,sce$sample_id %in% cur_id], vars = rownames(sce)[rowData(sce)$clean_target %in% c("panCK","Vimentin","CD45","CD3","CD68")],
+               group.by = "PID", plots = c("ridgeplot"), 
+               assay = "exprs", 
+               color.panel = metadata(sce)$colors$PID)
+
+```
+
+# Save objects
+
+Note that masks and images were loaded, modified and saved in the [00_seg_mesmer_QC.Rmd]() script. 
+
+```{r save-objects-read-data}
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_sce_TNBC.rds")
+```
+
+# Session Info 
+
+```{r}
+sessionInfo()
+```
+

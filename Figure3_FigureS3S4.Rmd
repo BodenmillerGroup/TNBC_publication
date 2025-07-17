@@ -1,0 +1,1265 @@
+---
+title: null
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# A stratification system for breast cancer based on basoluminal tumor cells and spatial tumor architecture, Meyer et al., 2025 
+
+# Figure 3 and Figure S3/4
+
+Data analysis scripts for re-creating Figure 3 and Figure S4/5. 
+
+# Software requirements
+
+```{r, message=FALSE,warning=FALSE}
+library(SingleCellExperiment)
+library(tidyverse)
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(conflicted)
+library(survival)
+library(survminer)
+library(glmnet)
+library(doMC)
+library(gridExtra)
+library(wesanderson)
+library(DESeq2)
+library(edgeR)
+library(ggrepel)
+library(dittoSeq)
+```
+
+```{r, message=FALSE,warning=FALSE}
+conflicts_prefer(dplyr::desc)
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(dplyr::count)
+```
+
+# Read data
+
+```{r}
+# Available from Zenodo - DOI: 10.5281/zenodo.15396067
+# File paths have to be adjusted by the user
+
+## SCE objects
+sce_TUM <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/SCE/sce_TUM.rds")
+sce_fischer_ALL <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/SCE/sce_fischer_ALL.rds")
+sce_fischer_TNBC <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/SCE/sce_fischer_TNBC.rds")
+
+## Other
+TCGA_DET <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/OTHER/TCGA_DET.rds")
+TCGA_DS <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/OTHER/TCGA_DS.rds")
+MDACC_ES <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/OTHER/MDACC_ES.rds")
+MDACC_EXP <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/OTHER/MDACC_EXP.rds")
+```
+
+# Figure 3
+
+## 3A
+
+```{r}
+# Cox proportional hazards model
+## MULTIVARIATE 
+
+PID_metacluster <- colData(sce_TUM) %>% as.data.frame() %>%
+  select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metacluster <- PID_metacluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_metagroups <- PID_metacluster %>% pivot_wider(id_cols = "PID",names_from = "metacluster",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("MC",colnames(PID_metagroups))
+
+Cox_df <- PID_metagroups
+
+### Add clinical covariates
+Cox_df$status_DFS <- sce_TUM$status_DFS[match(rownames(Cox_df),sce_TUM$PID)]
+Cox_df$DFS_months <- sce_TUM$DFS_months[match(rownames(Cox_df),sce_TUM$PID)]
+
+Cox_df$age <- sce_TUM$age[match(rownames(Cox_df),sce_TUM$PID)]
+Cox_df$grade <- factor(sce_TUM$grade[match(rownames(Cox_df),sce_TUM$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce_TUM$pT_simple[match(rownames(Cox_df),sce_TUM$PID)])
+Cox_df$pN_simple <- as.factor(sce_TUM$pN_simple[match(rownames(Cox_df),sce_TUM$PID)])
+Cox_df$pM_simple <- as.factor(sce_TUM$pM_simple[match(rownames(Cox_df),sce_TUM$PID)])
+
+### Based on mean division of cluster proportions
+Cox_df_mean <- foreach(i = Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
+Cox_df %>% select(i) %>% mutate(mean = ifelse(Cox_df[,i] > mean(Cox_df[,i]),"B","A")) %>% pull(mean)
+}
+
+colnames(Cox_df_mean) <- Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+rownames(Cox_df_mean) <- Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
+Cox_df_mean <- as.data.frame(Cox_df_mean)
+Cox_df_mean <- cbind(Cox_df_mean, Cox_df %>% select(status_DFS,DFS_months, status_DFS, DFS_months, age, grade, pT_simple, pN_simple, pM_simple))
+covariates <- Cox_df_mean %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+multi_model <- coxph(multi_formula, data = Cox_df_mean)
+multi_res <- summary(multi_model)
+
+plot_df_mean <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],3),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],3),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],3),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],3),
+                      wald_test = signif(multi_res$waldtest["pvalue"],3))
+
+
+### Plot hazard ratios
+hr_mean <- ggplot(plot_df_mean, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for mean")+
+theme_classic()+
+coord_cartesian(ylim=c(0.1,200))+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_mean
+```
+
+## 3B
+
+```{r}
+# Kaplan-Meier
+fit <- survfit(Surv(DFS_months, status_DFS) ~ MC8, data = Cox_df_mean)
+
+p1 <- ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv",
+          ggtheme = theme_classic(),
+          palette = "Set1")
+p1
+```
+
+## 3C
+
+```{r}
+# Kaplan-Meier
+cur_surv <- colData(sce_TUM) %>% as.data.frame() %>% 
+  select(PID, pN_merg,OS_months, DFS_months, status_DFS, status_OS) %>% unique()
+          
+fit <- survfit(Surv(DFS_months, status_DFS) ~ pN_merg, data = cur_surv)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(),
+          palette = c("grey","purple"))
+```
+
+## 3D
+
+```{r}
+### Differential abundance analysis based on edgeR
+abundances <- table(unfactor(sce_TUM$metacluster), sce_TUM$PID)
+abundances <- unclass(abundances) 
+meta <- colData(sce_TUM)[match(colnames(abundances), sce_TUM$PID),]
+meta$pN_merg <- relevel(x=factor(meta$pN_merg), ref = "0")
+
+#filter
+meta <- meta[!is.na(meta$pN_merg),]
+abundances <- abundances[,colnames(abundances) %in% meta$PID]
+
+#create DGEList - based on edgeR package
+y.ab <- DGEList(abundances, samples=meta, group = meta$pN_merg)
+
+#Design matrix
+design <- model.matrix(~pN_merg, data = y.ab$samples)
+
+#Estimate NB and QL dispersion 
+y.ab <- estimateDisp(y.ab, design, trend="none")
+fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
+
+#Test for differential abundance
+res <- glmQLFTest(fit.ab, coef=ncol(design))
+DA <- res$table
+DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
+  arrange(desc(logFC))
+DA$cluster <- factor(DA$cluster, levels = DA$cluster)
+sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
+
+## Visualize
+# Abundance vs log fold change
+ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
+  scale_color_manual(values = metadata(sce_TUM)$colors$metacluster)+
+  xlab("logFC (pN: 0 vs 1/2/3)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+```
+
+## 3E
+
+```{r}
+## Scaled score proportion
+
+# Body
+score_PID <- colData(sce_TUM) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
+score_PID$CK5_7_group <- sce_TUM$CK5_7_group[match(score_PID$PID, sce_TUM$PID)]
+
+heat_mean <- score_PID %>% group_by(CK5_7_score, CK5_7_group) %>% summarize(mean = mean(fra)) %>% pivot_wider(names_from = "CK5_7_group", values_from = "mean") %>% column_to_rownames("CK5_7_score")
+heat_out <- t(scale(heat_mean))
+
+# Anno
+anno <- score_PID %>% select(PID, CK5_7_group) %>% unique() %>% group_by(CK5_7_group) %>% count()
+
+# Final 
+h_1 <- Heatmap(heat_out, 
+        name = "Scaled score proportion")+
+  rowAnnotation(group = anno_text(anno$CK5_7_group))+
+  rowAnnotation(n_PID = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))
+
+h_1 <- draw(h_1)
+```
+
+## 3F
+
+```{r}
+# Cox proportional hazards model
+## MULTIVARIATE 
+
+PID_CK57 <- colData(sce_TUM) %>% as.data.frame() %>% 
+  select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("CK57_",colnames(PID_metagroups))
+
+Cox_df <- PID_metagroups
+
+### Add clinical covariates
+Cox_df$status_DFS <- sce_TUM$status_DFS[match(rownames(Cox_df),sce_TUM$PID)]
+Cox_df$DFS_months <- sce_TUM$DFS_months[match(rownames(Cox_df),sce_TUM$PID)]
+
+Cox_df$age <- sce_TUM$age[match(rownames(Cox_df),sce_TUM$PID)]
+Cox_df$grade <- factor(sce_TUM$grade[match(rownames(Cox_df),sce_TUM$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce_TUM$pT_simple[match(rownames(Cox_df),sce_TUM$PID)])
+Cox_df$pN_simple <- as.factor(sce_TUM$pN_simple[match(rownames(Cox_df),sce_TUM$PID)])
+Cox_df$pM_simple <- as.factor(sce_TUM$pM_simple[match(rownames(Cox_df),sce_TUM$PID)])
+
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -CK57_4) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+CK57_4"))
+multi_model <- coxph(multi_formula, data = Cox_df)
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],3),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],3),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],3),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],3),
+                      wald_test = signif(multi_res$waldtest["pvalue"],3))
+
+
+### Plot hazard ratios
+hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0.1,100))+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+## 3G
+
+```{r}
+# Scaled mean fraction heatmap
+
+# Body
+score_PID <- colData(sce_fischer_ALL) %>% as.data.frame %>% group_by(PID,CK5_7_score) %>% count() %>% group_by(PID) %>% mutate(fra = n/sum(n))
+score_PID$CK5_7_group <- sce_fischer_ALL$CK5_7_group[match(score_PID$PID, sce_fischer_ALL$PID)]
+
+heat_mean <- score_PID %>% group_by(CK5_7_score, CK5_7_group) %>% summarize(mean = mean(fra)) %>% pivot_wider(names_from = "CK5_7_group", values_from = "mean") %>% column_to_rownames("CK5_7_score")
+heat_out <- t(scale(heat_mean))
+
+# Anno
+anno <- score_PID %>% select(PID, CK5_7_group) %>% unique() %>% group_by(CK5_7_group) %>% count()
+
+# Final 
+h_1 <- Heatmap(heat_out, 
+        name = "Scaled score proportion",
+        )+
+  rowAnnotation(group = anno_text(anno$CK5_7_group))+
+  rowAnnotation(n_PID = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))
+
+h_1 <- draw(h_1)
+```
+
+## 3H
+
+```{r}
+# Cox proportional hazards model
+## MULTIVARIATE 
+
+PID_CK57 <- colData(sce_fischer_ALL) %>% as.data.frame() %>%
+  select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("CK57_",colnames(PID_metagroups))
+
+Cox_df <- PID_metagroups
+
+### Add clinical covariates
+Cox_df$status_OS <- sce_fischer_ALL$status_OS[match(rownames(Cox_df),sce_fischer_ALL$PID)]
+Cox_df$OS_months <- sce_fischer_ALL$OS_months[match(rownames(Cox_df),sce_fischer_ALL$PID)]
+
+Cox_df$age <- sce_fischer_ALL$age[match(rownames(Cox_df),sce_fischer_ALL$PID)]
+Cox_df$grade <- factor(sce_fischer_ALL$grade[match(rownames(Cox_df),sce_fischer_ALL$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce_fischer_ALL$pT_simple[match(rownames(Cox_df),sce_fischer_ALL$PID)])
+Cox_df$pN_simple <- as.factor(sce_fischer_ALL$pN_simple[match(rownames(Cox_df),sce_fischer_ALL$PID)])
+Cox_df$pM_simple <- as.factor(sce_fischer_ALL$pM_simple[match(rownames(Cox_df),sce_fischer_ALL$PID)])
+
+covariates <- Cox_df %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple, -CK57_3) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "),"+CK57_3"))
+multi_model <- coxph(multi_formula, data = Cox_df)
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],3),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],3),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],3),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],3),
+                      wald_test = signif(multi_res$waldtest["pvalue"],3))
+
+### Plot hazard ratios
+hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+coord_cartesian(ylim=c(0.1,100))+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+## 3I
+
+```{r}
+# Cox proportional hazards model
+## MULTIVARIATE 
+
+PID_metagroups <- colData(TCGA_DET) %>% as.data.frame() %>% dplyr::select(KRT5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "KRT5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- c("KRT57negative","KRT57positive","KRT5positive","KRT7positive")
+
+Cox_df <- PID_metagroups
+
+### Add clinical covariates
+Cox_df$DFI <- TCGA_DET$DFI[match(rownames(Cox_df),TCGA_DET$PID)]
+Cox_df$DFI.time <- TCGA_DET$DFI.time[match(rownames(Cox_df),TCGA_DET$PID)]
+
+Cox_df$age <- as.numeric(TCGA_DET$age[match(rownames(Cox_df),TCGA_DET$PID)])
+Cox_df$pT_simple <- as.factor(TCGA_DET$Tumor_nature2012[match(rownames(Cox_df),TCGA_DET$PID)])
+Cox_df$pN_simple <- as.factor(TCGA_DET$Node_nature2012[match(rownames(Cox_df),TCGA_DET$PID)])
+Cox_df$pM_simple <- as.factor(TCGA_DET$Metastasis_nature2012[match(rownames(Cox_df),TCGA_DET$PID)])
+
+covariates <- Cox_df %>% select(-DFI,-DFI.time, -age, -pT_simple, -pN_simple, -pM_simple, - KRT57negative) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFI.time, DFI) ~ age + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + "), "+ KRT57negative"))
+multi_model <- coxph(multi_formula, data = Cox_df)
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],3),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],3),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],3),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],3),
+                      wald_test = signif(multi_res$waldtest["pvalue"],3))
+
+
+### Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Covariates")+
+ylab("HR for PID groups")+
+theme_classic()+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+## 3J
+
+```{r}
+# Kaplan-Meier 
+cur_surv <- colData(TCGA_DET) %>% as.data.frame() %>% dplyr::select(PID, KRT5_7_score, DFI, DFI.time)
+
+# Plot survival curves
+fit <- survfit(Surv(DFI.time, DFI) ~ KRT5_7_score, data = cur_surv)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(),
+          palette = c("grey","#85D4E3","#F4B5BD","#9C964A"),
+          log.rank.weights = "n", 
+          xlim = c(0, 4000))
+```
+
+## 3K
+
+```{r}
+# Cox proportional hazards model
+## MULTIVARIATE 
+
+PID_metagroups <- pData(MDACC_ES) %>% 
+  as.data.frame() %>% 
+  dplyr::select(KRT5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "KRT5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- c("KRT57negative","KRT57positive", "KRT5positive","KRT7positive")
+
+Cox_df <- PID_metagroups
+
+### Add clinical covariates
+Cox_df$DFI.time <- as.numeric(MDACC_ES$`drfs_even_time_years:ch1`)[match(rownames(Cox_df),MDACC_ES$PID)]
+Cox_df$DFI <- as.numeric(MDACC_ES$`drfs_1_event_0_censored:ch1`)[match(rownames(Cox_df),MDACC_ES$PID)]
+
+Cox_df$age <- as.numeric(MDACC_ES$`age_years:ch1`[match(rownames(Cox_df),MDACC_ES$PID)])
+Cox_df$grade <- as.factor(MDACC_ES$`grade:ch1`[match(rownames(Cox_df),MDACC_ES$PID)])
+Cox_df$grade[Cox_df$grade == "NA"] <- NA 
+Cox_df$grade <- factor(Cox_df$grade)
+Cox_df$pT_simple <- as.factor(MDACC_ES$`clinical_t_stage:ch1`[match(rownames(Cox_df),MDACC_ES$PID)])
+Cox_df$pN_simple <- as.factor(MDACC_ES$`clinical_nodal_status:ch1`[match(rownames(Cox_df),MDACC_ES$PID)])
+
+covariates <- Cox_df %>% select(-DFI,-DFI.time, -age, -pT_simple, -pN_simple, -grade, - KRT57negative) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFI.time, DFI) ~ age + pT_simple + pN_simple + grade +", paste(covariates, collapse = " + "), "+ KRT57negative"))
+multi_model <- coxph(multi_formula, data = Cox_df)
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+### Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,dplyr::desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Covariates")+
+ylab("HR for PID groups")+
+theme_classic()+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+## 3L
+
+```{r}
+#Assess survival impact 
+cur_surv <- pData(MDACC_ES) %>% as.data.frame() %>% dplyr::select(PID, KRT5_7_score, DRFS, DRFS_time)
+
+#Plot survival curves
+fit <- survfit(Surv(DRFS_time, DRFS) ~ KRT5_7_score, data = cur_surv)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(), 
+          palette = c("grey","#85D4E3","#F4B5BD","#9C964A"))
+```
+
+# Figure S3
+
+## S3A
+
+```{r}
+# Cox proportional hazards model
+## UNIVARIATE
+
+PID_metacluster <- colData(sce_TUM) %>% as.data.frame() %>%
+  select(metacluster,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metacluster <- PID_metacluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_metagroups <- PID_metacluster %>% pivot_wider(id_cols = "PID",names_from = "metacluster",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("MC",colnames(PID_metagroups))
+
+Cox_df <- PID_metagroups
+
+### Add clinical covariates
+Cox_df$status_DFS <- sce_TUM$status_DFS[match(rownames(Cox_df),sce_TUM$PID)]
+Cox_df$DFS_months <- sce_TUM$DFS_months[match(rownames(Cox_df),sce_TUM$PID)]
+
+### Based on mean division of cluster proportions
+Cox_df_mean <- foreach(i = Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months) %>% colnames,.combine = "cbind")%do%{
+Cox_df %>% select(i) %>% mutate(mean = ifelse(Cox_df[,i] > mean(Cox_df[,i]),"B","A")) %>% pull(mean)
+}
+
+colnames(Cox_df_mean) <- Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months) %>% colnames
+rownames(Cox_df_mean) <- Cox_df %>% select(-status_DFS,-DFS_months, -status_DFS,-DFS_months) %>% rownames
+Cox_df_mean <- as.data.frame(Cox_df_mean)
+Cox_df_mean <- cbind(Cox_df_mean, Cox_df %>% select(status_DFS,DFS_months, status_DFS, DFS_months))
+covariates <- Cox_df_mean %>% select(-status_DFS,-DFS_months) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ ", paste(covariates, collapse = " + ")))
+multi_model <- coxph(multi_formula, data = Cox_df_mean)
+multi_res <- summary(multi_model)
+
+plot_df_mean <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],3),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],3),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],3),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],3),
+                      wald_test = signif(multi_res$waldtest["pvalue"],3))
+
+
+### Plot hazard ratios
+hr_mean <- ggplot(plot_df_mean, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for mean")+
+theme_classic()+
+coord_cartesian(ylim=c(0.1,4))+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_mean
+```
+
+## S3B
+
+```{r}
+# Lasso-regularized Cox proportional hazards model
+## MULTIVARIATE
+
+PID_cluster <- colData(sce_TUM) %>% as.data.frame() %>% select(cluster_110,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_cluster <- PID_cluster %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_groups <- PID_cluster %>% pivot_wider(id_cols = "PID",names_from = "cluster_110",values_from = "fra") %>% column_to_rownames("PID")
+
+Cox_df <- PID_groups
+
+### Clinical covariates
+Cox_df$status_DFS <- sce_TUM$status_DFS[match(rownames(Cox_df),sce_TUM$PID)]
+Cox_df$DFS_months <- sce_TUM$DFS_months[match(rownames(Cox_df),sce_TUM$PID)]
+
+Cox_df$age <- sce_TUM$age[match(rownames(Cox_df),sce_TUM$PID)]
+Cox_df$grade <- factor(sce_TUM$grade[match(rownames(Cox_df),sce_TUM$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce_TUM$pT_simple[match(rownames(Cox_df),sce_TUM$PID)])
+Cox_df$pN_simple <- as.factor(sce_TUM$pN_simple[match(rownames(Cox_df),sce_TUM$PID)])
+Cox_df$pM_simple <- as.factor(sce_TUM$pM_simple[match(rownames(Cox_df),sce_TUM$PID)])
+Cox_df <- Cox_df[complete.cases(Cox_df),]
+Cox_df <- Cox_df %>% filter(DFS_months != 0)
+
+x <-  data.matrix(Cox_df %>% select(-status_DFS,-DFS_months))
+y <- Surv(time = Cox_df$DFS_months, event = Cox_df$status_DFS) 
+
+### Run lasso 
+registerDoMC(cores = 20)
+set.seed(22)
+cv.fit <- cv.glmnet(x, y, family="cox", type.measure = "C", nfolds = 50, parallel = TRUE)
+fit <- glmnet(x, y, family="cox")
+
+### Extract output
+lasso_df <- as.data.frame(as.matrix(coef(fit, s = cv.fit$lambda.min))) %>% rownames_to_column("predictor")
+colnames(lasso_df) <- c("predictor","coef")
+lasso_df <- lasso_df %>% filter(coef != 0)
+lasso_df$HR <- exp(lasso_df$coef)
+ 
+### Visualize hazard ratios
+lasso_plot <- ggplot(lasso_df, aes(x = reorder(predictor,-HR), y = HR)) +
+  geom_point(size = 4, aes(color = HR>1)) +
+  geom_hline(yintercept = 1,color = "black")+
+  ylab("Lasso HR")+
+  xlab("Predictors")+
+  theme_classic()+
+  scale_color_brewer(palette = "Set1")+
+  theme(axis.text.x = element_text(angle = 90))+
+  scale_y_continuous(trans = "log10")
+
+lasso_plot
+```
+
+## S3C
+
+```{r}
+### Differential abundance analysis based on edgeR
+abundances <- table(unfactor(sce_TUM$cluster_110), sce_TUM$PID)
+abundances <- unclass(abundances) 
+meta <- colData(sce_TUM)[match(colnames(abundances), sce_TUM$PID),]
+meta$pN_merg <- relevel(x=factor(meta$pN_merg), ref = "0")
+
+#filter
+meta <- meta[!is.na(meta$pN_merg),]
+abundances <- abundances[,colnames(abundances) %in% meta$PID]
+
+#create DGEList - based on edgeR package
+y.ab <- DGEList(abundances, samples=meta, group = meta$pN_merg)
+
+#Design matrix
+design <- model.matrix(~pN_merg, data = y.ab$samples)
+
+#Estimate NB and QL dispersion 
+y.ab <- estimateDisp(y.ab, design, trend="none")
+fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
+
+#Test for differential abundance
+res <- glmQLFTest(fit.ab, coef=ncol(design))
+DA <- res$table
+DA <- topTags(res, n = nrow(DA), adjust.method = "BH")$table
+DA <- DA %>% mutate(cluster = rownames(DA), sign = DA$FDR<0.1, result = ifelse(DA$logFC > 0 & DA$FDR < 0.1, "UP",ifelse(DA$logFC < 0 & DA$FDR < 0.1, "DOWN", "NOTSIG"))) %>% 
+  arrange(desc(logFC))
+DA$cluster <- factor(DA$cluster, levels = DA$cluster)
+sig <- DA %>% filter(FDR<0.1) %>% pull(cluster) %>% unfactor
+
+## Visualize
+# Abundance vs log fold change
+ggplot(DA, aes(x = logFC, y = logCPM))+
+  geom_point(aes(col= cluster, 
+                 size = -log10(FDR)))+
+  geom_label_repel(data = DA %>% filter(FDR<0.1), aes(label = cluster))+
+  scale_color_manual(values = metadata(sce_TUM)$colors$cluster_110)+
+  xlab("logFC (pN: 0 vs 1/2/3)")+
+  ylab("Abundance (logCPM)")+
+  theme_classic()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(color = "cluster")
+```
+
+## S3D/E
+
+```{r}
+# Cox proportional hazards model
+## MULTIVARIATE
+
+PID_metacluster_predict <- colData(sce_fischer_TNBC) %>% as.data.frame() %>% select(metacluster_predict,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metacluster_predict <- PID_metacluster_predict %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_metagroups <- PID_metacluster_predict %>% pivot_wider(id_cols = "PID",names_from = "metacluster_predict",values_from = "fra") %>% column_to_rownames("PID")
+
+Cox_df <- PID_metagroups
+
+### Add clinical covariates
+Cox_df$status_OS <- sce_fischer_TNBC$status_OS[match(rownames(Cox_df),sce_fischer_TNBC$PID)]
+Cox_df$OS_months <- sce_fischer_TNBC$OS_months[match(rownames(Cox_df),sce_fischer_TNBC$PID)]
+
+Cox_df$age <- sce_fischer_TNBC$age[match(rownames(Cox_df),sce_fischer_TNBC$PID)]
+Cox_df$grade <- factor(sce_fischer_TNBC$grade[match(rownames(Cox_df),sce_fischer_TNBC$PID)], levels = c("3","2","1"))
+Cox_df$pT_simple <- as.factor(sce_fischer_TNBC$pT_simple[match(rownames(Cox_df),sce_fischer_TNBC$PID)])
+Cox_df$pN_simple <- as.factor(sce_fischer_TNBC$pN_simple[match(rownames(Cox_df),sce_fischer_TNBC$PID)])
+Cox_df$pM_simple <- as.factor(sce_fischer_TNBC$pM_simple[match(rownames(Cox_df),sce_fischer_TNBC$PID)])
+
+### Based on mean division of cluster proportions
+Cox_df_mean <- foreach(i = Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames,.combine = "cbind")%do%{
+Cox_df %>% select(i) %>% mutate(mean = ifelse(Cox_df[,i] > mean(Cox_df[,i]),"B","A")) %>% pull(mean)
+}
+colnames(Cox_df_mean) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+rownames(Cox_df_mean) <- Cox_df %>% select(-status_OS,-OS_months, -status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% rownames
+Cox_df_mean <- as.data.frame(Cox_df_mean)
+Cox_df_mean <- cbind(Cox_df_mean, Cox_df %>% select(status_OS,OS_months, status_OS, OS_months, age, grade, pT_simple, pN_simple, pM_simple))
+covariates <- Cox_df_mean %>% select(-status_OS,-OS_months, -age, -grade, -pT_simple, -pN_simple, -pM_simple) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~ age + grade + pT_simple + pN_simple + pM_simple +", paste(covariates, collapse = " + ")))
+multi_model <- coxph(multi_formula, data = Cox_df_mean)
+multi_res <- summary(multi_model)
+
+plot_df_mean <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+### Plot hazard ratios
+hr_mean <- ggplot(plot_df_mean, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metacluster_predicts")+
+ylab("HR for mean")+
+theme_classic()+
+coord_cartesian(ylim=c(0.01,10000))+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_mean
+```
+
+```{r}
+# Kaplan-Meier
+
+fit <- survfit(Surv(OS_months, status_OS) ~ tumor_8, data = Cox_df_mean)
+
+p1 <- ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(),
+          palette = "Set1")+
+  ggtitle("Mean proportion")
+
+p1
+```
+
+## S3F
+
+```{r}
+cur_dat <- t(assay(sce_TUM,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("CK5","CK7")
+cur_dat$CK5_7_score <- sce_TUM$CK5_7_score[match(rownames(cur_dat), sce_TUM$cell_id)]
+cur_dat$GMM_tumor_CK5 <- sce_TUM$GMM_tumor_CK5[match(rownames(cur_dat), sce_TUM$cell_id)]
+cur_dat$GMM_tumor_CK7 <- sce_TUM$GMM_tumor_CK7[match(rownames(cur_dat), sce_TUM$cell_id)]
+
+main <- ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
+  geom_point(alpha = 0.5)+
+  theme_classic()+
+  xlab("CK7 exprs")+
+  ylab("CK5 exprs")+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce_TUM)$colors$CK5_7_score)
+
+y_side <- ggplot(cur_dat, aes(x = CK5, fill=GMM_tumor_CK5)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#F4B5BD')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())+
+  coord_flip()
+
+x_side <- ggplot(cur_dat, aes(x = CK7, fill=GMM_tumor_CK7)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#9C964A')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())
+
+blankPlot <- ggplot()+geom_blank(aes(1,1)) + 
+  cowplot::theme_nothing()
+
+scatter_final <- grid.arrange(x_side, blankPlot, main, y_side, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
+```
+
+## S3G
+
+```{r}
+cell_id_out <- colData(sce_TUM) %>% as.data.frame %>% select(PID,dom_CK57_score, CK5_7_group) %>% unique() %>% rownames_to_column("cell_id") %>% pull("cell_id")
+sce_PID <- sce_TUM[,sce_TUM$cell_id %in% cell_id_out]
+
+dittoBarPlot(sce_PID, var = "dom_CK57_score", group.by = "CK5_7_group")+
+  scale_fill_manual(values = metadata(sce_TUM)$colors$CK5_7_score)+
+  ylab("Percent of patients")+
+  ggtitle(NULL)
+```
+
+## S3H
+
+```{r}
+# Cox proportional hazards model
+## UNIVARIATE
+
+PID_CK57 <- colData(sce_TUM) %>% as.data.frame() %>% 
+  select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("CK57_",colnames(PID_metagroups))
+
+Cox_df <- PID_metagroups
+
+### Add clinical covariates
+Cox_df$status_DFS <- sce_TUM$status_DFS[match(rownames(Cox_df),sce_TUM$PID)]
+Cox_df$DFS_months <- sce_TUM$DFS_months[match(rownames(Cox_df),sce_TUM$PID)]
+
+covariates <- Cox_df %>% select(-status_DFS,-DFS_months, -CK57_4) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFS_months, status_DFS) ~ ", paste(covariates, collapse = " + "),"+CK57_4"))
+multi_model <- coxph(multi_formula, data = Cox_df)
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],3),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],3),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],3),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],3),
+                      wald_test = signif(multi_res$waldtest["pvalue"],3))
+
+
+### Plot hazard ratios
+hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+## S3I
+
+```{r}
+# Kaplan-Meier
+cur_surv <- colData(sce_TUM) %>% as.data.frame() %>% select(PID, CK5_7_group, DFS_months, status_DFS) %>% unique()
+
+#Plot survival curves
+fit <- survfit(Surv(DFS_months, status_DFS) ~ CK5_7_group, data = cur_surv)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata",
+          linetype = "strata",
+          surv.median.line = "hv",
+          ggtheme = theme_classic(),
+          palette = c("#85D4E3","#F4B5BD","#9C964A","grey")
+)
+```
+
+## S3J
+
+```{r}
+cur_dat <- t(assay(sce_fischer_ALL,"exprs")) %>% as.matrix %>% as.data.frame %>% dplyr::select("CK5","CK7")
+cur_dat$CK5_7_score <- sce_fischer_ALL$CK5_7_score[match(rownames(cur_dat), sce_fischer_ALL$cell_id)]
+cur_dat$GMM_tumor_CK5 <- sce_fischer_ALL$GMM_tumor_CK5[match(rownames(cur_dat), sce_fischer_ALL$cell_id)]
+cur_dat$GMM_tumor_CK7 <- sce_fischer_ALL$GMM_tumor_CK7[match(rownames(cur_dat), sce_fischer_ALL$cell_id)]
+
+main <- ggplot(cur_dat, aes(x=CK7, y=CK5, color = CK5_7_score)) +
+  geom_point(alpha = 0.5)+
+  theme_classic()+
+  xlab("CK7 exprs")+
+  ylab("CK5 exprs")+
+  guides(color = "none")+
+  scale_color_manual(values = metadata(sce_fischer_ALL)$colors$CK5_7_score)
+
+y_side <- ggplot(cur_dat, aes(x = CK5, fill=GMM_tumor_CK5)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#F4B5BD')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())+
+  coord_flip()
+
+x_side <- ggplot(cur_dat, aes(x = CK7, fill=GMM_tumor_CK7)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#9C964A')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())
+
+blankPlot <- ggplot()+geom_blank(aes(1,1)) + 
+  cowplot::theme_nothing()
+
+scatter_final <- grid.arrange(x_side, blankPlot, main, y_side, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
+```
+
+## S3K
+
+```{r}
+cell_id_out <- colData(sce_fischer_ALL) %>% as.data.frame %>% select(PID,dom_CK57_score, CK5_7_group) %>% unique() %>% rownames_to_column("cell_id") %>% pull("cell_id")
+sce_PID <- sce_fischer_ALL[,sce_fischer_ALL$cell_id %in% cell_id_out]
+
+dittoBarPlot(sce_PID, var = "dom_CK57_score", group.by = "CK5_7_group")+
+  scale_fill_manual(values = metadata(sce_fischer_ALL)$colors$CK5_7_score)+
+  ylab("Percent of patients")+
+  ggtitle(NULL)
+```
+
+## S3L
+
+```{r}
+# Fischer
+sce_fischer_ALL$CK5_7_group_name <- unfactor(sce_fischer_ALL$CK5_7_group)
+sce_fischer_ALL$CK5_7_group_name[sce_fischer_ALL$CK5_7_group_name == "1"] <- "CK5_dom"
+sce_fischer_ALL$CK5_7_group_name[sce_fischer_ALL$CK5_7_group_name == "2"] <- "CK7_dom"
+sce_fischer_ALL$CK5_7_group_name[sce_fischer_ALL$CK5_7_group_name == "3"] <- "NotCK57_dom"
+sce_fischer_ALL$CK5_7_group_name[sce_fischer_ALL$CK5_7_group_name == "4"] <- "CK57_dom"
+
+sce_fischer_ALL$CK5_7_group_name <- factor(sce_fischer_ALL$CK5_7_group_name, levels = c("NotCK57_dom", "CK57_dom", "CK5_dom", "CK7_dom"))
+fischer_over <- colData(sce_fischer_ALL) %>% as.data.frame %>% select(PID, TNBC, CK5_7_group_name) %>% unique() %>% remove_rownames()
+fischer_TNBC_group <- fischer_over %>% filter(TNBC != "Undefined") %>% group_by(CK5_7_group_name, TNBC) %>% count() %>% ungroup() %>% group_by(TNBC) %>% mutate(fra = n/sum(n)) %>% mutate(dataset = "fischer")
+
+
+# Discovery
+sce_TUM$CK5_7_group_name <- unfactor(sce_TUM$CK5_7_group)
+sce_TUM$CK5_7_group_name[sce_TUM$CK5_7_group_name == "1"] <- "CK57_dom"
+sce_TUM$CK5_7_group_name[sce_TUM$CK5_7_group_name == "2"] <- "CK5_dom"
+sce_TUM$CK5_7_group_name[sce_TUM$CK5_7_group_name == "3"] <- "CK7_dom"
+sce_TUM$CK5_7_group_name[sce_TUM$CK5_7_group_name == "4"] <- "NotCK57_dom"
+sce_TUM$CK5_7_group_name <- factor(sce_TUM$CK5_7_group_name, levels = c("NotCK57_dom", "CK57_dom", "CK5_dom", "CK7_dom"))
+sce_TUM$TNBC <- "TNBC"
+
+discovery_over <- colData(sce_TUM) %>% as.data.frame %>% select(PID, TNBC, CK5_7_group_name) %>% unique() %>% remove_rownames()
+discovery_TNBC_group <- discovery_over %>% group_by(CK5_7_group_name, TNBC) %>% count() %>% ungroup() %>% group_by(TNBC) %>% mutate(fra = n/sum(n)) %>% mutate(dataset = "discovery")
+
+# Combined
+combined_TNBC_group <- rbind(fischer_TNBC_group, discovery_TNBC_group)
+
+ggplot(combined_TNBC_group, aes(x = dataset, y = fra, fill = CK5_7_group_name))+
+  facet_wrap(~TNBC)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("grey","#85D4E3","#F4B5BD","#9C964A"))+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## S3M
+
+```{r}
+# Cox proportional hazards model
+## UNIVARIATE
+
+PID_CK57 <- colData(sce_fischer_ALL) %>% as.data.frame() %>%
+  select(CK5_7_group,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_metagroups <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- paste0("CK57_",colnames(PID_metagroups))
+
+Cox_df <- PID_metagroups
+
+### Add clinical covariates
+Cox_df$status_OS <- sce_fischer_ALL$status_OS[match(rownames(Cox_df),sce_fischer_ALL$PID)]
+Cox_df$OS_months <- sce_fischer_ALL$OS_months[match(rownames(Cox_df),sce_fischer_ALL$PID)]
+
+covariates <- Cox_df %>% select(-status_OS,-OS_months, -CK57_3) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(OS_months, status_OS) ~", paste(covariates, collapse = " + "),"+CK57_3"))
+multi_model <- coxph(multi_formula, data = Cox_df)
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],3),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],3),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],3),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],3),
+                      wald_test = signif(multi_res$waldtest["pvalue"],3))
+
+### Plot hazard ratios
+hr_prop <- 
+ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Tumor metaclusters")+
+ylab("HR for con_prop")+
+theme_classic()+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+## S3N
+
+```{r}
+# Kaplan-Meier
+cur_surv <- colData(sce_fischer_ALL) %>% as.data.frame() %>% select(PID, CK5_7_group, OS_months, status_OS) %>% unique()
+
+fit <- survfit(Surv(OS_months, status_OS) ~ CK5_7_group, data = cur_surv)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, # Add risk table
+          risk.table.col = "strata", # Change risk table color by groups
+          linetype = "strata", # Change line type by groups
+          surv.median.line = "hv", # Specify median survival
+          ggtheme = theme_classic(),
+          palette = c("#F4B5BD","#9C964A","grey","#85D4E3")
+)
+```
+
+
+# Figure S4
+
+## S4A
+
+```{r}
+plot <- as.data.frame(t(counts(TCGA_DS, normalized = TRUE)[rownames(counts(TCGA_DS, normalized = TRUE)) %in% c("KRT5","KRT7"),]))
+plot$KRT5_7_score <- TCGA_DET$KRT5_7_score[match(rownames(plot),colnames(TCGA_DET))]
+plot$GMM_KRT5 <- TCGA_DET$GMM_KRT5[match(rownames(plot),colnames(TCGA_DET))]
+plot$GMM_KRT7 <- TCGA_DET$GMM_KRT7[match(rownames(plot),colnames(TCGA_DET))]
+
+main <- ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
+  geom_point(size = 2, alpha = 0.5)+
+  theme_classic()+
+  xlab("CK7 normalized counts")+
+  ylab("CK5 normalized counts")+
+  coord_cartesian(xlim = c(0,120000), ylim = c(0,300000))+
+  scale_color_manual(values = metadata(TCGA_DET)$colors$KRT57_score)+
+  guides(color = "none")
+
+y_side <- ggplot(plot, aes(x = KRT5, fill=GMM_KRT5)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#F4B5BD')) + 
+  theme_classic()+
+  theme(legend.position = "none", axis.title.y = element_blank())+
+  coord_flip(xlim = c(0,300000), ylim = c(0, 0.00005))
+
+x_side <- ggplot(plot, aes(x = KRT7, fill=GMM_KRT7)) + 
+  geom_density(alpha=0.8) + 
+  scale_fill_manual(values = c('#999999','#9C964A')) + 
+  coord_cartesian(xlim = c(0,120000))+
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())
+
+blankPlot <- ggplot()+geom_blank(aes(1,1)) + 
+  cowplot::theme_nothing()
+
+grid.arrange(x_side, blankPlot, main, y_side, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
+```
+
+## S4B
+
+```{r}
+plot <- as.data.frame(t(MDACC_EXP[rownames(MDACC_EXP) %in% c("KRT5", "KRT7"),]))
+plot$KRT5_7_score <- MDACC_ES$KRT5_7_score[match(rownames(plot),colnames(MDACC_ES))]
+plot$GMM_KRT5 <- MDACC_ES$GMM_KRT5[match(rownames(plot),colnames(MDACC_ES))]
+plot$GMM_KRT7 <- MDACC_ES$GMM_KRT7[match(rownames(plot),colnames(MDACC_ES))]
+
+col_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("KRT5/7-", "KRT5/7+","KRT5+", "KRT7+"))
+
+main <- ggplot(plot, aes(x=KRT7, y=KRT5, color = KRT5_7_score)) +
+  geom_point(size = 2, alpha = 0.5)+
+  theme_classic()+
+  xlab("CK7 log counts")+
+  ylab("CK5 log counts")+
+  scale_color_manual(values = col_score)+
+  guides(color = "none")
+
+y_side <- ggplot(plot, aes(x = KRT5, fill=GMM_KRT5)) +
+  geom_density(alpha=0.8) +
+  scale_fill_manual(values = c('#999999','#F4B5BD')) +
+  theme_classic()+
+  theme(legend.position = "none", axis.title.y = element_blank())+
+  coord_flip()
+
+x_side <- ggplot(plot, aes(x = KRT7, fill=GMM_KRT7)) +
+  geom_density(alpha=0.8) +
+  scale_fill_manual(values = c('#999999','#9C964A')) +
+  theme_classic()+
+  theme(legend.position = "none", axis.title.x = element_blank())
+
+blankPlot <- ggplot()+geom_blank(aes(1,1)) +
+  cowplot::theme_nothing()
+
+grid.arrange(x_side, blankPlot, main, y_side,
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
+```
+
+## S4C
+
+```{r}
+# Cox proportional hazards model
+## UNIVARIATE
+
+PID_metagroups <- colData(TCGA_DET) %>% as.data.frame() %>% dplyr::select(KRT5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "KRT5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- c("KRT57negative","KRT57positive","KRT5positive","KRT7positive")
+
+Cox_df <- PID_metagroups
+
+### Add clinical covariates
+Cox_df$DFI <- TCGA_DET$DFI[match(rownames(Cox_df),TCGA_DET$PID)]
+Cox_df$DFI.time <- TCGA_DET$DFI.time[match(rownames(Cox_df),TCGA_DET$PID)]
+
+covariates <- Cox_df %>% select(-DFI,-DFI.time, - KRT57negative) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFI.time, DFI) ~", paste(covariates, collapse = " + "), "+ KRT57negative"))
+multi_model <- coxph(multi_formula, data = Cox_df)
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],3),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],3),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],3),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],3),
+                      wald_test = signif(multi_res$waldtest["pvalue"],3))
+
+
+### Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Covariates")+
+ylab("HR for PID groups")+
+theme_classic()+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+## S4D
+
+```{r}
+# Kaplan-Meier 
+cur_surv <- colData(TCGA_DET) %>% as.data.frame() %>% dplyr::select(PID, KRT5_7_score, PFI, PFI.time)
+
+# Plot survival curves
+fit <- survfit(Surv(PFI.time, PFI) ~ KRT5_7_score, data = cur_surv)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(),
+          palette = c("grey","#85D4E3","#F4B5BD","#9C964A"),
+          log.rank.weights = "n", 
+          xlim = c(0, 4000))
+```
+
+## S4E
+
+```{r}
+# Kaplan-Meier 
+cur_surv <- colData(TCGA_DET) %>% as.data.frame() %>% dplyr::select(PID, KRT5_7_score, DFI, DFI.time, PFI, PFI.time, TNBC) %>% filter(TNBC == "TNBC")
+
+# Plot survival curves
+fit <- survfit(Surv(DFI.time, DFI) ~ KRT5_7_score, data = cur_surv)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(),
+          palette = c("grey","#85D4E3","#F4B5BD","#9C964A"),
+          log.rank.weights = "n", 
+          xlim = c(0, 4000))
+
+fit <- survfit(Surv(PFI.time, PFI) ~ KRT5_7_score, data = cur_surv)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(),
+          palette = c("grey","#85D4E3","#F4B5BD","#9C964A"),
+          log.rank.weights = "n", 
+          xlim = c(0, 4000))
+```
+
+## S4F
+
+```{r}
+# Cox proportional hazards model
+## UNIVARIATE 
+
+PID_metagroups <- pData(MDACC_ES) %>% 
+  as.data.frame() %>% 
+  dplyr::select(KRT5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_metagroups <- PID_metagroups %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+PID_metagroups <- PID_metagroups %>% pivot_wider(id_cols = "PID",names_from = "KRT5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+colnames(PID_metagroups) <- c("KRT57negative","KRT57positive", "KRT5positive","KRT7positive")
+
+Cox_df <- PID_metagroups
+
+### Add clinical covariates
+Cox_df$DFI.time <- as.numeric(MDACC_ES$`drfs_even_time_years:ch1`)[match(rownames(Cox_df),MDACC_ES$PID)]
+Cox_df$DFI <- as.numeric(MDACC_ES$`drfs_1_event_0_censored:ch1`)[match(rownames(Cox_df),MDACC_ES$PID)]
+
+covariates <- Cox_df %>% select(-DFI,-DFI.time, - KRT57negative) %>% colnames
+
+multi_formula <- as.formula(paste("Surv(DFI.time, DFI) ~", paste(covariates, collapse = " + "), "+ KRT57negative"))
+multi_model <- coxph(multi_formula, data = Cox_df)
+multi_res <- summary(multi_model)
+
+plot_df_prop <- data.frame(group = rownames(multi_res$coefficients),
+                      p_value = signif(multi_res$coefficients[,"Pr(>|z|)"],2),
+                      HR = signif(multi_res$coefficients[,"exp(coef)"],2),
+                      CI_low = signif(multi_res$conf.int[,"lower .95"],2),
+                      CI_high = signif(multi_res$conf.int[,"upper .95"],2),
+                      wald_test = signif(multi_res$waldtest["pvalue"],2))
+
+### Plot hazard ratios
+hr_prop <- ggplot(plot_df_prop, aes(x = reorder(group,dplyr::desc(HR)), y = HR, color = p_value < 0.05))+
+geom_point(size = 4)+
+geom_errorbar(aes(ymax = CI_high, ymin = CI_low))+
+geom_hline(yintercept = 1,color = "black",linetype = "dashed")+
+scale_color_brewer(palette = "Set1")+
+xlab("Covariates")+
+ylab("HR for PID groups")+
+theme_classic()+
+scale_y_continuous(trans = "log10")+
+theme(axis.text.x = element_text(angle = 90))
+
+hr_prop
+```
+
+## S4G
+
+```{r}
+#Assess survival impact 
+cur_surv <- pData(MDACC_ES) %>% as.data.frame() %>% dplyr::select(PID, KRT5_7_score, DRFS, DRFS_time, TNBC_assign_lehmann) %>% filter(TNBC_assign_lehmann == "TNBC") 
+
+#Plot survival curves
+fit <- survfit(Surv(DRFS_time, DRFS) ~ KRT5_7_score, data = cur_surv)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(), 
+          palette = c("grey","#85D4E3","#F4B5BD","#9C964A"))
+```
+
+# Session Info 
+
+```{r}
+sessionInfo()
+```

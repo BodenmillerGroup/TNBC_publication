@@ -1,0 +1,587 @@
+---
+title: null
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# A stratification system for breast cancer based on basoluminal tumor cells and spatial tumor architecture, Meyer et al., 2025 
+
+# Figure 4 and Figure S5/6
+
+Data analysis scripts for re-creating Figure 4 and Figure S5/6. 
+
+# Software requirements
+
+```{r, message=FALSE,warning=FALSE}
+library(SingleCellExperiment)
+library(tidyverse)
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(conflicted)
+library(survival)
+library(survminer)
+library(imcRtools)
+library(BiocParallel)
+library(wesanderson)
+library(dittoSeq)
+library(scater)
+library(patchwork)
+```
+
+```{r, message=FALSE,warning=FALSE}
+conflicts_prefer(dplyr::desc)
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(dplyr::count)
+conflicts_prefer(base::intersect)
+conflicts_prefer(dplyr::select)
+```
+
+# Read data
+
+```{r}
+# Available from Zenodo - DOI: 10.5281/zenodo.15396067
+# File paths have to be adjusted by the user
+
+## SCE objects
+sce_ALL <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/SCE/sce_ALL.rds")
+sce_fischer_TNBC <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/SCE/sce_fischer_TNBC.rds")
+sce_fischer_ALL <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/SCE/sce_fischer_ALL.rds")
+sce_PalWu <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/SCE/sce_PalWu.rds")
+sce_PalWu_ALL <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/SCE/sce_PalWu_ALL.rds")
+sce_organoid <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/SCE/sce_organoid.rds")
+
+## Other
+INT_MC8 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/OTHER/INT_MC8.rds")
+INT_fischer_MC8 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/OTHER/INT_fischer_MC8.rds")
+IF <- read_csv("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/OTHER/IF.csv")
+TCGA_DET <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/OTHER/TCGA_DET.rds")
+MDACC_ES <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/OTHER/MDACC_ES.rds")
+MDACC_EXP <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/00_final_files/OTHER/MDACC_EXP.rds")
+```
+
+# Figure 4
+
+## 4A
+
+Pixel and single-cell level IMC images were generated using [cytoviewer](https://github.com/BodenmillerGroup/cytoviewer).
+
+## 4B
+
+```{r}
+patch_MC8_PID <- colData(sce_ALL) %>% as.data.frame() %>% filter(!is.na(patch_tumor_8)) %>% pull(PID) %>% unique()
+cells_MC8_PID <- colData(sce_ALL) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_patch <- colData(sce_ALL) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_patch <- PID_patch %>% group_by(PID) %>% filter(PID %in% patch_MC8_PID) %>% filter(str_detect(metacluster_combined,"tumor")) %>% mutate(fra = Freq/sum(Freq)) 
+
+PID_dom_MC8 <- PID_patch %>% mutate(max = max(fra)) %>% filter(fra == max) %>% ungroup() %>% filter(metacluster_combined == "tumor_8") %>% pull(PID)
+
+PID_overall <- colData(sce_ALL) %>% as.data.frame() %>% select(metacluster_combined,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_MC8_overall <- PID_overall %>% group_by(PID) %>% filter(metacluster_combined == "tumor_8" & Freq > 5) %>% mutate(patch = ifelse(PID %in% patch_MC8_PID, TRUE, FALSE)) %>% mutate(dominated = ifelse(PID %in% PID_dom_MC8, TRUE, FALSE)) %>% mutate(PID_category = ifelse(patch && dominated, "dominated", ifelse(patch, "patch", "cells")))
+PID_MC8_overall_plot <- PID_MC8_overall %>% group_by(PID_category) %>% count() %>% ungroup() %>% mutate(fra = n/sum(n)) %>% mutate(category = "MC8")
+PID_MC8_overall_plot$PID_category <- factor(PID_MC8_overall_plot$PID_category, levels = c("cells","patch","dominated"))
+
+ggplot(PID_MC8_overall_plot) +
+  geom_tile(color = "black",aes(category, n, fill = PID_category), position = "stack")+
+  scale_fill_brewer(palette = "Blues")+
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  coord_flip()
+```
+
+## 4C
+
+```{r}
+PID_patch_abundant <- PID_patch %>%
+  mutate(max = max(fra)) %>% filter(fra == max) %>% ungroup() %>% count(metacluster_combined) %>% mutate(fra = n/sum(n), category = "cat") %>% arrange(fra)
+
+PID_patch_abundant$metacluster_combined <- factor(PID_patch_abundant$metacluster_combined, levels = unfactor(PID_patch_abundant$metacluster_combined))
+
+ggplot(PID_patch_abundant) +
+  geom_tile(color = "black",aes(category, n, fill = metacluster_combined), position = "stack")+
+  scale_fill_manual(values=metadata(sce_ALL)$colors$metacluster_combined) + 
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  xlab("PID")+
+  coord_flip()
+```
+
+## 4D
+
+```{r}
+# Interaction testing 
+## Visualization
+interaction_tumor_plot <- INT_MC8 %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% filter(to_label != "tumor_8") %>%
+    group_by(from_label, to_label) %>%
+    summarize(sum_sigval = sum(sigval, na.rm = TRUE))
+
+ggplot(interaction_tumor_plot) +
+        geom_tile(aes(reorder(to_label,sum_sigval), from_label, fill = sum_sigval)) +
+        scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme_classic()
+```
+
+## 4F
+
+```{r}
+cur_IF <- IF %>% select("CK7","CK7:CK19","CK19","CK5","CK5:CK7","CK5:CK7:CK19","CK5:CK19", "PID") %>% pivot_longer(1:7,values_to = "n", names_to = "CK_group")
+
+# Focus on CK5/7 
+cur_in <- cur_IF %>% ungroup() %>% mutate(CK5_7_group = ifelse(CK_group %in% c("CK5","CK5:CK19"),"CK5+", 
+                                         ifelse(CK_group %in% c("CK7","CK7:CK19"),"CK7+", 
+                                                ifelse(CK_group %in% c("CK5:CK7","CK5:CK7:CK19"),"CK5/7+", NA)))) %>% filter(!is.na(CK5_7_group))
+
+cur_in <- cur_in %>% group_by(PID, CK_group) %>% mutate(mean_n = mean(n)) %>% 
+  group_by(PID, CK5_7_group) %>% mutate(total_n = sum(mean_n)) 
+
+cur_in <- cur_in %>% select(PID, CK5_7_group, total_n) %>% unique() %>% group_by(PID) %>% mutate(fra = total_n/sum(total_n))
+
+cur_CK <- cur_in %>% pivot_wider(id_cols = "PID", names_from = "CK5_7_group",values_from = "fra") %>% column_to_rownames("PID")
+
+# Define annotation
+row_sorted_fra <- cur_in %>% filter(CK5_7_group == "CK5/7+") %>% arrange(desc(fra)) %>% pull(PID)
+cur_CK <- cur_CK[row_sorted_fra,]
+cur_CK <- cur_CK[,c("CK5/7+", "CK5+", "CK7+")]
+
+anno <- cur_in %>% pivot_wider(id_cols = "PID", names_from = "CK5_7_group", values_from = "total_n") %>% column_to_rownames("PID")
+anno <- anno[match(rownames(cur_CK), rownames(anno)),]
+anno <- anno[,match(colnames(cur_CK), colnames(anno))]
+
+cur_color_CK <- setNames(wes_palette("Moonrise3")[1:3], c("CK5/7+", "CK5+", "CK7+"))
+
+# Plot
+fraction_anno <- HeatmapAnnotation(PID = anno_text(rownames(anno)), 
+                                   CK_fractions = anno_barplot(cur_CK, gp=gpar(fill=cur_color_CK),
+                                                               bar_width = 1, height = unit(25,"cm"), width = unit(11,"cm"),
+                                                               show_row_names = TRUE, row_names_side = "left"),
+                                   total_n = anno_barplot(rowSums(anno), border = TRUE, gp = gpar(fill = "#440154FF"), width = unit(3,"cm")),
+                                   gap = unit(1,"mm"),
+                                   which = "row")
+h_1 <- fraction_anno + NULL
+
+lgd_1 <- Legend(title = "CK5_7_group", at = colnames(cur_CK), 
+              legend_gp = gpar(fill = cur_color_CK))
+             
+draw(h_1,annotation_legend_list = list(lgd_1))
+```
+
+## 4G
+
+```{r}
+# IMC fraction
+PID_CK57 <- colData(sce_ALL) %>% as.data.frame() %>% select(CK5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_CK57 <- PID_CK57 %>% group_by(PID) %>% filter(CK5_7_score != "CK5/7-") %>% mutate(fra = Freq/sum(Freq))
+PID_CK57_df <- PID_CK57 %>% pivot_wider(id_cols = "PID",names_from = "CK5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+
+# IF fraction 
+cur_CK_out <- cur_CK
+rownames(cur_CK_out) <- str_replace(rownames(cur_CK_out),"_",".")
+
+# Combined
+cur_cor <- PID_CK57_df[rownames(PID_CK57_df) %in% rownames(cur_CK_out),]
+cur_cor <- cur_cor %>% select("CK5/7+")
+cur_cor$`CK5/7+_IF` <- cur_CK_out$`CK5/7+`[match(rownames(cur_cor), rownames(cur_CK_out))]
+cur_cor$PID <- rownames(cur_cor)
+
+spearman_test <- cor.test(cur_cor[,1],cur_cor[,2], method = "spearman")
+
+ggplot(cur_cor, aes(x = `CK5/7+`, y = `CK5/7+_IF`))+
+  geom_smooth(method='lm', formula= y~x, se = TRUE, color = "darkgrey")+
+  geom_point(aes(color = PID), size = 3)+
+  ylab("CK5/7 Fraction IF")+
+  xlab("CK5/7 Fraction IMC")+
+  theme_classic()+
+  scale_color_manual(values=metadata(sce_ALL)$colors$PID)+
+  ggtitle(paste("Spearman rho = ",round(spearman_test$estimate, digits = 2),"/ p =",round(spearman_test$p.value, digits = 4)))
+```
+
+## 4H
+
+```{r}
+cur_BL <- cur_IF %>% filter(CK_group %in% c("CK5:CK7","CK5:CK7:CK19", "CK5:CK19")) %>% group_by(PID, CK_group) %>%
+  mutate(mean_n = mean(n)) %>% group_by(PID, CK_group) %>% mutate(total_n = sum(mean_n)) %>% select(PID, CK_group, total_n) %>% unique() %>% group_by(PID) %>% mutate(fra = total_n/sum(total_n))
+  
+ggplot(cur_BL, aes(x=CK_group, y=fra))+
+  geom_boxplot(outlier.colour = NA)+
+  geom_jitter(aes(color = PID), size = 3, position=position_jitter(w=0.1,h=0.1))+
+  scale_color_manual(values = metadata(sce_ALL)$colors$PID)+
+  theme_classic()+
+  ylab("Fraction of basoluminal cells per PID")+
+  stat_compare_means(method = "kruskal.test", paired = TRUE)
+```
+
+# Figure S5
+
+## S5A/B
+
+```{r}
+for(x in c("patch_tumor_3", "patch_tumor_8")){
+patch_PID <- unique(sce_ALL$PID[!is.na(colData(sce_ALL)[,x])])
+colData(sce_ALL)[paste0(x, "_binary")] <- ifelse(sce_ALL$PID %in% patch_PID,1,0)
+}
+patch_combined <- colData(sce_ALL) %>% as.data.frame() %>% select(patch_tumor_3_binary, patch_tumor_8_binary, PID) %>% unique() %>% as.data.frame %>% remove_rownames() %>% column_to_rownames("PID") %>% mutate(sum = rowSums(.)) %>% mutate(patch_tumor_3or8_binary = ifelse(sum > 0, 1, 0)) 
+sce_ALL$patch_tumor_3or8_binary <- patch_combined$patch_tumor_3or8_binary[match(sce_ALL$PID, rownames(patch_combined))]
+
+# Kaplan-Meier
+cur_surv <- colData(sce_ALL) %>% as.data.frame() %>% select(PID, patch_tumor_8_binary, patch_tumor_3_binary, patch_tumor_3or8_binary, OS_months, DFS_months, status_DFS, status_OS) %>% unique() 
+
+#Plot survival curves
+fit <- survfit(Surv(DFS_months, status_DFS) ~ patch_tumor_8_binary, data = cur_surv)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(), 
+          palette = c("#377EB8", "#E41A1C")
+)
+
+#Plot survival curves
+fit <- survfit(Surv(DFS_months, status_DFS) ~ patch_tumor_3_binary, data = cur_surv)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(), 
+          palette = c("#377EB8", "#E41A1C")
+          )
+
+#Plot survival curves
+fit <- survfit(Surv(DFS_months, status_DFS) ~ patch_tumor_3or8_binary, data = cur_surv)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_classic(), 
+          palette = c("#377EB8", "#E41A1C")
+)
+```
+
+## S5C
+
+```{r}
+patch_MC8_PID <- colData(sce_fischer_TNBC) %>% as.data.frame() %>% filter(!is.na(patch_MC8)) %>% pull(PID) %>% unique()
+cells_MC8_PID <- colData(sce_fischer_TNBC) %>% as.data.frame() %>% select(metacluster_predict,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+sce_fischer_TNBC$patch_MC8_classification <- ifelse(sce_fischer_TNBC$PID %in% patch_MC8_PID,"patch_MC8","no_patch_MC8")
+
+PID_patch <- colData(sce_fischer_TNBC) %>% as.data.frame() %>% select(metacluster_predict,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_patch <- PID_patch %>% group_by(PID) %>% filter(PID %in% patch_MC8_PID) %>% filter(str_detect(metacluster_predict,"tumor")) %>% mutate(fra = Freq/sum(Freq)) 
+```
+
+```{r}
+PID_dom_MC8 <- PID_patch %>% mutate(max = max(fra)) %>% filter(fra == max) %>% ungroup() %>% filter(metacluster_predict == "tumor_8") %>% pull(PID)
+PID_overall <- colData(sce_fischer_TNBC) %>% as.data.frame() %>% select(metacluster_predict,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+
+PID_MC8_overall <- PID_overall %>% group_by(PID) %>% filter(metacluster_predict == "tumor_8" & Freq > 5) %>% mutate(patch = PID %in% patch_MC8_PID, dominated = PID %in% PID_dom_MC8, PID_category = ifelse(patch & dominated, "dominated",ifelse(patch, "patch", "cells")))               
+PID_MC8_overall_plot <- PID_MC8_overall %>% group_by(PID_category) %>% count() %>% ungroup() %>% mutate(fra = n/sum(n)) %>% mutate(category = "MC8")
+PID_MC8_overall_plot$PID_category <- factor(PID_MC8_overall_plot$PID_category, levels = c("cells","patch","dominated"))
+
+ggplot(PID_MC8_overall_plot) +
+  geom_tile(color = "black",aes(category, n, fill = PID_category), position = "stack")+
+  scale_fill_brewer(palette = "Blues")+
+  theme_classic(base_size = 15)+
+  ylab("Number of patients")+
+  theme(axis.title.x = element_blank())
+```
+
+## S5D
+
+```{r}
+PID_patch_abundant <- PID_patch %>%
+  mutate(max = max(fra)) %>% filter(fra == max) %>% ungroup() %>% count(metacluster_predict) %>% mutate(fra = n/sum(n), category = "cat") %>% arrange(fra)
+
+PID_patch_abundant$metacluster_predict <- factor(PID_patch_abundant$metacluster_predict, levels = unfactor(PID_patch_abundant$metacluster_predict))
+
+ggplot(PID_patch_abundant) +
+  geom_tile(color = "black",aes(category, n, fill = metacluster_predict), position = "stack")+
+  scale_fill_manual(values=metadata(sce_fischer_TNBC)$colors$metacluster_combined) + 
+  theme_classic(base_size = 15)+
+  ylab("Density")+
+  xlab("PID")+
+  theme(axis.text.x = element_blank())
+```
+
+## S5E
+
+```{r}
+# Interaction testing
+## Visualization
+
+interaction_tumor_plot <- INT_fischer_MC8 %>% as_tibble() %>% filter(from_label %in% c("tumor_8")) %>% filter(to_label != "tumor_8") %>%
+    group_by(from_label, to_label) %>%
+    summarize(sum_sigval = sum(sigval, na.rm = TRUE))
+
+ggplot(interaction_tumor_plot) +
+        geom_tile(aes(reorder(to_label,sum_sigval), from_label, fill = sum_sigval)) +
+        scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme_classic()
+```
+
+## S5F
+
+Pixel and single-cell level IMC images were generated using [cytoviewer](https://github.com/BodenmillerGroup/cytoviewer).
+
+## S5G
+
+```{r}
+# Define keratins of interest
+keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM")
+
+## Create heatmap body 
+df <- t(assay(TCGA_DET)[keratins,]) %>% as.data.frame 
+df <- df %>% rownames_to_column("PID")
+df$KRT5_7_score <- TCGA_DET$KRT5_7_score[match(df$PID, colnames(TCGA_DET))]
+mat <- df %>% pivot_longer(cols = 2:(ncol(df)-1), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% summarize(mean = mean(exprs))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+## Create row annotation 
+anno <- df %>% select(KRT5_7_score) %>% group_by(KRT5_7_score) %>% count()
+anno <- anno[match(anno$KRT5_7_score, rownames(ht)),]
+
+## Print heatmap 
+Heatmap(scale(ht), name = "Scaled mean Z-scores")+
+  rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$KRT5_7_score))
+```
+
+## S5H
+
+```{r}
+# Define keratins of interest
+keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM")
+keratins_rel <- keratins[keratins %in% rownames(MDACC_EXP)]
+
+## Create heatmap body 
+df <- t(MDACC_EXP[keratins_rel,]) %>% as.data.frame 
+df <- df %>% rownames_to_column("PID")
+df$KRT5_7_score <- MDACC_ES$KRT5_7_score[match(df$PID, colnames(MDACC_ES))]
+mat <- df %>% pivot_longer(cols = 2:(ncol(df)-1), names_to = "gene", values_to = "exprs") %>% group_by(KRT5_7_score, gene) %>% dplyr::summarize(mean = mean(exprs))
+ht <- mat %>% pivot_wider(names_from = "gene", values_from = "mean") %>% column_to_rownames("KRT5_7_score")
+
+## Create row annotation 
+anno <- df %>% select(KRT5_7_score) %>% group_by(KRT5_7_score) %>% dplyr::count()
+anno <- anno[match(anno$KRT5_7_score, rownames(ht)),]
+
+## Print heatmap 
+Heatmap(scale(ht), name = "Scaled mean Z-scores")+
+  rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$KRT5_7_score))
+```
+
+## S5I
+
+```{r}
+dittoBarPlot(TCGA_DET, var = "KRT5_7_score", group.by = "PAM50Call_RNAseq")+
+    scale_fill_manual(values = metadata(TCGA_DET)$colors$KRT57_score)
+
+dittoBarPlot(TCGA_DET, var = "KRT5_7_score", group.by = "TNBC")+
+    scale_fill_manual(values = metadata(TCGA_DET)$colors$KRT57_score)
+```
+
+## S5J
+
+```{r}
+MDACC_ES$TNBC <- MDACC_ES$TNBC_assign_lehmann
+MDACC_ES$PAM50 <- MDACC_ES$`pam50_class:ch1`
+col_score <- setNames(c("grey",wes_palette("Moonrise3")[1:3]), c("KRT5/7-", "KRT5/7+","KRT5+", "KRT7+"))
+
+bar_out <- pData(MDACC_ES) %>% as.data.frame() %>% group_by(KRT5_7_score, PAM50) %>% dplyr::count() %>% ungroup %>% group_by(PAM50) %>% mutate(fra = n/sum(n)) %>% arrange(PAM50)
+
+ggplot(bar_out, aes(x = PAM50, y = fra, fill = KRT5_7_score))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = col_score)+
+  theme_classic()
+
+bar_out <- pData(MDACC_ES) %>% as.data.frame() %>% group_by(KRT5_7_score, TNBC) %>% dplyr::count() %>% ungroup %>% group_by(TNBC) %>% mutate(fra = n/sum(n)) %>% arrange(TNBC)
+
+ggplot(bar_out, aes(x = TNBC, y = fra, fill = KRT5_7_score))+
+  geom_bar(stat = "identity", color = "black")+
+  scale_fill_manual(values = col_score)+
+  theme_classic()
+```
+
+## S5K
+
+```{r}
+fischer_over <- colData(sce_fischer_ALL) %>% as.data.frame %>% select(PID, PAM50_clean, TNBC, CK5_7_group_name) %>% unique() %>% remove_rownames()
+fischer_PAM50_group <- fischer_over %>% group_by(CK5_7_group_name, PAM50_clean) %>% count() %>% ungroup() %>% group_by(PAM50_clean) %>% mutate(fra = n/sum(n)) %>% mutate(dataset = "fischer")
+
+ggplot(fischer_PAM50_group, aes(x = PAM50_clean, y = fra, fill = CK5_7_group_name))+
+  facet_wrap(~dataset)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("grey","#85D4E3","#F4B5BD","#9C964A"))+
+  theme(axis.text.x = element_text(angle = 90))
+
+fischer_TNBC_group <- fischer_over %>% group_by(CK5_7_group_name, TNBC) %>% count() %>% ungroup() %>% group_by(TNBC) %>% mutate(fra = n/sum(n)) %>% mutate(dataset = "fischer")
+
+ggplot(fischer_TNBC_group, aes(x = TNBC, y = fra, fill = CK5_7_group_name))+
+  facet_wrap(~dataset)+
+  geom_bar(stat = "identity", color = "black")+
+  theme_classic()+
+  scale_fill_manual(values = c("grey","#85D4E3","#F4B5BD","#9C964A"))+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+# Figure S6
+
+## S6A/B
+
+```{r, fig.width=10}
+plotReducedDim(sce_PalWu, dimred="TSNE", colour_by="dataset", point_size = 1)+
+  scale_color_manual(values = c("#1F78B4", "#B2DF8A"))+
+
+plotReducedDim(sce_PalWu, dimred="TSNE", colour_by="subtype", point_size = 1)+
+  scale_color_manual(values = c("#4DAF4A", "#377EB8", "#E41A1C"))
+
+
+plotReducedDim(sce_PalWu, dimred="TSNE", colour_by="KRT5_7_score", point_size = 1)+
+  scale_color_manual(values = metadata(sce_PalWu)$colors$KRT57_score)+
+plotReducedDim(sce_PalWu, dimred = "TSNE", 
+               colour_by = "KRT5", 
+               by_exprs_values = "logcounts", point_size = 1)+
+plotReducedDim(sce_PalWu, dimred = "TSNE", 
+               colour_by = "KRT7", 
+               by_exprs_values = "logcounts", point_size = 1)
+```
+
+## S6C
+
+```{r}
+PID_KRT5_7_score <- colData(sce_PalWu) %>% as.data.frame() %>% dplyr::select(KRT5_7_score,PID) %>% group_by(PID) %>% table() %>% as.data.frame
+PID_KRT5_7_score <- PID_KRT5_7_score %>% group_by(PID) %>% mutate(fra = Freq/sum(Freq))
+cur_df <- PID_KRT5_7_score %>% pivot_wider(id_cols = "PID", names_from = "KRT5_7_score",values_from = "fra") %>% column_to_rownames("PID")
+
+# Perform hierarchical clustering on fractions
+dd <- dist(cur_df, method = "euclidean")
+hc <- hclust(dd, method = "ward.D2")
+row_sorted <- hc$order
+
+# Define annotation dataframe
+cur_df <- cur_df[row_sorted,]
+anno <- colData(sce_PalWu) %>% as.data.frame %>% dplyr::select(PID, TNBC, subtype, dataset) %>% unique()
+anno <- anno[match(rownames(cur_df), anno$PID),]
+n_cells_PID <- PID_KRT5_7_score %>% group_by(PID) %>% summarize(n_cells = sum(Freq))  
+anno$ncells <- n_cells_PID$n_cells[match(anno$PID, n_cells_PID$PID)]
+
+# Define colors 
+sub_col <- setNames(rev(brewer.pal(3, "Set1")), unique(sce_PalWu$subtype))
+dataset_col <- setNames(brewer.pal(3, "Paired")[2:3], unique(sce_PalWu$dataset))
+
+# Plot annotation dataframe
+fraction_anno <- HeatmapAnnotation(
+  n_cells = anno_barplot(anno$ncells, gp=gpar(fill="#440154FF"),
+                                   bar_width = 1,
+                                   height = unit(3,"cm"), axis_param = list(direction = "reverse")),
+  score_fractions = anno_barplot(cur_df, gp=gpar(fill=metadata(sce_PalWu)$colors$KRT57_score[colnames(cur_df)]),
+                                   bar_width = 1,
+                                   height = unit(25,"cm"),
+                                   width = unit(11,"cm"),
+                                   show_row_names = FALSE), 
+                          subtype = anno_simple(anno$subtype, col = sub_col, border = TRUE),
+                          dataset = anno_simple(anno$dataset, col = dataset_col, border = TRUE),
+                          border = TRUE, 
+                          gap = unit(1,"mm"),
+                          which = "row")
+
+lgd <- Legend(title = "subtype", at = names(sub_col), 
+               legend_gp = gpar(fill = sub_col))               
+lgd_1 <- Legend(title = "dataset", at = names(dataset_col), 
+               legend_gp = gpar(fill = dataset_col))  
+
+draw(fraction_anno + NULL, annotation_legend_list = list(lgd, lgd_1))
+```
+
+## S6D
+
+```{r}
+dittoBarPlot(sce_PalWu, var = "KRT5_7_score", group.by = "TNBC")+
+  scale_fill_manual(values = metadata(sce_PalWu)$colors$KRT57_score)+
+  guides(fill = "none")
+```
+
+## S6E
+
+```{r}
+keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM")
+
+cluster_mean_sce_all <- aggregateAcrossCells(sce_PalWu_ALL, ids = sce_PalWu_ALL$KRT5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rownames(sce_PalWu_ALL) %in% keratins)
+
+scaled_mat <- t(scale(t(assay(cluster_mean_sce_all, "logcounts"))))
+
+anno <- colData(sce_PalWu_ALL) %>% as.data.frame() %>% select(KRT5_7_score) %>% group_by(KRT5_7_score) %>% dplyr::count()
+anno <- anno[match(anno$KRT5_7_score, rownames(t(scaled_mat))),]
+
+## Print heatmap 
+Heatmap(t(scaled_mat), name = "Scaled mean expression", clustering_method_columns = "ward.D2", clustering_method_rows = "ward.D2")+
+  rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$KRT5_7_score))
+```
+
+## S6G
+
+```{r}
+plotReducedDim(sce_organoid, dimred = "TSNE", 
+               colour_by = "KRT5", 
+               by_exprs_values = "logcounts")+
+plotReducedDim(sce_organoid, dimred = "TSNE", 
+               colour_by = "KRT7", 
+               by_exprs_values = "logcounts")
+
+plotTSNE(sce_organoid, colour_by="KRT5_7_score")+
+  scale_color_manual(values = metadata(sce_organoid)$colors$KRT57_score)
+```
+
+## S6H
+
+```{r}
+dittoBarPlot(sce_organoid, var = "KRT5_7_score", group.by = "Patient_ID",scale="percent")+
+    scale_fill_manual(values = metadata(sce_organoid)$colors$KRT57_score)
+```
+
+## S6I
+
+```{r}
+keratins <- c("KRT5","KRT7","KRT15","KRT8","KRT18","KRT19", "KRT14","KRT17","ITGA6","EPCAM")
+
+cluster_mean_sce_organoid <- aggregateAcrossCells(sce_organoid, ids = sce_organoid$KRT5_7_score,
+                                 statistics = "mean",
+                                 use.assay.type = "logcounts",
+                                 subset.row = rowData(sce_organoid)$Symbol %in% keratins)
+
+scaled_mat <- t(scale(t(assay(cluster_mean_sce_organoid, "logcounts"))))
+
+anno <- colData(sce_organoid) %>% as.data.frame() %>% select(KRT5_7_score) %>% group_by(KRT5_7_score) %>% dplyr::count()
+anno <- anno[match(anno$KRT5_7_score, rownames(t(scaled_mat))),]
+
+## Print heatmap 
+Heatmap(t(scaled_mat), name = "Scaled mean expression", clustering_method_columns = "ward.D2", clustering_method_rows = "ward.D2")+
+  rowAnnotation(n = anno_barplot(anno$n, gp = gpar(fill = "#440154FF")))+
+  rowAnnotation(anno = anno_text(anno$KRT5_7_score))
+```
+
+
+# Session Info 
+
+```{r}
+sessionInfo()
+```

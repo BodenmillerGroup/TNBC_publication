@@ -1,0 +1,110 @@
+---
+title: "02_spillover_matrix"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# A stratification system for breast cancer based on basoluminal tumor cells and spatial tumor architecture, Meyer et al., 2025 
+
+**DISCLAIMER**: Pipeline scripts contain all code used for data presented in the publication but also small exploratory data analysis parts. For reproducing the figures, please refer to the figure-related scripts and cleaned data objects provided on **Zenodo** (<https://zenodo.org/records/>). File paths have to be adjusted by the user. 
+
+Code related to following cleaned **Zenodo** objects: / 
+
+# Discovery 
+
+Data analysis scripts for IMC data analysis in the discovery cohort. 
+
+# Script 2: Spillover correction
+
+# Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+library(SingleCellExperiment)
+library(CATALYST)
+library(scuttle)
+library(scater)
+library(imcRtools)
+library(dittoSeq)
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(BiocParallel)
+library(graphics)
+```
+
+## Single-cell data compensation
+
+We use functionality of the `CATALYST` R/Bioconductor package for spillover estimation and correction.
+
+**NOTE**: We used the spillover matrix from Fischer et al. for downstream analysis (DOI: 10.5281/zenodo.7494509, see Methods). 
+
+```{r}
+sm_jana <- read.csv(sm, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/03_data/spillover_matrix_Jana_mod.csv")
+```
+
+```{r single-cell-compensation}
+sce <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/01_sce_TNBC.rds")
+
+rowData(sce)$channel_name <- paste0(rowData(sce)$channel, "Di")
+
+sce_jana <- compCytof(sce, sm_jana, 
+                 transform = TRUE, cofactor = 1,
+                 isotope_list = isotope_list, 
+                 overwrite = FALSE)
+```
+
+```{r visualize-single-cell-spillover, message=FALSE}
+#Simple scatterplot
+before <- dittoScatterPlot(sce, x.var = "H3K27me3", y.var = "Bcl2",
+                           assay.x = "exprs", assay.y = "exprs") +
+    ggtitle("Before compensation")
+
+after_1 <- dittoScatterPlot(sce_jana, x.var = "H3K27me3", y.var = "Bcl2",
+                          assay.x = "compexprs", assay.y = "compexprs") +
+    ggtitle("After compensation - Jana")
+
+before+after+after_1
+
+#Smoothed density scatterplot
+buylrd = c("#313695", "#4575B4", "#74ADD1", "#ABD9E9", "#E0F3F8", "#FFFFBF",
+           "#FEE090", "#FDAE61", "#F46D43", "#D73027", "#A50026") 
+myColRamp = colorRampPalette(c(buylrd))
+
+
+smoothScatter(x=assay(sce,"exprs")[rownames(sce) == "H3K27me3"],
+              y=assay(sce,"exprs")[rownames(sce) == "Bcl2"],
+              colramp=myColRamp,
+              main="Before compensation",
+              xlab="H3K27me3 (La139)",
+              ylab="Bcl2 (Gd155)")
+  
+smoothScatter(x=assay(sce_jana,"compexprs")[rownames(sce_jana) == "H3K27me3"],
+              y=assay(sce_jana,"compexprs")[rownames(sce_jana) == "Bcl2"],
+              colramp=myColRamp,
+              main="After compensation - Jana",
+              xlab="H3K27me3 (La139)",
+              ylab="Bcl2 (Gd155)")
+```
+
+```{r overwrite-assays}
+assay(sce, "counts") <- assay(sce_jana, "compcounts") 
+assay(sce, "exprs") <- assay(sce_jana, "compexprs") 
+assay(sce, "compcounts") <- assay(sce, "compexprs") <- NULL
+```
+
+## Save objects
+
+```{r save, message = F}
+saveRDS(sce, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/02_sce_TNBC_spillcor.rds")
+```
+
+# Session Info 
+
+```{r}
+sessionInfo()
+```

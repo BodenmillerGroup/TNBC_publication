@@ -1,0 +1,1181 @@
+---
+title: "SCRNAseq_organoid_analysis"
+author: "Haithem Dakhli"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# A stratification system for breast cancer based on basoluminal tumor cells and spatial tumor architecture, Meyer et al., 2025 
+
+**DISCLAIMER**: Pipeline scripts contain all code used for data presented in the publication but also small exploratory data analysis parts. For reproducing the figures, please refer to the figure-related scripts and cleaned data objects provided on **Zenodo** (<https://zenodo.org/records/>). File paths have to be adjusted by the user. 
+
+Code related to following cleaned **Zenodo** objects: sce_organoid.rds
+
+# Validation
+
+Data analysis scripts for data analysis in the validation cohorts. 
+
+# Script: Breast cancer organoid scRNAseq preprocessing
+
+Here, we preprocess scRNA-seq data for 6 different breast cancer organoid lines. 
+
+**DISCLAIMER**: This code is related to an ongoing study (Dakhli et al., unpublished) of a larger set of organoid lines and is only fully reproducible with the full set of lines. Here, we describe the main coding steps for the 6 lines analyzed in this study.
+
+# Software requirements
+
+```{r}
+library(SingleCellExperiment)
+library(SummarizedExperiment)
+library(MatrixGenerics)
+library(matrixStats)
+library(GenomicRanges)
+library(stats4)
+library(BiocGenerics)
+library(S4Vectors)
+library(IRanges)
+library(GenomeInfoDb)
+library(Biobase)
+library(DT)
+library(DropletUtils)
+```
+
+# 1. Read data 
+
+```{r read-data, message=FALSE, warning=FALSE}
+file_list <- list()
+data_path <- list()
+sce_list <- list()
+
+for (x in 1:length(list.files("~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/20230301_scOrganoidseq_HD/"))) {
+  
+file_list[[x]] <- list.files("~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/20230301_scOrganoidseq_HD/")[x]
+data_path[[x]] <- paste0(paste0('~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/20230301_scOrganoidseq_HD/', file_list[[x]]) , '/filtered_feature_bc_matrix')
+
+sce_list[[x]] <- read10xCounts(data_path[[x]])
+
+}
+
+sce_list
+```
+
+Save `SingleCellExperiment` object.
+
+```{r save-sce}
+saveRDS(sce_list, "~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/scripts/20230301_scOrganoidseq_HD/Robjects/sce_list.rds")
+```
+
+# 2. QC
+
+Read single-cell data.
+
+```{r read-data, message=FALSE, warning=FALSE}
+library(SingleCellExperiment)
+library(tidyverse)
+library(scran)
+library(scater)
+library(scuttle)
+library(scDblFinder)
+library(BiocSingular)
+library(bluster)
+library(BiocNeighbors)
+library(dittoSeq)
+library(viridis)
+library(DT)
+
+sce_list <- readRDS("~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/scripts/20230301_scOrganoidseq_HD/Robjects/sce_list.rds")
+
+file_list <- list()
+
+for (x in 1:length(list.files("~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/20230301_scOrganoidseq_HD/"))) {
+file_list[[x]] <- list.files("~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/20230301_scOrganoidseq_HD/")[x]
+}
+
+# #Replace Normal Tissue by ID numbers
+# file_list[[1]] <- 'N_BB491'
+# file_list[[2]] <- 'N_BB505'
+# file_list[[3]] <- 'N_BB528'
+
+for (x in 1:length(file_list)) {
+  
+colnames(sce_list[[x]]) <- paste0(paste0(file_list[[x]], "_"), sce_list[[x]]$Barcode)
+rownames(sce_list[[x]]) <- rowData(sce_list[[x]])$Symbol
+
+}
+```
+
+## Compute UMAP for visualization
+
+First, we will normalize the raw data. To keep the unnormalized data in place
+we will duplicate the object here.
+
+```{r normalize, message=FALSE, warning=FALSE}
+set.seed(221215)
+cur_clust <- list()
+sce_2 <- list()
+
+for (x in 1:length(sce_list)) {
+  
+cur_clust[[x]] <- quickCluster(sce_list[[x]]) 
+
+sce_2[[x]] <- computeSumFactors(sce_list[[x]], cluster=cur_clust[[x]])
+
+sce_2[[x]] <- logNormCounts(sce_2[[x]])
+
+}
+
+```
+
+Now, we will find the highly variable genes.
+
+```{r HVG}
+# Fit the mean variance trend
+
+cur_var <- list()
+cur_fit <- list()
+cur_mat_final <- data.frame()
+
+for (x in 1:length(sce_list)) {
+  
+cur_var[[x]] <- modelGeneVar(sce_2[[x]])
+cur_fit[[x]] <- metadata(cur_var[[x]])
+
+}
+
+for (y in 1:length(sce_list)) {
+
+cur_mat <- as.data.frame(matrix(ncol = 2, nrow = 21134))
+cur_mat[,1] <- cur_fit[[y]]$mean
+cur_mat[,2] <- cur_fit[[y]]$var
+cur_mat[,3] <- file_list[[y]]
+
+cur_mat_final <- rbind(cur_mat_final, cur_mat)
+
+}
+
+ggplot(cur_mat_final, aes(x = V1, y = V2)) +
+  geom_point(size = 0.5) +
+  geom_smooth() +
+  facet_wrap(~V3) +
+  labs(x = "Mean of log-expression", y = "Variance of log-expression")
+
+# Order genes by their biological variance
+
+hvg <- list()
+for (x in 1:length(sce_list)) {
+  
+cur_var[[x]][order(cur_var[[x]]$bio, decreasing=TRUE),] %>%
+  as.data.frame() %>%
+  head(50)
+
+## Select top 1000 HVG
+hvg[[x]] <- getTopHVGs(cur_var[[x]], n=1000)
+
+}
+```
+
+And compute the UMAP.
+
+```{r runUMAP, message=FALSE}
+set.seed(221215)
+for (x in 1:length(sce_list)) {
+  
+sce_2[[x]] <- runUMAP(sce_2[[x]], subset_row = hvg[[x]])
+
+# Transfer UMAP to original SCE object
+reducedDim(sce_list[[x]], "UMAP") <- reducedDim(sce_2[[x]], "UMAP")
+}
+```
+
+## Compute quality control measures
+
+Here, we use the `scuttle` package to compute the library size and proportion
+of mitochondrial counts.
+
+```{r qc-diagnostics, message=FALSE}
+
+is.mito <- list()
+df <- list()
+
+for (x in 1:length(sce_list)) {
+  
+is.mito[[x]] <- grepl("^MT-", rownames(sce_list[[x]]))
+rownames(sce_list[[x]])[is.mito[[x]]]
+
+df[[x]] <- perCellQCMetrics(sce_list[[x]], subsets=list(Mito=is.mito[[x]]))
+
+colData(sce_list[[x]]) <- cbind(colData(sce_list[[x]]), df[[x]])
+
+}
+```
+
+We will now visualize a number of quality metrics.
+
+### Percent mitochondrial genes
+
+First, we will visualize the fraction of mitochondrial genes against the 
+library size.
+
+```{r fraction-mito, message = FALSE, fig.width=5, fig.height=5}
+
+cur_mat_final <- data.frame()
+
+for (x in 1:length(sce_list)) {
+  
+  cur_mat <- df[[x]]
+  cur_mat[,7] <- file_list[[x]]
+  cur_mat_final <- rbind(cur_mat_final, as.data.frame(cur_mat))
+  
+}
+
+ggplot(cur_mat_final) +
+  geom_point(aes(log10(sum), subsets_Mito_percent), size = 0.3) +
+  geom_abline(slope = 0, intercept = 10, linewidth = 2, color = "dark red") +
+  theme_classic(base_size = 15)+
+  facet_wrap(~V7)
+```
+
+We can now observe if these cells form their own cluster. We take T_BB022 as an example
+
+```{r mito-UMAP, message=FALSE}
+  
+dittoDimPlot(sce_list[[4]], var = "subsets_Mito_percent") +
+  scale_color_viridis()
+
+```
+
+We can now try to find an automatic threshold for mitochondrial reads.
+
+```{r}
+
+mito_thres <- list()
+
+for (x in 1:length(sce_list)) {
+  
+mito_thres[[x]] <- perCellQCFilters(df[[x]], sub.fields="subsets_Mito_percent")
+
+}
+
+ggplot(as.data.frame(cbind(df[[4]], mito_thres[[4]]))) +
+  geom_point(aes(log10(sum), subsets_Mito_percent, color = high_subsets_Mito_percent)) +
+  theme_classic(base_size = 15)
+
+```
+
+We observe many cells with high (> 10%) mitochondrial counts.
+
+```{r mitochondrial-percent}
+  
+cbind(df[[4]], mito_thres[[4]]) %>%
+  as_tibble() %>%
+  arrange(desc(subsets_Mito_percent)) %>%
+  ggplot() +
+  geom_point(aes((1:ncol(sce_list[[4]]))/ncol(sce_list[[4]]), subsets_Mito_percent, color = high_subsets_Mito_percent)) +
+  geom_abline(intercept = 15, slope = 0, linewidth = 1, color = "dark red") +
+  theme_classic(base_size = 15)
+
+sum(df[[4]]$subsets_Mito_percent > 10)/ncol(sce_list[[4]])
+
+sum(df[[4]]$subsets_Mito_percent > 15)/ncol(sce_list[[4]])
+
+sum(mito_thres[[4]]$high_subsets_Mito_percent)/ncol(sce_list[[4]])
+
+```
+
+## Number of genes detected
+
+Next, we will observe the number of genes detected.
+
+```{r}
+dittoDimPlot(sce_list[[4]], var = "detected") +
+  scale_color_viridis()
+
+ggplot(as.data.frame(cbind(colData(sce_list[[4]]), reducedDim(sce_list[[4]], "UMAP")))) +
+  geom_point(aes(V1, V2, color = detected > 1000))
+```
+
+And plot them against the library size.
+
+```{r}
+
+ggplot(as.data.frame(df[[4]])) +
+  geom_point(aes(log10(sum), detected)) +
+  geom_abline(intercept = 1000, slope = 0) +
+  theme_classic(base_size = 15)
+  
+```
+
+## Doublet detection
+
+Now, we will detect doublets by simulating artificial doublets.
+
+```{r}
+set.seed(221215)
+
+dbl_dens <- list()
+
+for (x in 1:length(sce_list)) {
+
+dbl_dens[[x]] <- computeDoubletDensity(sce_list[[x]], subset.row=hvg[[x]])
+
+sce_list[[x]]$DoubletScore <- dbl_dens[[x]]
+
+}
+
+dittoDimPlot(sce_list[[4]], var = "DoubletScore") +
+  scale_color_viridis()
+
+```
+
+## Cluster detection and DE
+
+Finally, we will detect clusters prior to excluding cells and perform 
+differential expression testing. Here, we perform a rather braod clustering.
+
+```{r clustering}
+set.seed(221215) 
+
+nn_clusters <- list()
+
+for (x in 1:length(sce_list)) {
+
+sce_2[[x]] <- fixedPCA(sce_2[[x]], subset.row=hvg[[x]])
+
+nn_clusters[[x]] <- clusterCells(sce_2[[x]], use.dimred="PCA", BLUSPARAM = NNGraphParam(k = 20))
+
+sce_2[[x]]$clusters <- nn_clusters[[x]]
+
+}
+
+dittoDimPlot(sce_2[[4]], var = "clusters")
+
+```
+
+Marker detection.
+
+```{r marker-detection}
+
+markers <- list()
+
+for (x in 1:length(sce_list)) {
+  
+markers[[x]] <- scoreMarkers(sce_2[[x]], sce_2[[x]]$clusters)
+
+}
+```
+
+## DE genes {.tabset}
+
+### T_BB056org
+
+```{r}
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`1`[order(markers[[8]]$`1`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`2`[order(markers[[8]]$`2`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`3`[order(markers[[8]]$`3`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`4`[order(markers[[8]]$`4`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`5`[order(markers[[8]]$`5`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`6`[order(markers[[8]]$`6`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`7`[order(markers[[8]]$`7`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`8`[order(markers[[8]]$`8`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`9`[order(markers[[8]]$`9`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`10`[order(markers[[8]]$`10`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`11`[order(markers[[8]]$`11`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`12`[order(markers[[8]]$`12`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`13`[order(markers[[8]]$`13`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`14`[order(markers[[8]]$`14`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`15`[order(markers[[8]]$`15`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`16`[order(markers[[8]]$`16`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`17`[order(markers[[8]]$`17`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`18`[order(markers[[8]]$`18`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[8]]$`19`[order(markers[[8]]$`19`$mean.AUC, decreasing=TRUE),]), 100))
+
+```
+
+### T_BB171org
+
+```{r}
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`1`[order(markers[[11]]$`1`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`2`[order(markers[[11]]$`2`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`3`[order(markers[[11]]$`3`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`4`[order(markers[[11]]$`4`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`5`[order(markers[[11]]$`5`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`6`[order(markers[[11]]$`6`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`7`[order(markers[[11]]$`7`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`8`[order(markers[[11]]$`8`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`9`[order(markers[[11]]$`9`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`10`[order(markers[[11]]$`10`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`11`[order(markers[[11]]$`11`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`12`[order(markers[[11]]$`12`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`13`[order(markers[[11]]$`13`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`14`[order(markers[[11]]$`14`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[11]]$`15`[order(markers[[11]]$`15`$mean.AUC, decreasing=TRUE),]), 100))
+
+```
+
+### T_BB225org
+
+```{r}
+DT::datatable(head(as.data.frame(
+  markers[[12]]$`1`[order(markers[[12]]$`1`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[12]]$`2`[order(markers[[12]]$`2`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[12]]$`3`[order(markers[[12]]$`3`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[12]]$`4`[order(markers[[12]]$`4`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[12]]$`5`[order(markers[[12]]$`5`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[12]]$`6`[order(markers[[12]]$`6`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[12]]$`7`[order(markers[[12]]$`7`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[12]]$`8`[order(markers[[12]]$`8`$mean.AUC, decreasing=TRUE),]), 100))
+
+```
+
+### T_BB375org
+
+```{r}
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`1`[order(markers[[13]]$`1`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`2`[order(markers[[13]]$`2`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`3`[order(markers[[13]]$`3`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`4`[order(markers[[13]]$`4`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`5`[order(markers[[13]]$`5`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`6`[order(markers[[13]]$`6`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`7`[order(markers[[13]]$`7`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`8`[order(markers[[13]]$`8`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`9`[order(markers[[13]]$`9`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`10`[order(markers[[13]]$`10`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`11`[order(markers[[13]]$`11`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`12`[order(markers[[13]]$`12`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`13`[order(markers[[13]]$`13`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`14`[order(markers[[13]]$`14`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`15`[order(markers[[13]]$`15`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`16`[order(markers[[13]]$`16`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`17`[order(markers[[13]]$`17`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`18`[order(markers[[13]]$`18`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[13]]$`19`[order(markers[[13]]$`19`$mean.AUC, decreasing=TRUE),]), 100))
+
+```
+
+### T_BB420org
+
+```{r}
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`1`[order(markers[[17]]$`1`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`2`[order(markers[[17]]$`2`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`3`[order(markers[[17]]$`3`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`4`[order(markers[[17]]$`4`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`5`[order(markers[[17]]$`5`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`6`[order(markers[[17]]$`6`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`7`[order(markers[[17]]$`7`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`8`[order(markers[[17]]$`8`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`9`[order(markers[[17]]$`9`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`10`[order(markers[[17]]$`10`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`11`[order(markers[[17]]$`11`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`12`[order(markers[[17]]$`12`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[17]]$`13`[order(markers[[17]]$`13`$mean.AUC, decreasing=TRUE),]), 100))
+
+```
+
+### T_BB475org
+
+```{r}
+DT::datatable(head(as.data.frame(
+  markers[[20]]$`1`[order(markers[[20]]$`1`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[20]]$`2`[order(markers[[20]]$`2`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[20]]$`3`[order(markers[[20]]$`3`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[20]]$`4`[order(markers[[20]]$`4`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[20]]$`5`[order(markers[[20]]$`5`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[20]]$`6`[order(markers[[20]]$`6`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[20]]$`7`[order(markers[[20]]$`7`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[20]]$`8`[order(markers[[20]]$`8`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[20]]$`9`[order(markers[[20]]$`9`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[20]]$`10`[order(markers[[20]]$`10`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[20]]$`11`[order(markers[[20]]$`11`$mean.AUC, decreasing=TRUE),]), 100))
+
+DT::datatable(head(as.data.frame(
+  markers[[20]]$`12`[order(markers[[20]]$`12`$mean.AUC, decreasing=TRUE),]), 100))
+
+```
+
+## Exclude cells
+
+After observing the different metrics we will exclude doublets and dying cells independently for each patient.
+When a cluster contains doublets but also a substantial amount of single cells, we will keep it and exclude doublets later with the DoubletScore.
+
+```{r}
+sce_list[[1]] <- sce_list[[1]][,!as.character(sce_2[[1]]$clusters) %in% c("5", "6")]
+sce_list[[2]] <- sce_list[[2]][,!as.character(sce_2[[2]]$clusters) %in% c("11","22")]
+sce_list[[3]] <- sce_list[[3]][,!as.character(sce_2[[3]]$clusters) %in% c("7", "29")]
+sce_list[[4]] <- sce_list[[4]][,!as.character(sce_2[[4]]$clusters) %in% c("9", "11")]
+sce_list[[5]] <- sce_list[[5]][,!as.character(sce_2[[5]]$clusters) %in% c("11")]
+sce_list[[6]] <- sce_list[[6]][,!as.character(sce_2[[6]]$clusters) %in% c("10")]
+sce_list[[7]] <- sce_list[[7]][,!as.character(sce_2[[7]]$clusters) %in% c("14")]
+sce_list[[8]] <- sce_list[[8]][,!as.character(sce_2[[8]]$clusters) %in% c("13", "16")]
+sce_list[[9]] <- sce_list[[9]][,!as.character(sce_2[[9]]$clusters) %in% c("20" ,"14", "16", "24")]
+sce_list[[10]] <- sce_list[[10]][,!as.character(sce_2[[10]]$clusters) %in% c("8", "15")]
+sce_list[[11]] <- sce_list[[11]][,!as.character(sce_2[[11]]$clusters) %in% c("11", "13")]
+sce_list[[12]] <- sce_list[[12]][,!as.character(sce_2[[12]]$clusters) %in% c("6", "8")]
+sce_list[[13]] <- sce_list[[13]][,!as.character(sce_2[[13]]$clusters) %in% c("4", "18", "19")]
+sce_list[[14]] <- sce_list[[14]][,!as.character(sce_2[[14]]$clusters) %in% c("7", "14")]
+sce_list[[15]] <- sce_list[[15]][,!as.character(sce_2[[15]]$clusters) %in% c("1", "12", "13")]
+sce_list[[16]] <- sce_list[[16]][,!as.character(sce_2[[16]]$clusters) %in% c("10", "11")]
+sce_list[[17]] <- sce_list[[17]][,!as.character(sce_2[[17]]$clusters) %in% c("3", "6", "7", "9")]
+sce_list[[18]] <- sce_list[[18]][,!as.character(sce_2[[18]]$clusters) %in% c("2")]
+sce_list[[19]] <- sce_list[[19]][,!as.character(sce_2[[19]]$clusters) %in% c("8")]
+sce_list[[20]] <- sce_list[[20]][,!as.character(sce_2[[20]]$clusters) %in% c("1", "10")]
+
+```
+
+Remove doublets that were not excluded in the previous step.
+
+```{r}
+for (x in 1:length(sce_list)) {
+
+sce_list[[x]] <- sce_list[[x]][,sce_list[[x]]$DoubletScore < 10]
+
+}
+
+```
+
+We will also exclude cells with high mitochondrial counts.
+
+```{r}
+
+for (x in 1:length(sce_list)) {
+  
+sce_list[[x]] <- sce_list[[x]][,sce_list[[x]]$subsets_Mito_percent < 20]
+
+}
+```
+
+And exclude cells with few detected genes.
+
+```{r}
+
+for (x in 1:length(sce_list)) {
+  
+sce_list[[x]] <- sce_list[[x]][,sce_list[[x]]$detected > 1000]
+
+}
+```
+
+## Save object
+
+```{r save-sce}
+saveRDS(sce_list, "~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/scripts/20230301_scOrganoidseq_HD/Robjects/sce_list_preprocessed.rds")
+```
+
+# 3. DE
+
+```{r}
+sce_pp <- readRDS("~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/scripts/20230301_scOrganoidseq_HD/Robjects/sce_list_preprocessed.rds")
+```
+
+## Normalization and HVG detection
+
+In the first instance we will normalize the data and detect HVG again.
+
+```{r normalization, message=FALSE, warning=FALSE}
+set.seed(221216)
+
+cur_clust <- list()
+
+for (x in 1:length(sce_pp)) {
+  
+cur_clust[[x]] <- quickCluster(sce_pp[[x]]) 
+
+sce_pp[[x]] <- computeSumFactors(sce_pp[[x]], cluster=cur_clust[[x]])
+
+sce_pp[[x]] <- logNormCounts(sce_pp[[x]])
+
+}
+
+```
+
+## Detection of highly variable genes.
+
+```{r HVG}
+# Fit the mean variance trend
+
+cur_var <- list()
+cur_fit <- list()
+
+for (x in 1:length(sce_pp)) {
+
+cur_var[[x]] <- modelGeneVar(sce_pp[[x]])
+
+cur_fit[[x]] <- metadata(cur_var[[x]])
+
+}
+
+#Example with T_BB022
+
+plot(cur_fit[[4]]$mean, cur_fit[[4]]$var, xlab="Mean of log-expression",
+    ylab="Variance of log-expression")
+curve(cur_fit[[4]]$trend(x), col="dodgerblue", add=TRUE, lwd=2)
+
+# Order genes by their biological variance
+
+hvg <- list()
+
+for (x in 1:length(sce_pp)) {
+  
+cur_var[[x]][order(cur_var[[x]]$bio, decreasing=TRUE),] %>%
+  as.data.frame() %>%
+  head(50)
+
+hvg[[x]] <- getTopHVGs(cur_var[[x]], n=1000)
+
+}
+```
+
+## Broad clustering
+
+We will now broadly cluster the cells.
+
+```{r broad-clustering}
+
+nn_clusters <- list()
+
+for (x in 1:length(sce_pp)) {
+  
+set.seed(221216)
+sce_pp[[x]] <- fixedPCA(sce_pp[[x]], subset.row=hvg[[x]])
+
+sce_pp[[x]] <- runUMAP(sce_pp[[x]], dimred = "PCA")
+
+nn_clusters[[x]] <- clusterCells(sce_pp[[x]], use.dimred="PCA", 
+                            BLUSPARAM = NNGraphParam(k = 20))
+
+sce_pp[[x]]$broad_clusters <- nn_clusters[[x]]
+
+}
+
+#Example with T_BB022
+
+dittoDimPlot(sce_pp[[4]], var = "broad_clusters") 
+```
+
+### Cell type annotation
+
+We can now annotate the clusters based on marker gene expression for every sce object individually.
+These clusters will be named 'broad clusters'
+
+## T_BB056
+
+```{r}
+
+dittoHeatmap(sce_pp[[8]], genes = genes, annot.by = "broad_clusters", 
+             scaled.to.max = TRUE)
+
+celltypes8 <- as.character(sce_pp[[8]]$broad_clusters)
+celltypes8[celltypes8 == "1"] <- "basal"
+celltypes8[celltypes8 == "2"] <- "mature_luminal"
+celltypes8[celltypes8 == "3"] <- "basal"
+celltypes8[celltypes8 == "4"] <- "mature_luminal"
+celltypes8[celltypes8 == "5"] <- "luminal_progenitor"
+celltypes8[celltypes8 == "6"] <- "basal"
+celltypes8[celltypes8 == "7"] <- "basal"
+celltypes8[celltypes8 == "8"] <- "basal"
+celltypes8[celltypes8 == "9"] <- "basal"
+celltypes8[celltypes8 == "10"] <- "basal"
+celltypes8[celltypes8 == "11"] <- "basal"
+celltypes8[celltypes8 == "12"] <- "basal"
+
+sce_pp[[8]]$celltypes <- celltypes8
+
+```
+
+## T_BB171
+
+```{r}
+
+dittoHeatmap(sce_pp[[11]], genes = genes, annot.by = "broad_clusters", 
+             scaled.to.max = TRUE)
+
+celltypes11 <- as.character(sce_pp[[11]]$broad_clusters)
+celltypes11[celltypes11 == "1"] <- "mature_luminal"
+celltypes11[celltypes11 == "2"] <- "basal"
+celltypes11[celltypes11 == "3"] <- "luminal_progenitor"
+celltypes11[celltypes11 == "4"] <- "luminal_progenitor"
+celltypes11[celltypes11 == "5"] <- "basal"
+celltypes11[celltypes11 == "6"] <- "mature_luminal"
+celltypes11[celltypes11 == "7"] <- "mature_luminal"
+celltypes11[celltypes11 == "8"] <- "mature_luminal"
+celltypes11[celltypes11 == "9"] <- "mature_luminal"
+
+sce_pp[[11]]$celltypes <- celltypes11
+
+```
+
+## T_BB225
+
+```{r}
+
+dittoHeatmap(sce_pp[[12]], genes = genes, annot.by = "broad_clusters", 
+             scaled.to.max = TRUE)
+
+celltypes12 <- as.character(sce_pp[[12]]$broad_clusters)
+celltypes12[celltypes12 == "1"] <- "luminal_progenitor"
+celltypes12[celltypes12 == "2"] <- "basal"
+celltypes12[celltypes12 == "3"] <- "mature_luminal"
+celltypes12[celltypes12 == "4"] <- "luminal_progenitor"
+celltypes12[celltypes12 == "5"] <- "basal"
+celltypes12[celltypes12 == "6"] <- "mature_luminal"
+celltypes12[celltypes12 == "7"] <- "basal"
+celltypes12[celltypes12 == "8"] <- "mature_luminal"
+celltypes12[celltypes12 == "9"] <- "mature_luminal"
+celltypes12[celltypes12 == "10"] <- "luminal_progenitor"
+celltypes12[celltypes12 == "11"] <- "basal"
+celltypes12[celltypes12 == "12"] <- "luminal_progenitor"
+celltypes12[celltypes12 == "13"] <- "mature_luminal"
+
+
+sce_pp[[12]]$celltypes <- celltypes12
+
+```
+
+## T_BB375
+
+```{r}
+
+dittoHeatmap(sce_pp[[13]], genes = genes, annot.by = "broad_clusters", 
+             scaled.to.max = TRUE)
+
+celltypes13 <- as.character(sce_pp[[13]]$broad_clusters)
+celltypes13[celltypes13 == "1"] <- "mature_luminal"
+celltypes13[celltypes13 == "2"] <- "mature_luminal"
+celltypes13[celltypes13 == "3"] <- "basal"
+celltypes13[celltypes13 == "4"] <- "basal"
+celltypes13[celltypes13 == "5"] <- "mature_luminal"
+celltypes13[celltypes13 == "6"] <- "mature_luminal"
+celltypes13[celltypes13 == "7"] <- "mature_luminal"
+celltypes13[celltypes13 == "8"] <- "mature_luminal"
+celltypes13[celltypes13 == "9"] <- "mature_luminal"
+celltypes13[celltypes13 == "10"] <- "basal"
+celltypes13[celltypes13 == "11"] <- "mature_luminal"
+celltypes13[celltypes13 == "12"] <- "basal"
+celltypes13[celltypes13 == "13"] <- "mature_luminal"
+celltypes13[celltypes13 == "14"] <- "mature_luminal"
+celltypes13[celltypes13 == "15"] <- "mature_luminal"
+celltypes13[celltypes13 == "16"] <- "mature_luminal"
+celltypes13[celltypes13 == "17"] <- "mature_luminal"
+celltypes13[celltypes13 == "18"] <- "mature_luminal"
+celltypes13[celltypes13 == "19"] <- "mature_luminal"
+celltypes13[celltypes13 == "20"] <- "mature_luminal"
+celltypes13[celltypes13 == "21"] <- "mature_luminal"
+celltypes13[celltypes13 == "22"] <- "basal"
+celltypes13[celltypes13 == "23"] <- "mature_luminal"
+celltypes13[celltypes13 == "24"] <- "mature_luminal"
+celltypes13[celltypes13 == "25"] <- "mature_luminal"
+
+sce_pp[[13]]$celltypes <- celltypes13
+
+```
+
+## T_BB420
+
+```{r}
+
+dittoHeatmap(sce_pp[[17]], genes = genes, annot.by = "broad_clusters", 
+             scaled.to.max = TRUE)
+
+celltypes17 <- as.character(sce_pp[[17]]$broad_clusters)
+celltypes17[celltypes17 == "1"] <- "mature_luminal"
+celltypes17[celltypes17 == "2"] <- "mature_luminal"
+celltypes17[celltypes17 == "3"] <- "mature_luminal"
+celltypes17[celltypes17 == "4"] <- "mature_luminal"
+celltypes17[celltypes17 == "5"] <- "mature_luminal"
+celltypes17[celltypes17 == "6"] <- "mature_luminal"
+celltypes17[celltypes17 == "7"] <- "mature_luminal"
+celltypes17[celltypes17 == "8"] <- "mature_luminal"
+celltypes17[celltypes17 == "9"] <- "mature_luminal"
+celltypes17[celltypes17 == "10"] <- "mature_luminal"
+celltypes17[celltypes17 == "11"] <- "mature_luminal"
+celltypes17[celltypes17 == "12"] <- "mature_luminal"
+
+sce_pp[[17]]$celltypes <- celltypes17
+
+```
+
+## T_BB475
+
+```{r}
+
+dittoHeatmap(sce_pp[[20]], genes = genes, annot.by = "broad_clusters", 
+             scaled.to.max = TRUE)
+
+celltypes20 <- as.character(sce_pp[[20]]$broad_clusters)
+celltypes20[celltypes20 == "1"] <- "mature_luminal"
+celltypes20[celltypes20 == "2"] <- "mature_luminal"
+celltypes20[celltypes20 == "3"] <- "mature_luminal"
+celltypes20[celltypes20 == "4"] <- "mature_luminal"
+celltypes20[celltypes20 == "5"] <- "mature_luminal"
+celltypes20[celltypes20 == "6"] <- "mature_luminal"
+celltypes20[celltypes20 == "7"] <- "mature_luminal"
+celltypes20[celltypes20 == "8"] <- "mature_luminal"
+celltypes20[celltypes20 == "9"] <- "mature_luminal"
+celltypes20[celltypes20 == "10"] <- "mature_luminal"
+celltypes20[celltypes20 == "11"] <- "mature_luminal"
+celltypes20[celltypes20 == "12"] <- "mature_luminal"
+celltypes20[celltypes20 == "13"] <- "mature_luminal"
+celltypes20[celltypes20 == "14"] <- "mature_luminal"
+celltypes20[celltypes20 == "15"] <- "mature_luminal"
+
+sce_pp[[20]]$celltypes <- celltypes20
+
+```
+
+## Save sce object
+
+```{r}
+
+saveRDS(sce_pp, "~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/scripts/20230301_scOrganoidseq_HD/Robjects/sce_list_annotated.rds")
+
+```
+
+# 4. Merge and batch correction
+
+```{r}
+sce_pp <- readRDS("~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/scripts/20230301_scOrganoidseq_HD/Robjects/sce_list_annotated.rds")
+```
+
+## Merge and correct for batch effect using fastMNN
+
+```{r, message=FALSE, warning=FALSE}
+
+sce_merged <- cbind(sce_pp[[1]], sce_pp[[2]], sce_pp[[3]], sce_pp[[4]], sce_pp[[5]], sce_pp[[6]], sce_pp[[7]], sce_pp[[8]], sce_pp[[9]], sce_pp[[10]], sce_pp[[11]], sce_pp[[12]], sce_pp[[13]], sce_pp[[14]], sce_pp[[15]], sce_pp[[16]], sce_pp[[17]], sce_pp[[18]], sce_pp[[19]], sce_pp[[20]])
+
+set.seed(101)
+f_out <- fastMNN(sce_pp[[1]], sce_pp[[2]], sce_pp[[3]], sce_pp[[4]], sce_pp[[5]], sce_pp[[6]], sce_pp[[7]], sce_pp[[8]], sce_pp[[9]], sce_pp[[10]], sce_pp[[11]], sce_pp[[12]], sce_pp[[13]], sce_pp[[14]], sce_pp[[15]], sce_pp[[16]], sce_pp[[17]], sce_pp[[18]], sce_pp[[19]], sce_pp[[20]])
+
+#Store 'reconstructed' and 'corrected' and in the sce_merged object
+
+assay(sce_merged, 'reconstructed') <- assay(f_out, 'reconstructed')
+reducedDim(sce_merged, 'corrected') <- reducedDim(f_out, 'corrected')
+
+```
+
+## Include metadata in the new sce file
+
+```{r}
+
+sce_merged$Sample <- c(sce_pp[[1]]$Sample, sce_pp[[2]]$Sample, sce_pp[[3]]$Sample, sce_pp[[4]]$Sample, sce_pp[[5]]$Sample, sce_pp[[6]]$Sample, sce_pp[[7]]$Sample, sce_pp[[8]]$Sample, sce_pp[[9]]$Sample, sce_pp[[10]]$Sample, sce_pp[[11]]$Sample, sce_pp[[12]]$Sample, sce_pp[[13]]$Sample, sce_pp[[14]]$Sample, sce_pp[[15]]$Sample, sce_pp[[16]]$Sample, sce_pp[[17]]$Sample, sce_pp[[18]]$Sample, sce_pp[[19]]$Sample, sce_pp[[20]]$Sample)
+
+sce_merged$barcode <- c(sce_pp[[1]]$barcode, sce_pp[[2]]$barcode, sce_pp[[3]]$barcode, sce_pp[[4]]$barcode, sce_pp[[5]]$barcode, sce_pp[[6]]$barcode, sce_pp[[7]]$barcode, sce_pp[[8]]$barcode, sce_pp[[9]]$barcode, sce_pp[[10]]$barcode, sce_pp[[11]]$barcode, sce_pp[[12]]$barcode, sce_pp[[13]]$barcode, sce_pp[[14]]$barcode, sce_pp[[15]]$barcode, sce_pp[[16]]$barcode, sce_pp[[17]]$barcode, sce_pp[[18]]$barcode, sce_pp[[19]]$barcode, sce_pp[[20]]$barcode)
+
+sce_merged$sum <- c(sce_pp[[1]]$sum, sce_pp[[2]]$sum, sce_pp[[3]]$sum, sce_pp[[4]]$sum, sce_pp[[5]]$sum, sce_pp[[6]]$sum, sce_pp[[7]]$sum, sce_pp[[8]]$sum, sce_pp[[9]]$sum, sce_pp[[10]]$sum, sce_pp[[11]]$sum, sce_pp[[12]]$sum, sce_pp[[13]]$sum, sce_pp[[14]]$sum, sce_pp[[15]]$sum, sce_pp[[16]]$sum, sce_pp[[17]]$sum, sce_pp[[18]]$sum, sce_pp[[19]]$sum, sce_pp[[20]]$sum)
+
+sce_merged$detected <- c(sce_pp[[1]]$detected, sce_pp[[2]]$detected, sce_pp[[3]]$detected, sce_pp[[4]]$detected, sce_pp[[5]]$detected, sce_pp[[6]]$detected, sce_pp[[7]]$detected, sce_pp[[8]]$detected, sce_pp[[9]]$detected, sce_pp[[10]]$detected, sce_pp[[11]]$detected, sce_pp[[12]]$detected, sce_pp[[13]]$detected, sce_pp[[14]]$detected, sce_pp[[15]]$detected, sce_pp[[16]]$detected, sce_pp[[17]]$detected, sce_pp[[18]]$detected, sce_pp[[19]]$detected, sce_pp[[20]]$detected)
+
+sce_merged$subsets_Mito_sum <- c(sce_pp[[1]]$subsets_Mito_sum, sce_pp[[2]]$subsets_Mito_sum, sce_pp[[3]]$subsets_Mito_sum, sce_pp[[4]]$subsets_Mito_sum, sce_pp[[5]]$subsets_Mito_sum, sce_pp[[6]]$subsets_Mito_sum, sce_pp[[7]]$subsets_Mito_sum, sce_pp[[8]]$subsets_Mito_sum, sce_pp[[9]]$subsets_Mito_sum, sce_pp[[10]]$subsets_Mito_sum, sce_pp[[11]]$subsets_Mito_sum, sce_pp[[12]]$subsets_Mito_sum, sce_pp[[13]]$subsets_Mito_sum, sce_pp[[14]]$subsets_Mito_sum, sce_pp[[15]]$subsets_Mito_sum, sce_pp[[16]]$subsets_Mito_sum, sce_pp[[17]]$subsets_Mito_sum, sce_pp[[18]]$subsets_Mito_sum, sce_pp[[19]]$subsets_Mito_sum, sce_pp[[20]]$subsets_Mito_sum)
+
+sce_merged$subsets_Mito_percent <- c(sce_pp[[1]]$subsets_Mito_percent, sce_pp[[2]]$subsets_Mito_percent, sce_pp[[3]]$subsets_Mito_percent, sce_pp[[4]]$subsets_Mito_percent, sce_pp[[5]]$subsets_Mito_percent, sce_pp[[6]]$subsets_Mito_percent, sce_pp[[7]]$subsets_Mito_percent, sce_pp[[8]]$subsets_Mito_percent, sce_pp[[9]]$subsets_Mito_percent, sce_pp[[10]]$subsets_Mito_percent, sce_pp[[11]]$subsets_Mito_percent, sce_pp[[12]]$subsets_Mito_percent, sce_pp[[13]]$subsets_Mito_percent, sce_pp[[14]]$subsets_Mito_percent, sce_pp[[15]]$subsets_Mito_percent, sce_pp[[16]]$subsets_Mito_percent, sce_pp[[17]]$subsets_Mito_percent, sce_pp[[18]]$subsets_Mito_percent, sce_pp[[19]]$subsets_Mito_percent, sce_pp[[20]]$subsets_Mito_percent)
+
+
+sce_merged$subsets_Mito_detected <- c(sce_pp[[1]]$subsets_Mito_detected, sce_pp[[2]]$subsets_Mito_detected, sce_pp[[3]]$subsets_Mito_detected, sce_pp[[4]]$subsets_Mito_detected, sce_pp[[5]]$subsets_Mito_detected, sce_pp[[6]]$subsets_Mito_detected, sce_pp[[7]]$subsets_Mito_detected, sce_pp[[8]]$subsets_Mito_detected, sce_pp[[9]]$subsets_Mito_detected, sce_pp[[10]]$subsets_Mito_detected, sce_pp[[11]]$subsets_Mito_detected, sce_pp[[12]]$subsets_Mito_detected, sce_pp[[13]]$subsets_Mito_detected, sce_pp[[14]]$subsets_Mito_detected, sce_pp[[15]]$subsets_Mito_detected, sce_pp[[16]]$subsets_Mito_detected, sce_pp[[17]]$subsets_Mito_detected, sce_pp[[18]]$subsets_Mito_detected, sce_pp[[19]]$subsets_Mito_detected, sce_pp[[20]]$subsets_Mito_detected)
+
+sce_merged$total <- c(sce_pp[[1]]$total, sce_pp[[2]]$total, sce_pp[[3]]$total, sce_pp[[4]]$total, sce_pp[[5]]$total, sce_pp[[6]]$total, sce_pp[[7]]$total, sce_pp[[8]]$total, sce_pp[[9]]$total, sce_pp[[10]]$total, sce_pp[[11]]$total, sce_pp[[12]]$total, sce_pp[[13]]$total, sce_pp[[14]]$total, sce_pp[[15]]$total, sce_pp[[16]]$total, sce_pp[[17]]$total, sce_pp[[18]]$total, sce_pp[[19]]$total, sce_pp[[20]]$total)
+
+sce_merged$DoubletScore <- c(sce_pp[[1]]$DoubletScore, sce_pp[[2]]$DoubletScore, sce_pp[[3]]$DoubletScore, sce_pp[[4]]$DoubletScore, sce_pp[[5]]$DoubletScore, sce_pp[[6]]$DoubletScore, sce_pp[[7]]$DoubletScore, sce_pp[[8]]$DoubletScore, sce_pp[[9]]$DoubletScore, sce_pp[[10]]$DoubletScore, sce_pp[[11]]$DoubletScore, sce_pp[[12]]$DoubletScore, sce_pp[[13]]$DoubletScore, sce_pp[[14]]$DoubletScore, sce_pp[[15]]$DoubletScore, sce_pp[[16]]$DoubletScore, sce_pp[[17]]$DoubletScore, sce_pp[[18]]$DoubletScore, sce_pp[[19]]$DoubletScore, sce_pp[[20]]$DoubletScore)
+
+sce_merged$sizeFactor <- c(sce_pp[[1]]$sizeFactor, sce_pp[[2]]$sizeFactor, sce_pp[[3]]$sizeFactor, sce_pp[[4]]$sizeFactor, sce_pp[[5]]$sizeFactor, sce_pp[[6]]$sizeFactor, sce_pp[[7]]$sizeFactor, sce_pp[[8]]$sizeFactor, sce_pp[[9]]$sizeFactor, sce_pp[[10]]$sizeFactor, sce_pp[[11]]$sizeFactor, sce_pp[[12]]$sizeFactor, sce_pp[[13]]$sizeFactor, sce_pp[[14]]$sizeFactor, sce_pp[[15]]$sizeFactor, sce_pp[[16]]$sizeFactor, sce_pp[[17]]$sizeFactor, sce_pp[[18]]$sizeFactor, sce_pp[[19]]$sizeFactor, sce_pp[[20]]$sizeFactor)
+
+sce_merged$broad_clusters <- c(sce_pp[[1]]$broad_clusters, sce_pp[[2]]$broad_clusters, sce_pp[[3]]$broad_clusters, sce_pp[[4]]$broad_clusters, sce_pp[[5]]$broad_clusters, sce_pp[[6]]$broad_clusters, sce_pp[[7]]$broad_clusters, sce_pp[[8]]$broad_clusters, sce_pp[[9]]$broad_clusters, sce_pp[[10]]$broad_clusters, sce_pp[[11]]$broad_clusters, sce_pp[[12]]$broad_clusters, sce_pp[[13]]$broad_clusters, sce_pp[[14]]$broad_clusters, sce_pp[[15]]$broad_clusters, sce_pp[[16]]$broad_clusters, sce_pp[[17]]$broad_clusters, sce_pp[[18]]$broad_clusters, sce_pp[[19]]$broad_clusters, sce_pp[[20]]$broad_clusters)
+
+sce_merged$celltypes <- c(sce_pp[[1]]$celltypes, sce_pp[[2]]$celltypes, sce_pp[[3]]$celltypes, sce_pp[[4]]$celltypes, sce_pp[[5]]$celltypes, sce_pp[[6]]$celltypes, sce_pp[[7]]$celltypes, sce_pp[[8]]$celltypes, sce_pp[[9]]$celltypes, sce_pp[[10]]$celltypes, sce_pp[[11]]$celltypes, sce_pp[[12]]$celltypes, sce_pp[[13]]$celltypes, sce_pp[[14]]$celltypes, sce_pp[[15]]$celltypes, sce_pp[[16]]$celltypes, sce_pp[[17]]$celltypes, sce_pp[[18]]$celltypes, sce_pp[[19]]$celltypes, sce_pp[[20]]$celltypes)
+
+sce_merged$Patient_ID <- substring(colnames(sce_merged), 1,7)
+
+```
+
+## Run and plot t-SNE to see batches
+
+```{r}
+
+set.seed(101)
+sce_merged <- runTSNE(sce_merged, dimred="corrected")
+plotTSNE(sce_merged, colour_by="Patient_ID")
+
+```
+
+## Run and plot PCA to see batches
+
+```{r, message=FALSE, warning=FALSE}
+
+set.seed(101)
+sce_merged <- runPCA(sce_merged, dimred="corrected")
+plotPCA(sce_merged, colour_by="Patient_ID")
+
+```
+
+## Run and plot UMAP to see batches
+
+```{r}
+
+set.seed(101)
+sce_merged <- runUMAP(sce_merged, dimred="corrected")
+plotUMAP(sce_merged, colour_by="Patient_ID")
+
+```
+
+## Save object
+
+```{r}
+
+saveRDS(sce_merged ,"~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/scripts/20230301_scOrganoidseq_HD/Robjects/sce_merged.rds")
+
+```
+
+# 5. Cluster annotate
+
+```{r}
+sce_merged <- readRDS("~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/scripts/20230301_scOrganoidseq_HD/Robjects/sce_merged.rds")
+```
+
+## Try different settings of graph-based clustering
+
+```{r}
+set.seed(101)
+nn_clusters_20 <- clusterCells(sce_merged, use.dimred="corrected", 
+                            BLUSPARAM = NNGraphParam(k = 20, cluster.fun = "louvain"))
+
+set.seed(101)
+nn_clusters_40 <- clusterCells(sce_merged, use.dimred="corrected", 
+                            BLUSPARAM = NNGraphParam(k = 40, cluster.fun = "louvain"))
+
+set.seed(101)
+nn_clusters_60 <- clusterCells(sce_merged, use.dimred="corrected", 
+                            BLUSPARAM = NNGraphParam(k = 60, cluster.fun = "louvain"))
+
+set.seed(101)
+nn_clusters_80 <- clusterCells(sce_merged, use.dimred="corrected", 
+                            BLUSPARAM = NNGraphParam(k = 80, cluster.fun = "louvain"))
+
+set.seed(101)
+nn_clusters_100 <- clusterCells(sce_merged, use.dimred="corrected", 
+                            BLUSPARAM = NNGraphParam(k = 100, cluster.fun = "louvain"))
+
+set.seed(101)
+nn_clusters_120 <- clusterCells(sce_merged, use.dimred="corrected", 
+                            BLUSPARAM = NNGraphParam(k = 120, cluster.fun = "louvain"))
+
+#Compare
+
+pheatmap(table(nn_clusters_20, nn_clusters_40), cluster_rows = F, cluster_cols = F)
+pheatmap(table(nn_clusters_60, nn_clusters_80), cluster_rows = F, cluster_cols = F)
+pheatmap(table(nn_clusters_100, nn_clusters_120), cluster_rows = F, cluster_cols = F)
+pheatmap(table(nn_clusters_20, nn_clusters_120), cluster_rows = F, cluster_cols = F)
+
+#We choose to keep the clustering with k=20
+sce_merged$nn_clusters <- nn_clusters_20
+
+```
+
+## Annotate cell types
+
+```{r, fig.width=10, fig.height=20}
+genes <- c("KRT8", "KRT18", "KRT19", "KRT5", "KRT14", "EHF", "ESR1", "PGR", "AR", "PTPRC", "ACTA2", "CD68", "PECAM1", "CD3D", "MS4A1", "NCAM1", "CD3E", "CD19", "COL1A1", "CD34", "FAP", "PDPN", "PDGFRA")
+
+dittoHeatmap(sce_merged, genes = genes, annot.by = "nn_clusters", 
+             scaled.to.max = TRUE)
+
+#Erase previous patient-level annotation that was made during the quality check
+
+sce_merged$celltypes <- NULL
+
+celltypes <- as.character(sce_merged$nn_clusters)
+celltypes[celltypes == "1"] <- "endothelial"
+celltypes[celltypes == "2"] <- "B_cell"
+celltypes[celltypes == "3"] <- "T_cell"
+celltypes[celltypes == "4"] <- "macrophage"
+celltypes[celltypes == "5"] <- "fibroblast"
+celltypes[celltypes == "6"] <- "endothelial"
+celltypes[celltypes == "7"] <- "mature_luminal"
+celltypes[celltypes == "8"] <- "basal"
+celltypes[celltypes == "9"] <- "basal"
+celltypes[celltypes == "10"] <- "mature_luminal"
+celltypes[celltypes == "11"] <- "basal"
+celltypes[celltypes == "12"] <- "mature_luminal"
+celltypes[celltypes == "13"] <- "basal"
+celltypes[celltypes == "14"] <- "mature_luminal"
+celltypes[celltypes == "15"] <- "mature_luminal"
+celltypes[celltypes == "16"] <- "luminal_progenitor"
+celltypes[celltypes == "17"] <- "mature_luminal"
+celltypes[celltypes == "18"] <- "mature_luminal"
+celltypes[celltypes == "19"] <- "mature_luminal"
+celltypes[celltypes == "20"] <- "mature_luminal"
+celltypes[celltypes == "21"] <- "mature_luminal"
+celltypes[celltypes == "22"] <- "luminal_progenitor"
+
+sce_merged$celltypes <- celltypes
+```
+
+## Plot UMAP with annotated cell types
+
+```{r}
+plotUMAP(sce_merged, colour_by="celltypes")
+```
+
+## Save object
+
+```{r}
+saveRDS(sce_merged ,"~/data/old_VM_scripts/HD_Organoids/20230301_scOrganoidseq/scripts/20230301_scOrganoidseq_HD/Robjects/sce_final.rds")
+```
+

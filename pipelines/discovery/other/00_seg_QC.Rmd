@@ -1,0 +1,332 @@
+---
+title: "00_seg_mesmer_QC"
+author: "Lasse Meyer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# A stratification system for breast cancer based on basoluminal tumor cells and spatial tumor architecture, Meyer et al., 2025 
+
+**DISCLAIMER**: Pipeline scripts contain all code used for data presented in the publication but also small exploratory data analysis parts. For reproducing the figures, please refer to the figure-related scripts and cleaned data objects provided on **Zenodo** (<https://zenodo.org/records/>). File paths have to be adjusted by the user. 
+
+Code related to following cleaned **Zenodo** objects: / 
+
+# Discovery 
+
+Data analysis scripts for IMC data analysis in the discovery cohort. 
+
+# Support Script: Segmentation Quality Control
+
+Here, we used the pre-trained deep-learning mesmer model to perform single-cell segmentation with different channel-combinations for testing.
+
+# Software requirements
+
+```{r lib, message=FALSE,warning=FALSE}
+library(SingleCellExperiment)
+library(CATALYST)
+library(scuttle)
+library(scater)
+library(imcRtools)
+library(cytomapper)
+library(dittoSeq)
+library(viridis)
+library(tidyverse)
+library(openxlsx)
+library(stringr)
+library(BiocParallel)
+```
+
+## Read in images
+
+Read in multi-channel images (TIFF) and segmentation masks into a
+`CytoImageList` container using the `loadImages` function from the `cytomapper` package.
+
+```{r read-images}
+#images <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/img/",on_disk = FALSE,BPPARAM = MulticoreParam(workers = 2,progressbar = TRUE,stop.on.error = FALSE))
+#images <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/img/",on_disk = TRUE,h5FilesPath = "/mnt/central_nas/tnbc_volume/TNBC/h5_img/",BPPARAM = MulticoreParam(workers = 14,progressbar = TRUE))
+images <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_TNBC_spillcor.rds")
+
+#set channel-names for multi-channel images
+#double-check that the channel order is correct
+panel <- read_csv("/mnt/central_nas/tnbc_volume/TNBC/panel.csv")
+channelNames(images) <- panel$clean_target
+images
+
+#Load masks
+#masks_1 <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/masks_1/", as.is = TRUE)
+#masks_2 <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/masks_2/", as.is = TRUE)
+#masks_3 <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/masks_3/", as.is = TRUE)
+#masks_4 <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/masks_4/", as.is = TRUE)
+#masks_5 <- loadImages("/mnt/central_nas/tnbc_volume/TNBC/masks_5/", as.is = TRUE)
+
+masks_1 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_1.rds")
+masks_2 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_2.rds")
+masks_3 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_3.rds")
+masks_4 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+masks_5 <- readRDS("/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_5.rds")
+```
+
+Add additional metadata to the `elementMetadata` slot of the `CytoImageList` (accessible via mcols)
+
+```{r add-image-metadata}
+all.equal(names(images), names(masks_1))
+
+PID <- c(str_split(names(images), "_",simplify = TRUE)[1:180,3],paste0(str_split(names(images), "_",simplify = TRUE)[181:length(names(images)),3],str_split(names(images), "_",simplify = TRUE)[181:length(names(images)),4]))
+
+mcols(images) <- mcols(masks_1) <- mcols(masks_2) <- mcols(masks_3) <- mcols(masks_4) <- mcols(masks_5) <- DataFrame(sample_id = names(images), PID = PID)
+```
+
+# Save images and masks
+
+```{r save-objects-read-data}
+saveRDS(images, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/images_segtest.rds")
+
+saveRDS(masks_1, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_1.rds")
+saveRDS(masks_2, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_2.rds")
+saveRDS(masks_3, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_3.rds")
+saveRDS(masks_4, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_4.rds")
+saveRDS(masks_5, "/mnt/central_nas/tnbc_volume/TNBC/data_analysis/masks_segtest_5.rds")
+```
+
+## QC
+
+### Image visualization
+
+```{r overlay-masks, message=FALSE}
+#Randomly select 20 images
+set.seed(22)
+img_random <- sample(seq_len(length(images)), 10)
+
+img_files <- list.files("/mnt/central_nas/tnbc_volume/TNBC/img/")
+img_selected <- c(which(str_detect(img_files ,"ZTMA249_ID_320_CX8Y10")),which(str_detect(img_files ,"ZTMA249_ID_289_CX1Y7")),which(str_detect(img_files ,"ZTMA249_ID_36_AX4Y5")),which(str_detect(img_files ,"ZTMA249_ID_7_AX7Y1")),which(str_detect(img_files ,"ZTMA249_ID_220_BX4Y13")),which(str_detect(img_files ,"ZTMA249_ID_271_CX7Y4")),which(str_detect(img_files ,"ZTMA249_ID_82_AX2Y11")), which(str_detect(img_files ,"ZTMA249_ID_179_BX3Y8")), which(str_detect(img_files ,"ZTMA249_ID_183_BX7Y8")), which(str_detect(img_files ,"ZTMA174_B08.26868_79_AX7Y10")))
+
+img_ids <- c(img_selected,img_random)
+
+# Normalize and clip image
+cur_images <- images[img_ids]
+cur_images <- normalize(cur_images, separateImages = TRUE)
+cur_images <- normalize(cur_images, inputRange = c(0, 0.2))
+channelNames(cur_images) <- panel$clean_target
+
+#by epithelial channels
+plotPixels(cur_images,
+           mask = masks_1[img_ids],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("panCK", "Ecad", "Vimentin", "SMA","CD44"),
+           colour = list("panCK" = c("black", "yellow"),
+                         "Ecad" = c("black", "magenta"),
+                         "Vimentin" = c("black", "cyan"),
+                         "SMA" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_epi_1.png", scale = 2))
+
+plotPixels(cur_images,
+           mask = masks_2[img_ids],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("panCK", "Ecad", "Vimentin", "SMA","CD44"),
+           colour = list("panCK" = c("black", "yellow"),
+                         "Ecad" = c("black", "magenta"),
+                         "Vimentin" = c("black", "cyan"),
+                         "SMA" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_epi_2.png", scale = 2))
+
+plotPixels(cur_images,
+           mask = masks_3[img_ids],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("panCK", "Ecad", "Vimentin", "SMA","CD44"),
+           colour = list("panCK" = c("black", "yellow"),
+                         "Ecad" = c("black", "magenta"),
+                         "Vimentin" = c("black", "cyan"),
+                         "SMA" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_epi_3.png", scale = 2))
+
+plotPixels(cur_images,
+           mask = masks_4[img_ids],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("panCK", "Ecad", "Vimentin", "SMA","CD44"),
+           colour = list("panCK" = c("black", "yellow"),
+                         "Ecad" = c("black", "magenta"),
+                         "Vimentin" = c("black", "cyan"),
+                         "SMA" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_epi_4.png", scale = 2))
+
+plotPixels(cur_images,
+           mask = masks_5[img_ids],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("panCK", "Ecad", "Vimentin", "SMA","CD44"),
+           colour = list("panCK" = c("black", "yellow"),
+                         "Ecad" = c("black", "magenta"),
+                         "Vimentin" = c("black", "cyan"),
+                         "SMA" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_epi_5.png", scale = 2))
+
+
+#by immune channels
+plotPixels(cur_images,
+           mask = masks_1[img_ids],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("CD3", "CD8a", "CD68", "CD20", "CD44"),
+           colour = list("CD3" = c("black", "yellow"),
+                         "CD20" = c("black", "magenta"),
+                         "CD8a" = c("black", "cyan"),
+                         "CD68" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_immune_1.png", scale = 2))
+
+plotPixels(cur_images,
+           mask = masks_2[img_ids],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("CD3", "CD8a", "CD68", "CD20", "CD44"),
+           colour = list("CD3" = c("black", "yellow"),
+                         "CD20" = c("black", "magenta"),
+                         "CD8a" = c("black", "cyan"),
+                         "CD68" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_immune_2.png", scale = 2))
+
+plotPixels(cur_images,
+           mask = masks_3[img_ids],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("CD3", "CD8a", "CD68", "CD20", "CD44"),
+           colour = list("CD3" = c("black", "yellow"),
+                         "CD20" = c("black", "magenta"),
+                         "CD8a" = c("black", "cyan"),
+                         "CD68" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_immune_3.png", scale = 2))
+
+plotPixels(cur_images,
+           mask = masks_4[img_ids],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("CD3", "CD8a", "CD68", "CD20", "CD44"),
+           colour = list("CD3" = c("black", "yellow"),
+                         "CD20" = c("black", "magenta"),
+                         "CD8a" = c("black", "cyan"),
+                         "CD68" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_immune_4.png", scale = 2))
+
+plotPixels(cur_images,
+           mask = masks_5[img_ids],
+           img_id = "sample_id",
+           missing_colour = "white",
+           colour_by = c("CD3", "CD8a", "CD68", "CD20", "CD44"),
+           colour = list("CD3" = c("black", "yellow"),
+                         "CD20" = c("black", "magenta"),
+                         "CD8a" = c("black", "cyan"),
+                         "CD68" = c("black", "green"),
+                         "CD44" = c("black","blue")
+                         ),
+           image_title = NULL,
+           legend = list(colour_by.title.cex = 0.7,
+                         colour_by.labels.cex = 0.7))
+           #save_plot = list(filename = "/Users/lasmey/Desktop/TNBC/Figures/Masks_comparison/TNBC_masks_immune_5.png", scale = 2))
+```
+
+
+### Single-cell visualization
+
+Best performing segmentations 
+
+```{r read and inspect steinbock}
+sce_4 <- read_steinbock("/mnt/central_nas/tnbc_volume/TNBC/",intensities_folder = "intensities_4",return_as = "sce",regionprops_folder = NULL,graphs_folder = NULL)
+
+sce_5 <- read_steinbock("/mnt/central_nas/tnbc_volume/TNBC/",intensities_folder = "intensities_5",return_as = "sce",regionprops_folder = NULL,graphs_folder = NULL)
+
+dim(assay(sce_4,"counts"))
+dim(assay(sce_5,"counts"))
+```
+
+```{r set-colnames}
+colnames(sce_4) <- paste0(sce_4$sample_id, "_", sce_4$ObjectNumber)
+colnames(sce_5) <- paste0(sce_5$sample_id, "_", sce_5$ObjectNumber)
+
+rownames(sce_4) <- rowData(sce_4)$clean_target
+rownames(sce_5) <- rowData(sce_5)$clean_target
+```
+
+```{r transform-counts, message=FALSE}
+#Transform counts
+assay(sce_4, "exprs") <- asinh(counts(sce_4)/1)
+assay(sce_5, "exprs") <- asinh(counts(sce_5)/1)
+```
+
+```{r select-features}
+rowData(sce_4)$use_channel <- !grepl("DNA|Histone", rowData(sce_4)$clean_target)
+rowData(sce_5)$use_channel <- !grepl("DNA|Histone", rowData(sce_5)$clean_target)
+```
+
+```{r segmentation-heatmap, message=FALSE, warning = FALSE, fig.width=10, fig.height=12}
+set.seed(22)
+cur_cells <- sample(seq_len(ncol(sce_4)), 2000)
+
+dittoHeatmap(sce_4[,cur_cells], genes = rownames(sce_4)[rowData(sce_4)$use_channel],
+             assay = "exprs", cluster_cols = TRUE,scale = "none",
+             heatmap.colors = viridis(100))
+
+cur_cells_1 <- sample(seq_len(ncol(sce_5)), 2000)
+dittoHeatmap(sce_5[,cur_cells_1], genes = rownames(sce_5)[rowData(sce_5)$use_channel],
+             assay = "exprs", cluster_cols = TRUE,scale = "none",
+             heatmap.colors = viridis(100))
+```
+
+Masks 4 were selected for downstream analysis.
+
+# Session Info 
+
+```{r}
+sessionInfo()
+```
